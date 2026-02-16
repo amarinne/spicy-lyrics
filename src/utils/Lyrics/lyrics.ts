@@ -346,4 +346,12 @@ export const setRomanizedStatus = (val: boolean) => {
   storage.set("romanization", val.toString());
 };
 
+export type ChineseTranslitMode = "pinyin" | "jyutping";
+export let chineseTranslitMode: ChineseTranslitMode = (storage.get("chineseTranslitMode") as ChineseTranslitMode) || "pinyin";
+
+export const setChineseTranslitMode = (val: ChineseTranslitMode) => {
+  chineseTranslitMode = val;
+  storage.set("chineseTranslitMode", val);
+};
+
 export const SimpleLyricsMode_InterludeAddonTime = 2000;

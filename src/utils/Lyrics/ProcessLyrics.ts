@@ -1,10 +1,12 @@
-import cyrillicToLatin from "npm:cyrillic-romanization";
+import transliterPkg from "npm:transliter";
 import { franc } from "npm:franc-all";
 import Kuroshiro from "npm:kuroshiro";
 import langs from "npm:langs";
+import { getJyutpingList } from "npm:to-jyutping";
 import { RetrievePackage } from "../ImportPackage.ts";
 import * as KuromojiAnalyzer from "./KuromojiAnalyzer.ts";
 import { PageContainer } from "../../components/Pages/PageView.ts";
+import { chineseTranslitMode } from "./lyrics.ts";
 
 // Constants
 const RomajiConverter = new Kuroshiro();
@@ -49,13 +51,35 @@ const RomanizeChinese = async (lyricMetadata: any, primaryLanguage: string) => {
   while (!pinyin) {
     await new Promise((r) => setTimeout(r, 50));
   }
-  if (primaryLanguage === "cmn" || ChineseTextText.test(lyricMetadata.Text)) {
+  if (primaryLanguage === "cmn" || primaryLanguage === "yue" || ChineseTextText.test(lyricMetadata.Text)) {
     const result = pinyin.pinyin(lyricMetadata.Text, {
       segment: false,
-      group: true,
+      group: false,
     });
 
-    lyricMetadata.RomanizedText = result.join("-");
+    // Result format: array of [reading] arrays when group=false
+    // Handle both array-of-arrays and array-of-strings formats
+    const readings: string[] = [];
+    for (const item of result) {
+      const reading = Array.isArray(item) ? item[0] : item;
+      if (typeof reading === "string" && reading.trim().length > 0) {
+        readings.push(reading);
+      }
+    }
+    lyricMetadata.RomanizedText = readings.join(" ");
+  }
+};
+
+const RomanizeCantonese = async (lyricMetadata: any, primaryLanguage: string) => {
+  if (primaryLanguage === "cmn" || primaryLanguage === "yue" || ChineseTextText.test(lyricMetadata.Text)) {
+    const text = lyricMetadata.Text;
+    const list = getJyutpingList(text);
+    if (list) {
+      lyricMetadata.RomanizedText = list
+        .map(([_char, reading]: [string, string | null]) => reading || _char)
+        .filter((s: string) => s.trim().length > 0)
+        .join(" ");
+    }
   }
 };
 
@@ -86,9 +110,19 @@ const RomanizeCyrillic = async (lyricMetadata: any, primaryLanguage: string, iso
     primaryLanguage === "ukr" ||
     CyrillicTextTest.test(lyricMetadata.Text)
   ) {
-    const result = cyrillicToLatin(lyricMetadata.Text);
+    const result = transliterPkg.transliter(lyricMetadata.Text, "bgn-pcgn");
     if (result != null) {
-      lyricMetadata.RomanizedText = result;
+      // Replace remaining diacritics with plain ASCII equivalents
+      lyricMetadata.RomanizedText = result
+        .replace(/[Ёё]/g, (c: string) => c === "Ё" ? "Yo" : "yo")  // pre-transliter missed ё
+        .replace(/Ë/g, "Yo").replace(/ë/g, "yo")
+        .replace(/['']/g, "")                                        // drop hard/soft sign markers
+        .replace(/ǵ/g, "g").replace(/Ǵ/g, "G")
+        .replace(/ḱ/g, "k").replace(/Ḱ/g, "K")
+        .replace(/ẑ/g, "dz").replace(/Ẑ/g, "Dz")
+        .replace(/ì/g, "i").replace(/đ/g, "dj").replace(/Đ/g, "Dj")
+        .replace(/ć/g, "c").replace(/Ć/g, "C")
+        .replace(/ž/g, "zh").replace(/Ž/g, "Zh");
     }
   }
 };
@@ -109,19 +143,25 @@ const RomanizeGreek = async (lyricMetadata: any, primaryLanguage: string) => {
 const Romanize = async (lyricMetadata: any, rootInformation: any): Promise<string | undefined> => {
   const primaryLanguage = rootInformation.Language;
   const iso2Language = rootInformation.LanguageISO2;
-  if (primaryLanguage === "jpn" || JapaneseTextText.test(lyricMetadata.Text)) {
-    await RomanizeJapanese(lyricMetadata, primaryLanguage);
-    rootInformation.IncludesRomanization = true;
-    return "Japanese";
-  } else if (primaryLanguage === "cmn" || ChineseTextText.test(lyricMetadata.Text)) {
-    await RomanizeChinese(lyricMetadata, primaryLanguage);
-    rootInformation.IncludesRomanization = true;
-    return "Chinese";
-  } else if (primaryLanguage === "kor" || KoreanTextTest.test(lyricMetadata.Text)) {
-    await RomanizeKorean(lyricMetadata, primaryLanguage);
-    rootInformation.IncludesRomanization = true;
-    return "Korean";
-  } else if (
+  try {
+    if (primaryLanguage === "jpn" || JapaneseTextText.test(lyricMetadata.Text)) {
+      await RomanizeJapanese(lyricMetadata, primaryLanguage);
+      rootInformation.IncludesRomanization = true;
+      return "Japanese";
+    } else if (primaryLanguage === "cmn" || primaryLanguage === "yue" || ChineseTextText.test(lyricMetadata.Text)) {
+      if (chineseTranslitMode === "jyutping") {
+        await RomanizeCantonese(lyricMetadata, primaryLanguage);
+      } else {
+        await RomanizeChinese(lyricMetadata, primaryLanguage);
+      }
+      rootInformation.IncludesRomanization = true;
+      rootInformation.DetectedChinese = true;
+      return "Chinese";
+    } else if (primaryLanguage === "kor" || KoreanTextTest.test(lyricMetadata.Text)) {
+      await RomanizeKorean(lyricMetadata, primaryLanguage);
+      rootInformation.IncludesRomanization = true;
+      return "Korean";
+    } else if (
     primaryLanguage === "bel" ||
     primaryLanguage === "bul" ||
     primaryLanguage === "kaz" ||
@@ -142,6 +182,10 @@ const Romanize = async (lyricMetadata: any, rootInformation: any): Promise<strin
     rootInformation.IncludesRomanization = true;
     return "Greek";
   } else {
+    return undefined;
+  }
+  } catch (err) {
+    console.error("[SpicyLyrics] Romanization error:", err);
     return undefined;
   }
 };
@@ -297,6 +341,7 @@ export const ProcessLyrics = async (lyrics: any) => {
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
+
     }
 
     for (const lyricMetadata of lyrics.Lines) {
@@ -317,6 +362,7 @@ export const ProcessLyrics = async (lyrics: any) => {
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
+
     }
 
     for (const vocalGroup of lyrics.Content) {
@@ -345,6 +391,7 @@ export const ProcessLyrics = async (lyrics: any) => {
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
+
     }
 
     for (const vocalGroup of lyrics.Content) {
@@ -397,11 +444,18 @@ export const ProcessLyrics = async (lyrics: any) => {
                   vocalGroup.Lead.Syllables,
                 );
               } else {
-                // Non-Japanese: per-syllable romanization works correctly
-                for (const syllable of vocalGroup.Lead.Syllables) {
+                // Non-Japanese: per-syllable romanization
+                const isChinese = primaryLanguage === "cmn" || primaryLanguage === "yue" ||
+                  vocalGroup.Lead.Syllables.some((s: any) => ChineseTextText.test(s.Text));
+                for (let si = 0; si < vocalGroup.Lead.Syllables.length; si++) {
+                  const syllable = vocalGroup.Lead.Syllables[si];
                   const syllMeta = { Text: syllable.Text, RomanizedText: undefined as string | undefined };
                   await Romanize(syllMeta, lyrics);
                   syllable.RomanizedText = syllMeta.RomanizedText || undefined;
+                  // Chinese: each character is its own word, always add space between
+                  if (isChinese && si > 0 && syllable.RomanizedText) {
+                    syllable.RomajiSpaceBefore = true;
+                  }
                 }
               }
             }
@@ -439,10 +493,16 @@ export const ProcessLyrics = async (lyrics: any) => {
                       bg.Syllables,
                     );
                   } else {
-                    for (const syllable of bg.Syllables) {
+                    const isBgChinese = primaryLanguage === "cmn" || primaryLanguage === "yue" ||
+                      bg.Syllables.some((s: any) => ChineseTextText.test(s.Text));
+                    for (let si = 0; si < bg.Syllables.length; si++) {
+                      const syllable = bg.Syllables[si];
                       const syllMeta = { Text: syllable.Text, RomanizedText: undefined as string | undefined };
                       await Romanize(syllMeta, lyrics);
                       syllable.RomanizedText = syllMeta.RomanizedText || undefined;
+                      if (isBgChinese && si > 0 && syllable.RomanizedText) {
+                        syllable.RomajiSpaceBefore = true;
+                      }
                     }
                   }
                 }
@@ -457,9 +517,15 @@ export const ProcessLyrics = async (lyrics: any) => {
   }
 
   await Promise.all(romanizationPromises);
+  console.log("[SpicyLyrics] ProcessLyrics done. IncludesRomanization:", lyrics.IncludesRomanization, "DetectedChinese:", lyrics.DetectedChinese, "Language:", lyrics.Language);
   if (lyrics.IncludesRomanization === true) {
     PageContainer?.classList.add("Lyrics_RomanizationAvailable");
   } else {
     PageContainer?.classList.remove("Lyrics_RomanizationAvailable");
+  }
+  if (lyrics.DetectedChinese === true) {
+    PageContainer?.classList.add("Lyrics_ChineseDetected");
+  } else {
+    PageContainer?.classList.remove("Lyrics_ChineseDetected");
   }
 };
