@@ -12,6 +12,8 @@ import ApplyLyrics, {
 import {
   addLinesEvListener,
   isRomanized,
+  chineseTranslitMode,
+  setChineseTranslitMode,
   removeLinesEvListener,
   setRomanizedStatus,
 } from "../../utils/Lyrics/lyrics.ts";
@@ -438,6 +440,13 @@ function AppendViewControls(ReAppend: boolean = false) {
         }
         ${
           Defaults.LyricsRenderer === "Spicy"
+            ? `<button id="ChineseTranslitToggle" class="ViewControl" style="font-size: 14px; font-weight: 600; line-height: 1;">${
+                chineseTranslitMode === "jyutping" ? "粵" : "拼"
+              }</button>`
+            : ""
+        }
+        ${
+          Defaults.LyricsRenderer === "Spicy"
             ? `<button id="ClearLyricsCache" class="ViewControl">${Icons.ClearCache}</button>`
             : ""
         }
@@ -628,6 +637,46 @@ function AppendViewControls(ReAppend: boolean = false) {
         });
       } catch (err) {
         console.warn("Failed to setup Clear Cache tooltip:", err);
+      }
+    }
+
+    const chineseTranslitToggle = elem.querySelector("#ChineseTranslitToggle");
+    if (chineseTranslitToggle) {
+      try {
+        if (!isPip) {
+          Tooltips.Close = Spicetify.Tippy(chineseTranslitToggle, {
+            ...Spicetify.TippyProps,
+            content: chineseTranslitMode === "jyutping"
+              ? `Switch to Mandarin (Pinyin)`
+              : `Switch to Cantonese (Jyutping)`,
+          });
+        }
+        chineseTranslitToggle.addEventListener("click", async () => {
+          const newMode = chineseTranslitMode === "jyutping" ? "pinyin" : "jyutping";
+          setChineseTranslitMode(newMode);
+
+          // Re-process lyrics with new transliteration mode
+          const songUri = SpotifyPlayer.GetUri();
+          if (!songUri) return;
+          PageContainer?.querySelector(
+            ".LyricsContainer .LyricsContent"
+          )?.classList.add("HiddenTransitioned");
+
+          // Clear cache so lyrics get re-romanized with new mode
+          await RemoveCurrentLyrics_AllCaches(false);
+          const lyrics = await fetchLyrics(songUri);
+
+          ApplyLyrics(lyrics);
+
+          setTimeout(() => {
+            AppendViewControls();
+            PageContainer?.querySelector(
+              ".LyricsContainer .LyricsContent"
+            )?.classList.remove("HiddenTransitioned");
+          }, 45);
+        });
+      } catch (err) {
+        console.warn("Failed to setup Chinese translit toggle:", err);
       }
     }
 

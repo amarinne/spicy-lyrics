@@ -41,7 +41,9 @@
     "npm:simplebar@*": "6.3.2",
     "npm:socket.io-client@*": "4.8.3",
     "npm:socket.io-client@^4.8.3": "4.8.3",
-    "npm:terser@5.43.1": "5.43.1"
+    "npm:terser@5.43.1": "5.43.1",
+    "npm:to-jyutping@*": "3.1.1",
+    "npm:transliter@*": "3.0.0"
   },
   "jsr": {
     "@3d/three@0.166.0": {
@@ -1668,11 +1670,17 @@
     "tiny-warning@1.0.3": {
       "integrity": "sha512-lBN9zLN/oAf68o3zNXYrdCt1kP8WsiGW8Oo2ka41b2IM5JL/S1CTyX1rW0mb/zSuJun0ZUrDxx4sqvYS2FWzPA=="
     },
+    "to-jyutping@3.1.1": {
+      "integrity": "sha512-8dqSOTbYC5pBs1DQtC9olmFLhf/pzKqxMfQLRUYu1BXXtWgqyS8dSFy9mHuF0cHjgjtX86pCBvGIvKzzlVM6lw=="
+    },
     "to-regex-range@5.0.1": {
       "integrity": "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==",
       "dependencies": [
         "is-number"
       ]
+    },
+    "transliter@3.0.0": {
+      "integrity": "sha512-CabV8mfF0ArDrtJss2go8S0HDjH6BxIuoQetHIgkqAu3Zbj6vpni0698KZfgCBxwL+Jur74nEmZEFz1GTnzSSg=="
     },
     "trigram-utils@2.0.1": {
       "integrity": "sha512-nfWIXHEaB+HdyslAfMxSqWKDdmqY9I32jS7GnqpdWQnLH89r6A5sdk3fDVYqGAZ0CrT8ovAFSAo6HRiWcWNIGQ==",
@@ -1706,6 +1714,9 @@
     "xmlhttprequest-ssl@2.1.2": {
       "integrity": "sha512-TEU+nJVUUnA4CYJFLvK5X9AOeH4KvDvhIfm0vV1GaQRtchnG0hgK5p8hw/xjv8cunWYCsiPCSDzObPyhEwq3KQ=="
     }
+  },
+  "remote": {
+    "https://pkgs.spikerko.org/pinyin/pinyin@4.0.0.mjs": "0f8ba5033fc9c40e6080427f244406222fd91739c67c29607d27c05ee0a7eb68"
   },
   "workspace": {
     "dependencies": [

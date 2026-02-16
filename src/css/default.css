@@ -461,6 +461,12 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage {
   display: none !important;
 }
 
+#SpicyLyricsPage:not(.Lyrics_ChineseDetected) .ViewControls #ChineseTranslitToggle,
+#SpicyLyricsPage:not(.Lyrics_RomanizationAvailable) .ViewControls #ChineseTranslitToggle,
+#SpicyLyricsPage:not(.SpicyRenderer) .ViewControls #ChineseTranslitToggle {
+  display: none !important;
+}
+
 #SpicyLyricsPage.CompactifyEnabledCompactMode .ViewControls .ViewControl#CompactModeToggle {
   display: none !important;
 }

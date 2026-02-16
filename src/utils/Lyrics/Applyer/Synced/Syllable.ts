@@ -327,7 +327,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         // Per-syllable romaji: create individual animated spans
         const romanizedDiv = document.createElement("div");
         romanizedDiv.className = "romanized-below";
-        romanizedDiv.style.cssText = "display: flex; flex-wrap: wrap; font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; text-shadow: none;";
+        romanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; text-shadow: none;";
 
         const leadEntries = LyricsObject.Types.Syllable.Lines[CurrentLineLyricsObject]?.Syllables?.Lead;
         line.Lead.Syllables.forEach((syl: SyllableData, si: number) => {
@@ -354,7 +354,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         const romanizedDiv = document.createElement("div");
         romanizedDiv.className = "romanized-below";
         romanizedDiv.textContent = line.Lead.RomanizedText!;
-        romanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
+        romanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
         lineElem.appendChild(romanizedDiv);
       }
     }
@@ -488,7 +488,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
           if (hasPerSyllableBGRomaji) {
             const bgRomanizedDiv = document.createElement("div");
             bgRomanizedDiv.className = "romanized-below";
-            bgRomanizedDiv.style.cssText = "display: flex; flex-wrap: wrap; font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; text-shadow: none;";
+            bgRomanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; text-shadow: none;";
 
             const bgLeadEntries = LyricsObject.Types.Syllable.Lines[CurrentLineLyricsObject]?.Syllables?.Lead;
             bg.Syllables.forEach((syl: SyllableData, si: number) => {
@@ -516,7 +516,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
             const bgRomanizedDiv = document.createElement("div");
             bgRomanizedDiv.className = "romanized-below";
             bgRomanizedDiv.textContent = bg.RomanizedText!;
-            bgRomanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
+            bgRomanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
             lineE.appendChild(bgRomanizedDiv);
           }
         }

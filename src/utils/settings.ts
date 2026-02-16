@@ -2,6 +2,7 @@ import { Component, Spicetify } from "@spicetify/bundler";
 import Defaults from "../components/Global/Defaults.ts";
 import storage from "./storage.ts";
 import { RemoveCurrentLyrics_AllCaches, RemoveCurrentLyrics_StateCache, RemoveLyricsCache } from "./LyricsCacheTools.ts";
+import { setChineseTranslitMode, type ChineseTranslitMode } from "./Lyrics/lyrics.ts";
 
 export async function setSettingsMenu() {
   while (!Spicetify.React || !Spicetify.ReactDOM) {
@@ -156,6 +157,18 @@ function generalSettings(SettingsSection: any) {
     Defaults.CompactMode_LockedMediaBox,
     () => {
       storage.set("lockedMediaBox", settings.getFieldValue("lock_mediabox") as string);
+    }
+  );
+
+  settings.addDropDown(
+    "chinese-translit-mode",
+    "Chinese Transliteration Mode (for Dual Subtitles)",
+    ["Mandarin (Pinyin)", "Cantonese (Jyutping)"],
+    Defaults.ChineseTranslitMode_Default,
+    () => {
+      const value = settings.getFieldValue("chinese-translit-mode") as string;
+      const mode: ChineseTranslitMode = value === "Cantonese (Jyutping)" ? "jyutping" : "pinyin";
+      setChineseTranslitMode(mode);
     }
   );
 
