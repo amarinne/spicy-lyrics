@@ -42,12 +42,14 @@ interface LeadData {
   StartTime: number;
   EndTime: number;
   Syllables: SyllableData[];
+  RomanizedText?: string;
 }
 
 interface BackgroundData {
   StartTime: number;
   EndTime: number;
   Syllables: SyllableData[];
+  RomanizedText?: string;
 }
 
 interface LineData {
@@ -212,6 +214,21 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
 
     LyricsContainer.appendChild(lineElem);
 
+    // When romanization is present, wrap words in a sub-container
+    // so the romanized div becomes a block sibling (not a flex sibling)
+    const hasLeadRomanization = UseRomanized && line.Lead.RomanizedText;
+    const wordParent = hasLeadRomanization ? document.createElement("div") : lineElem;
+    if (hasLeadRomanization) {
+      wordParent.style.cssText = "display: flex; flex-wrap: wrap;";
+      if (line.OppositeAligned) {
+        wordParent.style.justifyContent = "flex-end";
+      }
+      // Prevent .line's own gradient from affecting romanized text below
+      // Individual .word children handle their own gradients via CSS
+      lineElem.style.backgroundImage = "none";
+      lineElem.style.webkitTextFillColor = "inherit";
+    }
+
     let currentWordGroup: HTMLSpanElement | null = null;
 
     line.Lead.Syllables.forEach((lead, iL, aL) => {
@@ -223,18 +240,14 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
 
       const totalDuration = ConvertTime(lead.EndTime) - ConvertTime(lead.StartTime);
 
-      const letterLength = (
-        UseRomanized && lead.RomanizedText !== undefined ? lead.RomanizedText : lead.Text
-      ).split("").length;
+      const letterLength = lead.Text.split("").length;
 
       const IfLetterCapable = IsLetterCapable(letterLength, totalDuration);
 
       if (IfLetterCapable) {
         word = document.createElement("div");
-        const letters = (
-          UseRomanized && lead.RomanizedText !== undefined ? lead.RomanizedText : lead.Text
-        ).split(""); // Split word into individual letters
-
+        
+        const letters = lead.Text.split("");
         Emphasize(letters, word, lead);
 
         iL === aL.length - 1
@@ -250,8 +263,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
           word.style.transform = `translateY(calc(var(--DefaultLyricsSize) * 0.02))`;
         }
       } else {
-        word.textContent =
-          UseRomanized && lead.RomanizedText !== undefined ? lead.RomanizedText : lead.Text;
+        word.textContent = lead.Text;
 
         if (!Defaults.SimpleLyricsMode) {
           word.style.setProperty("--gradient-position", `-20%`);
@@ -287,7 +299,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         if (!currentWordGroup) {
           const group = document.createElement("span");
           group.classList.add("word-group");
-          lineElem.appendChild(group);
+          wordParent.appendChild(group);
           currentWordGroup = group;
         }
 
@@ -298,9 +310,54 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         }
       } else {
         currentWordGroup = null;
-        lineElem.appendChild(word);
+        wordParent.appendChild(word);
       }
     });
+
+    // Add romanization below all word spans
+    if (hasLeadRomanization) {
+      // Override .line to block so wrapper + romanized stack vertically
+      lineElem.style.display = "block";
+      lineElem.appendChild(wordParent);
+
+      // Check if we have per-syllable romaji for karaoke sync
+      const hasPerSyllableRomaji = line.Lead.Syllables.some((s: SyllableData) => s.RomanizedText);
+
+      if (hasPerSyllableRomaji) {
+        // Per-syllable romaji: create individual animated spans
+        const romanizedDiv = document.createElement("div");
+        romanizedDiv.className = "romanized-below";
+        romanizedDiv.style.cssText = "display: flex; flex-wrap: wrap; font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; text-shadow: none;";
+
+        const leadEntries = LyricsObject.Types.Syllable.Lines[CurrentLineLyricsObject]?.Syllables?.Lead;
+        line.Lead.Syllables.forEach((syl: SyllableData, si: number) => {
+          if (!syl.RomanizedText) return;
+          const romajiSpan = document.createElement("span");
+          romajiSpan.textContent = syl.RomanizedText;
+          romajiSpan.style.cssText = "-webkit-text-fill-color: transparent; background-clip: text; background-image: linear-gradient(var(--gradient-degrees, 90deg), rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -20%), rgba(255, 255, 255, var(--gradient-alpha-end, 0.5)) calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))); --gradient-position: -20%; --gradient-degrees: 90deg; --gradient-alpha-end: 0.35; text-shadow: none;";
+          // Add spacing between words: use RomajiSpaceBefore (kuromoji token boundaries)
+          // for Japanese, fall back to IsPartOfWord for other languages
+          if ((syl.RomajiSpaceBefore || (!syl.IsPartOfWord && si > 0))) {
+            romajiSpan.style.marginLeft = "0.25em";
+          }
+          romanizedDiv.appendChild(romajiSpan);
+
+          // Link romaji span to the corresponding word entry in Syllables.Lead
+          if (leadEntries && leadEntries[si]) {
+            leadEntries[si].RomajiElement = romajiSpan;
+          }
+        });
+
+        lineElem.appendChild(romanizedDiv);
+      } else {
+        // Fallback: single full-line romaji div (no animation)
+        const romanizedDiv = document.createElement("div");
+        romanizedDiv.className = "romanized-below";
+        romanizedDiv.textContent = line.Lead.RomanizedText!;
+        romanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
+        lineElem.appendChild(romanizedDiv);
+      }
+    }
 
     if (line.Background) {
       line.Background.forEach((bg) => {
@@ -321,6 +378,18 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         }
         LyricsContainer.appendChild(lineE);
 
+        // Wrapper for BG words when romanization is present
+        const hasBGRomanization = UseRomanized && bg.RomanizedText;
+        const bgWordParent = hasBGRomanization ? document.createElement("div") : lineE;
+        if (hasBGRomanization) {
+          bgWordParent.style.cssText = "display: flex; flex-wrap: wrap;";
+          if (line.OppositeAligned) {
+            bgWordParent.style.justifyContent = "flex-end";
+          }
+          lineE.style.backgroundImage = "none";
+          lineE.style.webkitTextFillColor = "inherit";
+        }
+
         let currentBGWordGroup: HTMLSpanElement | null = null;
 
         bg.Syllables.forEach((bw, bI, bA) => {
@@ -332,17 +401,13 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
 
           const totalDuration = ConvertTime(bw.EndTime) - ConvertTime(bw.StartTime);
 
-          const letterLength = (
-            UseRomanized && bw.RomanizedText !== undefined ? bw.RomanizedText : bw.Text
-          ).split("").length;
+          const letterLength = bw.Text.split("").length;
 
           const IfLetterCapable = IsLetterCapable(letterLength, totalDuration);
 
           if (IfLetterCapable) {
             bwE = document.createElement("div");
-            const letters = (
-              UseRomanized && bw.RomanizedText !== undefined ? bw.RomanizedText : bw.Text
-            ).split(""); // Split word into individual letters
+            const letters = bw.Text.split("");
 
             Emphasize(letters, bwE, bw, true);
 
@@ -359,8 +424,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
               bwE.style.transform = `translateY(calc(var(--font-size) * 0.02))`;
             }
           } else {
-            bwE.textContent =
-              UseRomanized && bw.RomanizedText !== undefined ? bw.RomanizedText : bw.Text;
+            bwE.textContent = bw.Text;
 
             if (!Defaults.SimpleLyricsMode) {
               bwE.style.setProperty("--gradient-position", `0%`);
@@ -399,7 +463,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
             if (!currentBGWordGroup) {
               const group = document.createElement("span");
               group.classList.add("word-group");
-              lineE.appendChild(group);
+              bgWordParent.appendChild(group);
               currentBGWordGroup = group;
             }
 
@@ -410,9 +474,52 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
             }
           } else {
             currentBGWordGroup = null;
-            lineE.appendChild(bwE);
+            bgWordParent.appendChild(bwE);
           }
         });
+
+        // Add romanization below background words
+        if (hasBGRomanization) {
+          lineE.style.display = "block";
+          lineE.appendChild(bgWordParent);
+
+          const hasPerSyllableBGRomaji = bg.Syllables.some((s: SyllableData) => s.RomanizedText);
+
+          if (hasPerSyllableBGRomaji) {
+            const bgRomanizedDiv = document.createElement("div");
+            bgRomanizedDiv.className = "romanized-below";
+            bgRomanizedDiv.style.cssText = "display: flex; flex-wrap: wrap; font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; text-shadow: none;";
+
+            const bgLeadEntries = LyricsObject.Types.Syllable.Lines[CurrentLineLyricsObject]?.Syllables?.Lead;
+            bg.Syllables.forEach((syl: SyllableData, si: number) => {
+              if (!syl.RomanizedText) return;
+              const romajiSpan = document.createElement("span");
+              romajiSpan.textContent = syl.RomanizedText;
+              romajiSpan.style.cssText = "-webkit-text-fill-color: transparent; background-clip: text; background-image: linear-gradient(var(--gradient-degrees, 90deg), rgba(255, 255, 255, var(--gradient-alpha, 0.6)) var(--gradient-position, -20%), rgba(255, 255, 255, var(--gradient-alpha-end, 0.3)) calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))); --gradient-position: -20%; --gradient-degrees: 90deg; --gradient-alpha-end: 0.2; text-shadow: none;";
+              if ((syl.RomajiSpaceBefore || (!syl.IsPartOfWord && si > 0))) {
+                romajiSpan.style.marginLeft = "0.25em";
+              }
+              bgRomanizedDiv.appendChild(romajiSpan);
+
+              // Find the matching BG word entry (BGWord entries start after Lead entries)
+              if (bgLeadEntries) {
+                // BG word entries have BGWord: true, match by position among BG entries
+                const bgEntries = bgLeadEntries.filter(e => e.BGWord);
+                if (bgEntries[si]) {
+                  bgEntries[si].RomajiElement = romajiSpan;
+                }
+              }
+            });
+
+            lineE.appendChild(bgRomanizedDiv);
+          } else {
+            const bgRomanizedDiv = document.createElement("div");
+            bgRomanizedDiv.className = "romanized-below";
+            bgRomanizedDiv.textContent = bg.RomanizedText!;
+            bgRomanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
+            lineE.appendChild(bgRomanizedDiv);
+          }
+        }
       });
     }
     if (arr[index + 1] && arr[index + 1].Lead.StartTime - line.Lead.EndTime >= lyricsBetweenShow) {
