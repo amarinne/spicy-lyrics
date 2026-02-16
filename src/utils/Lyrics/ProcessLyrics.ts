@@ -142,12 +142,148 @@ const Romanize = async (lyricMetadata: any, rootInformation: any): Promise<strin
     rootInformation.IncludesRomanization = true;
     return "Greek";
   } else {
-    rootInformation.IncludesRomanization = false;
     return undefined;
   }
 };
 
+// Jukujikun / compound readings that kuromoji's ipadic may split incorrectly
+const JUKUJIKUN: Record<string, string> = {
+  "一人": "hitori", "二人": "futari", "大人": "otona",
+  "下手": "heta", "上手": "jouzu", "素人": "shirouto", "玄人": "kurouto",
+  "今朝": "kesa", "明後日": "asatte",
+  "果物": "kudamono", "眼鏡": "megane", "部屋": "heya",
+  "紅葉": "momiji", "景色": "keshiki", "時計": "tokei",
+  "一日": "tsuitachi", "二日": "futsuka", "三日": "mikka",
+  "友達": "tomodachi", "土産": "miyage",
+};
+
+// Maps romaji to individual syllables using Kuroshiro's full-line output,
+// kuromoji tokens for position mapping, compound reading corrections,
+// and Japanese phonetic merging rules (っ doubling, long vowels).
+const mapRomajiToJapaneseSyllables = async (
+  lineText: string,
+  fullSpacedRomaji: string,
+  syllables: any[],
+): Promise<void> => {
+  await RomajiPromise;
+
+  const tokens = await KuromojiAnalyzer.parse(lineText);
+  const KUtil = (Kuroshiro as any).Util;
+  const spacedParts = fullSpacedRomaji.split(/\s+/).filter((s: string) => s.length > 0);
+  const useKuroshiro = spacedParts.length === tokens.length;
+
+  // Build per-token entries with character positions
+  interface Entry { start: number; end: number; romaji: string; consumed: boolean; }
+  const entries: Entry[] = [];
+  let charPos = 0;
+  for (let ti = 0; ti < tokens.length; ti++) {
+    const sf: string = tokens[ti].surface_form;
+    let romaji: string;
+    if (useKuroshiro) {
+      romaji = spacedParts[ti];
+    } else {
+      const pron: string = tokens[ti].pronunciation || tokens[ti].reading || "";
+      romaji = (pron && pron !== "*" && KUtil.hasKana(pron)) ? KUtil.kanaToRomaji(pron) : sf;
+    }
+    entries.push({ start: charPos, end: charPos + sf.length, romaji, consumed: false });
+    charPos += sf.length;
+  }
+
+  // Pass 1: Compound readings (jukujikun) — check consecutive token surfaces
+  for (let i = 0; i < tokens.length; i++) {
+    if (entries[i].consumed) continue;
+    for (let len = Math.min(3, tokens.length - i); len >= 2; len--) {
+      const combined = tokens.slice(i, i + len).map((t: any) => t.surface_form).join("");
+      if (JUKUJIKUN[combined]) {
+        entries[i].romaji = JUKUJIKUN[combined];
+        entries[i].end = entries[i + len - 1].end;
+        for (let j = 1; j < len; j++) entries[i + j].consumed = true;
+        break;
+      }
+    }
+  }
+
+  // Pass 2: Determine which token boundaries should have NO space
+  const noSpaceBefore: boolean[] = new Array(tokens.length).fill(false);
+  for (let i = 1; i < tokens.length; i++) {
+    if (entries[i].consumed) { noSpaceBefore[i] = true; continue; }
+
+    // Find previous non-consumed token
+    let pi = i - 1;
+    while (pi >= 0 && entries[pi].consumed) pi--;
+    if (pi < 0) continue;
+
+    const prevPron = tokens[pi].pronunciation || tokens[pi].reading || "";
+    const currSf = tokens[i].surface_form;
+    const currPron = tokens[i].pronunciation || tokens[i].reading || "";
+
+    // っ/ッ at end of previous token → merge (doubles next consonant)
+    if (prevPron.endsWith("ッ") || prevPron.endsWith("っ") ||
+        tokens[pi].surface_form.endsWith("っ") || tokens[pi].surface_form.endsWith("ッ")) {
+      noSpaceBefore[i] = true;
+    }
+
+    // う extending previous o-row sound (long vowel: しょう→shou, おう→ou)
+    if ((currSf === "う" || currPron === "ウ") && prevPron) {
+      const last = prevPron[prevPron.length - 1];
+      if ("オコソトノホモヨロヲゴゾドボポョウクスツヌフムユルグズヅブプュ".includes(last)) {
+        noSpaceBefore[i] = true;
+      }
+    }
+
+    // い extending previous e-row sound (long vowel: きれい→kirei)
+    if ((currSf === "い" || currPron === "イ") && prevPron) {
+      const last = prevPron[prevPron.length - 1];
+      if ("エケセテネヘメレゲゼデベペェ".includes(last)) {
+        noSpaceBefore[i] = true;
+      }
+    }
+
+    // Punctuation — no space before
+    if (/^[。、？！…・「」『』（）()\.\?\!,\s]+$/.test(currSf)) {
+      noSpaceBefore[i] = true;
+    }
+  }
+
+  // Map entries to syllables by character position
+  let syllPos = 0;
+  let prevLastIdx = -1;
+
+  for (let si = 0; si < syllables.length; si++) {
+    const syllable = syllables[si];
+    const syllStart = syllPos;
+    const syllEnd = syllPos + syllable.Text.length;
+    syllPos = syllEnd;
+
+    const parts: string[] = [];
+    let firstIdx = -1;
+    let lastIdx = -1;
+
+    for (let ei = 0; ei < entries.length; ei++) {
+      if (entries[ei].consumed) continue;
+      if (entries[ei].start >= syllStart && entries[ei].start < syllEnd) {
+        // Insert space between tokens within the same syllable, unless merged
+        if (parts.length > 0 && !noSpaceBefore[ei]) {
+          parts.push(" ");
+        }
+        parts.push(entries[ei].romaji);
+        if (firstIdx === -1) firstIdx = ei;
+        lastIdx = ei;
+      }
+    }
+
+    // Add RomajiSpaceBefore if this syllable starts a new (non-merged) token
+    if (si > 0 && firstIdx !== -1 && firstIdx !== prevLastIdx && !noSpaceBefore[firstIdx]) {
+      syllable.RomajiSpaceBefore = true;
+    }
+
+    if (lastIdx !== -1) prevLastIdx = lastIdx;
+    syllable.RomanizedText = parts.length > 0 ? parts.join("") : undefined;
+  }
+};
+
 export const ProcessLyrics = async (lyrics: any) => {
+  lyrics.IncludesRomanization = false;
   const romanizationPromises: Promise<string | undefined>[] = [];
   if (lyrics.Type === "Static") {
     {
@@ -213,13 +349,107 @@ export const ProcessLyrics = async (lyrics: any) => {
 
     for (const vocalGroup of lyrics.Content) {
       if (vocalGroup.Type === "Vocal") {
+        // Clear any previous Lead-level romanization to force re-processing
+        delete vocalGroup.Lead.RomanizedText;
         for (const syllable of vocalGroup.Lead.Syllables) {
-          romanizationPromises.push(Romanize(syllable, lyrics));
+          delete syllable.RomanizedText;
+        }
+        if (vocalGroup.Background) {
+          for (const bg of vocalGroup.Background) {
+            delete bg.RomanizedText;
+            for (const syllable of bg.Syllables) {
+              delete syllable.RomanizedText;
+            }
+          }
         }
 
+        const primaryLanguage = lyrics.Language;
+        const isJapanese = primaryLanguage === "jpn" || 
+          vocalGroup.Lead.Syllables.some((s: any) => JapaneseTextText.test(s.Text));
+
+        // Build full line text from syllables
+        let lineText = "";
+        if (isJapanese) {
+          for (const syllable of vocalGroup.Lead.Syllables) {
+            lineText += syllable.Text;
+          }
+        } else {
+          lineText = vocalGroup.Lead.Syllables[0].Text;
+          for (let i = 1; i < vocalGroup.Lead.Syllables.length; i++) {
+            const syllable = vocalGroup.Lead.Syllables[i];
+            lineText += (syllable.IsPartOfWord ? "" : " ") + syllable.Text;
+          }
+        }
+
+        // Romanize the full line (context-aware, best quality)
+        const lineMetadata = { Text: lineText, RomanizedText: undefined as string | undefined };
+        romanizationPromises.push(
+          Romanize(lineMetadata, lyrics).then(async () => {
+            vocalGroup.Lead.RomanizedText = lineMetadata.RomanizedText;
+
+            // Map full-line romaji back to individual syllables
+            if (lineMetadata.RomanizedText) {
+              if (isJapanese) {
+                // Japanese: use kuromoji token mapping for accurate per-syllable romaji
+                await mapRomajiToJapaneseSyllables(
+                  lineText,
+                  lineMetadata.RomanizedText,
+                  vocalGroup.Lead.Syllables,
+                );
+              } else {
+                // Non-Japanese: per-syllable romanization works correctly
+                for (const syllable of vocalGroup.Lead.Syllables) {
+                  const syllMeta = { Text: syllable.Text, RomanizedText: undefined as string | undefined };
+                  await Romanize(syllMeta, lyrics);
+                  syllable.RomanizedText = syllMeta.RomanizedText || undefined;
+                }
+              }
+            }
+
+            return undefined;
+          })
+        );
+
+        // Handle Background vocals
         if (vocalGroup.Background !== undefined) {
-          for (const syllable of vocalGroup.Background[0].Syllables) {
-            romanizationPromises.push(Romanize(syllable, lyrics));
+          for (const bg of vocalGroup.Background) {
+            let bgText = "";
+            if (isJapanese) {
+              for (const syllable of bg.Syllables) {
+                bgText += syllable.Text;
+              }
+            } else {
+              bgText = bg.Syllables[0]?.Text || "";
+              for (let i = 1; i < bg.Syllables.length; i++) {
+                const syllable = bg.Syllables[i];
+                bgText += (syllable.IsPartOfWord ? "" : " ") + syllable.Text;
+              }
+            }
+            const bgMetadata = { Text: bgText, RomanizedText: undefined as string | undefined };
+            romanizationPromises.push(
+              Romanize(bgMetadata, lyrics).then(async () => {
+                bg.RomanizedText = bgMetadata.RomanizedText;
+
+                // Map full-line romaji back to individual BG syllables
+                if (bgMetadata.RomanizedText) {
+                  if (isJapanese) {
+                    await mapRomajiToJapaneseSyllables(
+                      bgText,
+                      bgMetadata.RomanizedText,
+                      bg.Syllables,
+                    );
+                  } else {
+                    for (const syllable of bg.Syllables) {
+                      const syllMeta = { Text: syllable.Text, RomanizedText: undefined as string | undefined };
+                      await Romanize(syllMeta, lyrics);
+                      syllable.RomanizedText = syllMeta.RomanizedText || undefined;
+                    }
+                  }
+                }
+
+                return undefined;
+              })
+            );
           }
         }
       }

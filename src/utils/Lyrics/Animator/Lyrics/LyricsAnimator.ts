@@ -861,6 +861,10 @@ export function Animate(position: number): void {
                 1
               );
             }
+            // Sync romaji span gradient with the word's gradient position
+            if (word.RomajiElement) {
+              word.RomajiElement.style.setProperty("--gradient-position", `${targetGradientPos}%`);
+            }
           } else if (isDot && !isLetterGroup) {
             // DotGroup
             // (still undone)
@@ -1399,6 +1403,10 @@ export function Animate(position: number): void {
                   `${Math.min(currentGlow * 35, 100)}%`,
                   1
                 );
+              }
+              // Sync romaji span to Sung (100%) in line cleanup
+              if (word.RomajiElement) {
+                word.RomajiElement.style.setProperty("--gradient-position", "100%");
               }
             } else if (word.AnimatorStore && word.Dot && !word.LetterGroup) {
               // Handle dot sung state

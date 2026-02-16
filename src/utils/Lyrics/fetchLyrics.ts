@@ -86,6 +86,10 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         const lyricsData = JSON.parse(savedLyricsData);
         // Return the stored lyrics if the ID matches the track ID
         if (lyricsData?.id === trackId) {
+          // Re-process romanization for cached lyrics
+          const { ProcessLyrics } = await import("./ProcessLyrics.ts");
+          await ProcessLyrics(lyricsData);
+
           if (lyricsData?.IncludesRomanization) {
             PageContainer?.classList.add("Lyrics_RomanizationAvailable");
           } else {
@@ -118,6 +122,10 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
           return ["lyrics-not-found", 404];
         }
         const lyricsFromCache = lyricsFromCacheRes ?? {};
+
+        // Re-process romanization for cached lyrics too
+        const { ProcessLyrics } = await import("./ProcessLyrics.ts");
+        await ProcessLyrics(lyricsFromCache);
 
         if (lyricsFromCache?.IncludesRomanization) {
           PageContainer?.classList.add("Lyrics_RomanizationAvailable");

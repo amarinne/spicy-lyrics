@@ -1,5 +1,6 @@
 import fetchLyrics from "../../utils/Lyrics/fetchLyrics.ts";
 import storage from "../../utils/storage.ts";
+import { RemoveCurrentLyrics_AllCaches } from "../../utils/LyricsCacheTools.ts";
 import "../../css/Loaders/DotLoader.css";
 import { Spicetify } from "@spicetify/bundler";
 import Whentil from "@spikerko/tools/Whentil";
@@ -436,6 +437,11 @@ function AppendViewControls(ReAppend: boolean = false) {
             : ""
         }
         ${
+          Defaults.LyricsRenderer === "Spicy"
+            ? `<button id="ClearLyricsCache" class="ViewControl">${Icons.ClearCache}</button>`
+            : ""
+        }
+        ${
           !Fullscreen.IsOpen &&
           !Fullscreen.CinemaViewOpen &&
           !isSpicySidebarMode
@@ -581,7 +587,7 @@ function AppendViewControls(ReAppend: boolean = false) {
         if (!isPip) {
           Tooltips.Close = Spicetify.Tippy(romanizationToggle, {
             ...Spicetify.TippyProps,
-            content: isRomanized ? `Disable Romanization` : `Enable Romanization`,
+            content: isRomanized ? `Disable Dual Subtitles` : `Enable Dual Subtitles`,
           });
         }
         romanizationToggle.addEventListener("click", async () => {
@@ -605,6 +611,23 @@ function AppendViewControls(ReAppend: boolean = false) {
         });
       } catch (err) {
         console.warn("Failed to setup Close tooltip:", err);
+      }
+    }
+
+    const clearCacheButton = elem.querySelector("#ClearLyricsCache");
+    if (clearCacheButton) {
+      try {
+        if (!isPip) {
+          Tooltips.Close = Spicetify.Tippy(clearCacheButton, {
+            ...Spicetify.TippyProps,
+            content: `Clear Lyrics Cache`,
+          });
+        }
+        clearCacheButton.addEventListener("click", async () => {
+          await RemoveCurrentLyrics_AllCaches(true);
+        });
+      } catch (err) {
+        console.warn("Failed to setup Clear Cache tooltip:", err);
       }
     }
 
