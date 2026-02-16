@@ -162,8 +162,28 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
 
   data.Content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
-    lineElem.textContent =
-      UseRomanized && line.RomanizedText !== undefined ? line.RomanizedText : line.Text;
+    
+    // Show original text first
+    const textElem = document.createElement("div");
+    textElem.textContent = line.Text;
+    lineElem.appendChild(textElem);
+    
+    // Show romanization below the line if romanization is enabled and available
+    if (UseRomanized && line.RomanizedText !== undefined) {
+      // Override .line flex to block so text + romanized stack vertically
+      lineElem.style.display = "block";
+      // Prevent .line's own gradient from affecting romanized text
+      lineElem.style.backgroundImage = "none";
+      lineElem.style.webkitTextFillColor = "inherit";
+
+      const romanizedElem = document.createElement("div");
+      romanizedElem.className = "romanized-below";
+      romanizedElem.textContent = line.RomanizedText;
+      romanizedElem.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: start; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
+      lineElem.appendChild(romanizedElem);
+      lineElem.classList.add("has-romanization");
+    }
+    
     lineElem.classList.add("line");
 
     if (isRtl(line.Text) && !lineElem.classList.contains("rtl")) {
