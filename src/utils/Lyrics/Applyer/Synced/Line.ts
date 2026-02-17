@@ -175,6 +175,10 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
       // Prevent .line's own gradient from affecting romanized text
       lineElem.style.backgroundImage = "none";
       lineElem.style.webkitTextFillColor = "inherit";
+      // In block layout, justify-content has no effect, so use text-align instead
+      if (line.OppositeAligned) {
+        lineElem.style.textAlign = "end";
+      }
 
       const romanizedElem = document.createElement("div");
       romanizedElem.className = "romanized-below";
