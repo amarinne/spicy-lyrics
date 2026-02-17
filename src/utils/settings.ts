@@ -2,7 +2,7 @@ import { Component, Spicetify } from "@spicetify/bundler";
 import Defaults from "../components/Global/Defaults.ts";
 import storage from "./storage.ts";
 import { RemoveCurrentLyrics_AllCaches, RemoveCurrentLyrics_StateCache, RemoveLyricsCache } from "./LyricsCacheTools.ts";
-import { setChineseTranslitMode, type ChineseTranslitMode } from "./Lyrics/lyrics.ts";
+import { setChineseTranslitMode, setTranslationEnabled, setTranslationTargetLang, type ChineseTranslitMode } from "./Lyrics/lyrics.ts";
 
 export async function setSettingsMenu() {
   while (!Spicetify.React || !Spicetify.ReactDOM) {
@@ -169,6 +169,34 @@ function generalSettings(SettingsSection: any) {
       const value = settings.getFieldValue("chinese-translit-mode") as string;
       const mode: ChineseTranslitMode = value === "Cantonese (Jyutping)" ? "jyutping" : "pinyin";
       setChineseTranslitMode(mode);
+    }
+  );
+
+  settings.addToggle(
+    "translation-enabled",
+    "Enable Lyrics Translation (shows translated line below)",
+    storage.get("translationEnabled") === "true",
+    () => {
+      const val = settings.getFieldValue("translation-enabled") as string;
+      setTranslationEnabled(val === "true");
+    }
+  );
+
+  settings.addDropDown(
+    "translation-target-lang",
+    "Translation Target Language",
+    ["English", "Spanish", "French", "German", "Portuguese", "Italian", "Russian", "Japanese", "Korean", "Chinese (Simplified)", "Arabic", "Hindi", "Indonesian", "Turkish", "Dutch", "Polish", "Thai", "Vietnamese"],
+    Defaults.TranslationTargetLang_Default,
+    () => {
+      const value = settings.getFieldValue("translation-target-lang") as string;
+      const langMap: Record<string, string> = {
+        "English": "en", "Spanish": "es", "French": "fr", "German": "de",
+        "Portuguese": "pt", "Italian": "it", "Russian": "ru", "Japanese": "ja",
+        "Korean": "ko", "Chinese (Simplified)": "zh-CN", "Arabic": "ar",
+        "Hindi": "hi", "Indonesian": "id", "Turkish": "tr", "Dutch": "nl",
+        "Polish": "pl", "Thai": "th", "Vietnamese": "vi",
+      };
+      setTranslationTargetLang(langMap[value] || "en");
     }
   );
 

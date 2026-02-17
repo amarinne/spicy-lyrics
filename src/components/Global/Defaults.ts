@@ -29,6 +29,7 @@ const Defaults = {
   CanvasBackground: false,
   PopupLyricsAllowed: true,
   ChineseTranslitMode_Default: 0,
+  TranslationTargetLang_Default: 0,
   ViewControlsPosition: "Top",
   SettingsOnTop: true,
   DeveloperMode: false,
