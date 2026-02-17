@@ -318,6 +318,10 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     if (hasLeadRomanization) {
       // Override .line to block so wrapper + romanized stack vertically
       lineElem.style.display = "block";
+      // In block layout, justify-content has no effect, so use text-align instead
+      if (line.OppositeAligned) {
+        lineElem.style.textAlign = "end";
+      }
       lineElem.appendChild(wordParent);
 
       // Check if we have per-syllable romaji for karaoke sync
@@ -481,6 +485,10 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         // Add romanization below background words
         if (hasBGRomanization) {
           lineE.style.display = "block";
+          // In block layout, justify-content has no effect, so use text-align instead
+          if (line.OppositeAligned) {
+            lineE.style.textAlign = "end";
+          }
           lineE.appendChild(bgWordParent);
 
           const hasPerSyllableBGRomaji = bg.Syllables.some((s: SyllableData) => s.RomanizedText);
