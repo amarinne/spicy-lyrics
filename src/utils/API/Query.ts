@@ -62,6 +62,9 @@ function convertSpotifyLyrics(spotifyLyrics: any, trackId: string): any {
         return {
           Type: "Vocal",
           OppositeAligned: false,
+          Text: line.words,
+          StartTime: startTime,
+          EndTime: endTime,
           Lead: {
             Syllables: [{
               Text: line.words,
