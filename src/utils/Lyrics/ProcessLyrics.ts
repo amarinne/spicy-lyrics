@@ -144,11 +144,16 @@ const Romanize = async (lyricMetadata: any, rootInformation: any): Promise<strin
   const primaryLanguage = rootInformation.Language;
   const iso2Language = rootInformation.LanguageISO2;
   try {
-    if (primaryLanguage === "jpn" || JapaneseTextText.test(lyricMetadata.Text)) {
+    const textSample = (lyricMetadata.Text || "").substring(0, 50);
+    const hasJpnChars = JapaneseTextText.test(lyricMetadata.Text || "");
+    const hasChnChars = ChineseTextText.test(lyricMetadata.Text || "");
+    console.log("[SpicyLyrics:Debug] Romanize called. lang:", primaryLanguage, "hasJpn:", hasJpnChars, "hasChn:", hasChnChars, "text:", textSample);
+    if (primaryLanguage === "jpn" || hasJpnChars) {
       await RomanizeJapanese(lyricMetadata, primaryLanguage);
       rootInformation.IncludesRomanization = true;
+      console.log("[SpicyLyrics:Debug] Romanized as Japanese:", (lyricMetadata.RomanizedText || "").substring(0, 50));
       return "Japanese";
-    } else if (primaryLanguage === "cmn" || primaryLanguage === "yue" || ChineseTextText.test(lyricMetadata.Text)) {
+    } else if (primaryLanguage === "cmn" || primaryLanguage === "yue" || hasChnChars) {
       if (chineseTranslitMode === "jyutping") {
         await RomanizeCantonese(lyricMetadata, primaryLanguage);
       } else {
@@ -327,6 +332,7 @@ const mapRomajiToJapaneseSyllables = async (
 };
 
 export const ProcessLyrics = async (lyrics: any) => {
+  console.log("[SpicyLyrics:Debug] ProcessLyrics called. Type:", lyrics.Type, "Content length:", lyrics.Content?.length || lyrics.Lines?.length, "alt_api:", lyrics.alternative_api || false, "Language(pre):", lyrics.Language);
   lyrics.IncludesRomanization = false;
   const romanizationPromises: Promise<string | undefined>[] = [];
   if (lyrics.Type === "Static") {
@@ -338,6 +344,7 @@ export const ProcessLyrics = async (lyrics: any) => {
 
       const language = franc(textToProcess);
       const languageISO2 = langs.where("3", language)?.["1"];
+      console.log("[SpicyLyrics:Debug] Static franc result:", language, "iso2:", languageISO2, "text sample:", textToProcess.substring(0, 100));
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
@@ -351,14 +358,17 @@ export const ProcessLyrics = async (lyrics: any) => {
     {
       const lines = [];
       for (const vocalGroup of lyrics.Content) {
-        if (vocalGroup.Type === "Vocal") {
-          lines.push(vocalGroup.Text);
+        // Line-type items may or may not have Type="Vocal"; accept both
+        const text = vocalGroup.Text;
+        if (text) {
+          lines.push(text);
         }
       }
       const textToProcess = lines.join("\n");
 
       const language = franc(textToProcess);
       const languageISO2 = langs.where("3", language)?.["1"];
+      console.log("[SpicyLyrics:Debug] Line franc result:", language, "iso2:", languageISO2, "text sample:", textToProcess.substring(0, 100));
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
@@ -366,7 +376,8 @@ export const ProcessLyrics = async (lyrics: any) => {
     }
 
     for (const vocalGroup of lyrics.Content) {
-      if (vocalGroup.Type === "Vocal") {
+      // Line-type items may or may not have Type="Vocal"; accept both
+      if (vocalGroup.Text) {
         romanizationPromises.push(Romanize(vocalGroup, lyrics));
       }
     }
@@ -388,6 +399,7 @@ export const ProcessLyrics = async (lyrics: any) => {
 
       const language = franc(textToProcess);
       const languageISO2 = langs.where("3", language)?.["1"];
+      console.log("[SpicyLyrics:Debug] Syllable franc result:", language, "iso2:", languageISO2, "text sample:", textToProcess.substring(0, 100));
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
