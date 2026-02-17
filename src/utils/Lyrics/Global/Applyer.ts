@@ -12,7 +12,7 @@ import { ApplyStaticLyrics, type StaticLyricsData } from "../Applyer/Static.ts";
 import { ApplyLineLyrics } from "../Applyer/Synced/Line.ts";
 import { ApplySyllableLyrics } from "../Applyer/Synced/Syllable.ts";
 import { ClearLyricsPageContainer } from "../fetchLyrics.ts";
-import { ClearLyricsContentArrays, isRomanized } from "../lyrics.ts";
+import { ClearLyricsContentArrays, isRomanized, translationEnabled } from "../lyrics.ts";
 import { PageContainer } from "../../../components/Pages/PageView.ts";
 import { CleanUpIsByCommunity } from "../Applyer/Credits/ApplyIsByCommunity.tsx";
 import { IsCompactMode } from "../../../components/Utils/CompactMode.ts";
@@ -197,13 +197,14 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
   }
 
   const romanize = isRomanized;
+  const translate = translationEnabled;
 
   if (lyrics.Type === "Syllable") {
-    ApplySyllableLyrics(lyrics as any, romanize);
+    ApplySyllableLyrics(lyrics as any, romanize, translate);
   } else if (lyrics.Type === "Line") {
-    ApplyLineLyrics(lyrics as any, romanize);
+    ApplyLineLyrics(lyrics as any, romanize, translate);
   } else if (lyrics.Type === "Static") {
     // Type assertion to StaticLyricsData since we've verified the Type is "Static"
-    ApplyStaticLyrics(lyrics as StaticLyricsData, romanize);
+    ApplyStaticLyrics(lyrics as StaticLyricsData, romanize, translate);
   }
 }

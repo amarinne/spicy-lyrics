@@ -354,4 +354,17 @@ export const setChineseTranslitMode = (val: ChineseTranslitMode) => {
   storage.set("chineseTranslitMode", val);
 };
 
+export let translationEnabled = storage.get("translationEnabled") === "true";
+export let translationTargetLang = storage.get("translationTargetLang") || "en";
+
+export const setTranslationEnabled = (val: boolean) => {
+  translationEnabled = val;
+  storage.set("translationEnabled", val.toString());
+};
+
+export const setTranslationTargetLang = (val: string) => {
+  translationTargetLang = val;
+  storage.set("translationTargetLang", val);
+};
+
 export const SimpleLyricsMode_InterludeAddonTime = 2000;

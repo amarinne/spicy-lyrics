@@ -16,6 +16,8 @@ import {
   setChineseTranslitMode,
   removeLinesEvListener,
   setRomanizedStatus,
+  translationEnabled,
+  setTranslationEnabled,
 } from "../../utils/Lyrics/lyrics.ts";
 import {
   CleanupScrollEvents,
@@ -447,6 +449,15 @@ function AppendViewControls(ReAppend: boolean = false) {
         }
         ${
           Defaults.LyricsRenderer === "Spicy"
+            ? `<button id="TranslationToggle" class="ViewControl">${
+                translationEnabled
+                  ? Icons.DisableTranslation
+                  : Icons.EnableTranslation
+              }</button>`
+            : ""
+        }
+        ${
+          Defaults.LyricsRenderer === "Spicy"
             ? `<button id="ClearLyricsCache" class="ViewControl">${Icons.ClearCache}</button>`
             : ""
         }
@@ -677,6 +688,42 @@ function AppendViewControls(ReAppend: boolean = false) {
         });
       } catch (err) {
         console.warn("Failed to setup Chinese translit toggle:", err);
+      }
+    }
+
+    const translationToggle = elem.querySelector("#TranslationToggle");
+    if (translationToggle) {
+      try {
+        if (!isPip) {
+          Tooltips.Close = Spicetify.Tippy(translationToggle, {
+            ...Spicetify.TippyProps,
+            content: translationEnabled ? `Disable Translation` : `Enable Translation`,
+          });
+        }
+        translationToggle.addEventListener("click", async () => {
+          setTranslationEnabled(!translationEnabled);
+
+          const songUri = SpotifyPlayer.GetUri();
+          if (!songUri) return;
+          PageContainer?.querySelector(
+            ".LyricsContainer .LyricsContent"
+          )?.classList.add("HiddenTransitioned");
+
+          // Clear cache so lyrics get re-processed with translation
+          await RemoveCurrentLyrics_AllCaches(false);
+          const lyrics = await fetchLyrics(songUri);
+
+          ApplyLyrics(lyrics);
+
+          setTimeout(() => {
+            AppendViewControls();
+            PageContainer?.querySelector(
+              ".LyricsContainer .LyricsContent"
+            )?.classList.remove("HiddenTransitioned");
+          }, 45);
+        });
+      } catch (err) {
+        console.warn("Failed to setup Translation toggle:", err);
       }
     }
 

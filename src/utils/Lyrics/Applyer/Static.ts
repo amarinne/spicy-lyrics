@@ -40,7 +40,7 @@ export interface StaticLyricsData {
  * Apply static lyrics to the lyrics container
  * @param data - Static lyrics data
  */
-export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean = false): void {
+export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean = false, UseTranslation: boolean = false): void {
   if (!Defaults.LyricsContainerExists) return;
 
   EmitNotApplyed();
@@ -85,7 +85,31 @@ export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean 
       romanizedElem.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
       lineElem.appendChild(romanizedElem);
 
+      // Translation as 3rd line
+      if (UseTranslation && line.TranslatedText) {
+        const translatedElem = document.createElement("div");
+        translatedElem.className = "translated-below";
+        translatedElem.textContent = line.TranslatedText;
+        translatedElem.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.38); font-weight: 400; line-height: 1.2; margin-top: 0.1em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.45); background-clip: initial; background-image: none; text-shadow: none; font-style: italic; scale: 1; transform: none; opacity: 1;";
+        lineElem.appendChild(translatedElem);
+      }
+
       lineElem.classList.add("has-romanization");
+    } else if (UseTranslation && line.TranslatedText) {
+      // Translation only (no romanization)
+      lineElem.style.display = "block";
+      lineElem.style.backgroundImage = "none";
+      lineElem.style.webkitTextFillColor = "inherit";
+
+      const originalDiv = document.createElement("div");
+      originalDiv.textContent = line.Text;
+      lineElem.appendChild(originalDiv);
+
+      const translatedElem = document.createElement("div");
+      translatedElem.className = "translated-below";
+      translatedElem.textContent = line.TranslatedText;
+      translatedElem.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.38); font-weight: 400; line-height: 1.2; margin-top: 0.1em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.45); background-clip: initial; background-image: none; text-shadow: none; font-style: italic; scale: 1; transform: none; opacity: 1;";
+      lineElem.appendChild(translatedElem);
     } else {
       lineElem.textContent = line.Text;
     }
