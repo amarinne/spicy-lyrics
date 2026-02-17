@@ -83,17 +83,124 @@ const RomanizeCantonese = async (lyricMetadata: any, primaryLanguage: string) =>
   }
 };
 
+// Regex to detect remaining CJK ideographs (incl. 々 iteration mark) in kuroshiro output
+const CJKIdeographTest = /[\u4E00-\u9FFF\u3400-\u4DBF\u3005]/;
+
 const RomanizeJapanese = async (lyricMetadata: any, primaryLanguage: string) => {
   if (primaryLanguage === "jpn" || JapaneseTextText.test(lyricMetadata.Text)) {
     await RomajiPromise;
 
-    const result = await RomajiConverter.convert(lyricMetadata.Text, {
+    let result = await RomajiConverter.convert(lyricMetadata.Text, {
       to: "romaji",
       mode: "spaced",
     });
 
+    // Fallback: if kuroshiro still left kanji un-romanized, rebuild from kuromoji tokens
+    if (CJKIdeographTest.test(result)) {
+      const rebuilt = await buildRomajiFromTokens(lyricMetadata.Text);
+      if (rebuilt) {
+        result = rebuilt;
+      }
+    }
+
     lyricMetadata.RomanizedText = result;
   }
+};
+
+// Build complete romaji from kuromoji tokens with JUKUJIKUN overrides
+// This is the robust fallback when kuroshiro fails to convert certain kanji
+const buildRomajiFromTokens = async (text: string): Promise<string | null> => {
+  const KUtil = (Kuroshiro as any).Util;
+  const tokens = await KuromojiAnalyzer.parse(text);
+  if (!tokens || tokens.length === 0) return null;
+
+  // Build per-token romaji entries
+  interface TokenEntry { romaji: string; consumed: boolean; }
+  const entries: TokenEntry[] = tokens.map((t: any) => {
+    const pron: string = t.pronunciation || t.reading || "";
+    let romaji: string;
+    if (pron && pron !== "*" && KUtil.hasKana(pron)) {
+      romaji = KUtil.kanaToRomaji(pron);
+    } else if (KUtil.hasKana(t.surface_form)) {
+      romaji = KUtil.kanaToRomaji(t.surface_form);
+    } else {
+      // If no pronunciation available and surface is pure kanji, leave as-is (rare)
+      romaji = t.surface_form;
+    }
+    return { romaji, consumed: false };
+  });
+
+  // Pass 1: Apply JUKUJIKUN compounds (check consecutive token surfaces)
+  for (let i = 0; i < tokens.length; i++) {
+    if (entries[i].consumed) continue;
+    for (let len = Math.min(4, tokens.length - i); len >= 2; len--) {
+      const combined = tokens.slice(i, i + len)
+        .map((t: any) => t.surface_form).join("");
+      if (JUKUJIKUN[combined]) {
+        entries[i].romaji = JUKUJIKUN[combined];
+        for (let j = 1; j < len; j++) entries[i + j].consumed = true;
+        break;
+      }
+    }
+    // Also check single-token jukujikun
+    if (!entries[i].consumed && JUKUJIKUN[tokens[i].surface_form]) {
+      entries[i].romaji = JUKUJIKUN[tokens[i].surface_form];
+    }
+  }
+
+  // Pass 2: Determine which tokens should merge (no space before)
+  const noSpaceBefore: boolean[] = new Array(tokens.length).fill(false);
+  for (let i = 1; i < tokens.length; i++) {
+    if (entries[i].consumed) { noSpaceBefore[i] = true; continue; }
+
+    let pi = i - 1;
+    while (pi >= 0 && entries[pi].consumed) pi--;
+    if (pi < 0) continue;
+
+    const prevSf = tokens[pi].surface_form;
+    const prevPron = tokens[pi].pronunciation || tokens[pi].reading || "";
+    const currSf = tokens[i].surface_form;
+    const currPron = tokens[i].pronunciation || tokens[i].reading || "";
+
+    // っ/ッ at end of previous token → merge
+    if (prevPron.endsWith("ッ") || prevPron.endsWith("っ") ||
+        prevSf.endsWith("っ") || prevSf.endsWith("ッ")) {
+      noSpaceBefore[i] = true;
+    }
+
+    // う extending previous o-row sound (long vowel)
+    if ((currSf === "う" || currPron === "ウ") && prevPron) {
+      const last = prevPron[prevPron.length - 1];
+      if ("オコソトノホモヨロヲゴゾドボポョウクスツヌフムユルグズヅブプュ".includes(last)) {
+        noSpaceBefore[i] = true;
+      }
+    }
+
+    // い extending previous e-row sound (long vowel)
+    if ((currSf === "い" || currPron === "イ") && prevPron) {
+      const last = prevPron[prevPron.length - 1];
+      if ("エケセテネヘメレゲゼデベペェ".includes(last)) {
+        noSpaceBefore[i] = true;
+      }
+    }
+
+    // Punctuation — no space before
+    if (/^[。、？！…・「」『』（）()\.\?\!,\s]+$/.test(currSf)) {
+      noSpaceBefore[i] = true;
+    }
+  }
+
+  // Build final romaji string
+  const parts: string[] = [];
+  for (let i = 0; i < entries.length; i++) {
+    if (entries[i].consumed) continue;
+    if (parts.length > 0 && !noSpaceBefore[i]) {
+      parts.push(" ");
+    }
+    parts.push(entries[i].romaji);
+  }
+
+  return parts.join("").replace(/\s{2,}/g, " ").trim();
 };
 
 const RomanizeCyrillic = async (lyricMetadata: any, primaryLanguage: string, iso2Lang: string) => {
@@ -144,6 +251,12 @@ const Romanize = async (lyricMetadata: any, rootInformation: any): Promise<strin
   const primaryLanguage = rootInformation.Language;
   const iso2Language = rootInformation.LanguageISO2;
   try {
+    // NFKC normalize: converts Kangxi Radicals (U+2F00–U+2FDF), CJK Compatibility
+    // Ideographs, and other Unicode variants to standard CJK codepoints.
+    // Some lyric sources use these lookalike characters which kuroshiro/kuromoji can't process.
+    if (lyricMetadata.Text) {
+      lyricMetadata.Text = lyricMetadata.Text.normalize("NFKC");
+    }
     const textSample = (lyricMetadata.Text || "").substring(0, 50);
     const hasJpnChars = JapaneseTextText.test(lyricMetadata.Text || "");
     const hasChnChars = ChineseTextText.test(lyricMetadata.Text || "");
@@ -204,6 +317,13 @@ const JUKUJIKUN: Record<string, string> = {
   "紅葉": "momiji", "景色": "keshiki", "時計": "tokei",
   "一日": "tsuitachi", "二日": "futsuka", "三日": "mikka",
   "友達": "tomodachi", "土産": "miyage",
+  "日々": "hibi", "言葉": "kotoba", "一つ": "hitotsu",
+  "二つ": "futatsu", "三つ": "mittsu", "四つ": "yottsu",
+  "五つ": "itsutsu", "七つ": "nanatsu", "八つ": "yattsu",
+  "九つ": "kokonotsu", "十": "tou",
+  "昨日": "kinou", "今日": "kyou", "明日": "ashita",
+  "何処": "doko", "何時": "itsu", "何故": "naze",
+  "相応しい": "fusawashii",
 };
 
 // Maps romaji to individual syllables using Kuroshiro's full-line output,
