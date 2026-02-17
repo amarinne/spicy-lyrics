@@ -68,7 +68,7 @@ interface LyricsData {
   styles?: Record<string, string>;
 }
 
-export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = false): void {
+export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = false, UseTranslation: boolean = false): void {
   if (!Defaults.LyricsContainerExists) return;
   EmitNotApplyed();
 
@@ -361,6 +361,40 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         romanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
         lineElem.appendChild(romanizedDiv);
       }
+
+      // Translation as 3rd line (after romanization)
+      if (UseTranslation && line.Lead.TranslatedText) {
+        const translatedDiv = document.createElement("div");
+        translatedDiv.className = "translated-below";
+        translatedDiv.textContent = line.Lead.TranslatedText;
+        translatedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.38); font-weight: 400; line-height: 1.2; margin-top: 0.1em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.45); background-clip: initial; background-image: none; text-shadow: none; font-style: italic; scale: 1; transform: none; opacity: 1;";
+        lineElem.appendChild(translatedDiv);
+      }
+    } else if (UseTranslation && line.Lead.TranslatedText) {
+      // Translation only (no romanization) — need to set up block layout
+      lineElem.style.display = "block";
+      lineElem.style.backgroundImage = "none";
+      lineElem.style.webkitTextFillColor = "inherit";
+      if (line.OppositeAligned) {
+        lineElem.style.textAlign = "end";
+      }
+      // Re-wrap words in a container
+      const wordWrapper = document.createElement("div");
+      wordWrapper.style.cssText = "display: flex; flex-wrap: wrap;";
+      if (line.OppositeAligned) {
+        wordWrapper.style.justifyContent = "flex-end";
+      }
+      // Move existing word children into wrapper
+      while (lineElem.firstChild) {
+        wordWrapper.appendChild(lineElem.firstChild);
+      }
+      lineElem.appendChild(wordWrapper);
+
+      const translatedDiv = document.createElement("div");
+      translatedDiv.className = "translated-below";
+      translatedDiv.textContent = line.Lead.TranslatedText;
+      translatedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.38); font-weight: 400; line-height: 1.2; margin-top: 0.1em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.45); background-clip: initial; background-image: none; text-shadow: none; font-style: italic; scale: 1; transform: none; opacity: 1;";
+      lineElem.appendChild(translatedDiv);
     }
 
     if (line.Background) {
@@ -526,6 +560,15 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
             bgRomanizedDiv.textContent = bg.RomanizedText!;
             bgRomanizedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
             lineE.appendChild(bgRomanizedDiv);
+          }
+
+          // Translation for BG line
+          if (UseTranslation && bg.TranslatedText) {
+            const bgTranslatedDiv = document.createElement("div");
+            bgTranslatedDiv.className = "translated-below";
+            bgTranslatedDiv.textContent = bg.TranslatedText;
+            bgTranslatedDiv.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.38); font-weight: 400; line-height: 1.2; margin-top: 0.1em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.35); background-clip: initial; background-image: none; text-shadow: none; font-style: italic; scale: 1; transform: none; opacity: 1;";
+            lineE.appendChild(bgTranslatedDiv);
           }
         }
       });

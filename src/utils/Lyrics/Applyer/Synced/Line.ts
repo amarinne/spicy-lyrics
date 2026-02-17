@@ -44,7 +44,7 @@ interface LyricsData {
   styles?: Record<string, string>;
 }
 
-export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false): void {
+export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false, UseTranslation: boolean = false): void {
   if (!Defaults.LyricsContainerExists) return;
   EmitNotApplyed();
 
@@ -163,6 +163,8 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
   data.Content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
     
+    const needsBlock = (UseRomanized && line.RomanizedText !== undefined) || (UseTranslation && line.TranslatedText);
+    
     // Show original text first
     const textElem = document.createElement("div");
     textElem.textContent = line.Text;
@@ -186,6 +188,23 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
       romanizedElem.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.42); font-weight: 400; line-height: 1.2; margin-top: 0.15em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.55); background-clip: initial; background-image: none; text-shadow: none; scale: 1; transform: none; opacity: 1;";
       lineElem.appendChild(romanizedElem);
       lineElem.classList.add("has-romanization");
+    }
+
+    // Show translation as 3rd line (or 2nd if no romanization)
+    if (UseTranslation && line.TranslatedText) {
+      if (!needsBlock || !(UseRomanized && line.RomanizedText !== undefined)) {
+        lineElem.style.display = "block";
+        lineElem.style.backgroundImage = "none";
+        lineElem.style.webkitTextFillColor = "inherit";
+        if (line.OppositeAligned) {
+          lineElem.style.textAlign = "end";
+        }
+      }
+      const translatedElem = document.createElement("div");
+      translatedElem.className = "translated-below";
+      translatedElem.textContent = line.TranslatedText;
+      translatedElem.style.cssText = "font-size: calc(var(--DefaultLyricsSize) * 0.38); font-weight: 400; line-height: 1.2; margin-top: 0.1em; text-align: inherit; -webkit-text-fill-color: rgba(255, 255, 255, 0.45); background-clip: initial; background-image: none; text-shadow: none; font-style: italic; scale: 1; transform: none; opacity: 1;";
+      lineElem.appendChild(translatedElem);
     }
     
     lineElem.classList.add("line");
