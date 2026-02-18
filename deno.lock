@@ -30,6 +30,7 @@
     "npm:esbuild@0.25.9": "0.25.9",
     "npm:fast-xml-parser@^5.2.5": "5.2.5",
     "npm:franc-all@*": "7.2.0",
+    "npm:franc-min@*": "6.2.0",
     "npm:kuroshiro@*": "1.2.0",
     "npm:langs@*": "2.0.0",
     "npm:ora@8.2.0": "8.2.0",
@@ -931,6 +932,12 @@
     },
     "franc-all@7.2.0": {
       "integrity": "sha512-ZR6ciLQTDBaOvBdkOd8+vqDzaLtmIXRa9GCzcAlaBpqNAKg9QrtClPmqiKac5/xZXfCZGMo1d8dIu1T0BLhHEg==",
+      "dependencies": [
+        "trigram-utils"
+      ]
+    },
+    "franc-min@6.2.0": {
+      "integrity": "sha512-1uDIEUSlUZgvJa2AKYR/dmJC66v/PvGQ9mWfI9nOr/kPpMFyvswK0gPXOwpYJYiYD008PpHLkGfG58SPjQJFxw==",
       "dependencies": [
         "trigram-utils"
       ]

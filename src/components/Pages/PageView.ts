@@ -607,7 +607,7 @@ function AppendViewControls(ReAppend: boolean = false) {
         if (!isPip) {
           Tooltips.Close = Spicetify.Tippy(romanizationToggle, {
             ...Spicetify.TippyProps,
-            content: isRomanized ? `Disable Dual Subtitles` : `Enable Dual Subtitles`,
+            content: isRomanized ? `Disable Transliteration` : `Enable Transliteration`,
           });
         }
         romanizationToggle.addEventListener("click", async () => {
