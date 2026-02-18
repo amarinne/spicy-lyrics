@@ -2,6 +2,7 @@ import { SpotifyPlayer } from "../components/Global/SpotifyPlayer.ts";
 import PageView, { ShowNotification } from "../components/Pages/PageView.ts";
 import fetchLyrics, { LyricsStore } from "./Lyrics/fetchLyrics.ts";
 import ApplyLyrics from "./Lyrics/Global/Applyer.ts";
+import { clearTranslationCache } from "./Lyrics/ProcessLyrics.ts";
 import storage from "./storage.ts";
 
 export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
@@ -14,6 +15,8 @@ export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
   try {
     await LyricsStore.RemoveItem(currentSongId ?? "");
     storage.set("currentLyricsData", null);
+    // Also clear translation cache
+    clearTranslationCache();
     ui
       ? ShowNotification(
           `Lyrics for the current song, have been removed from available all caches`,
