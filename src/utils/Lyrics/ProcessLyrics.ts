@@ -1,5 +1,5 @@
 import transliterPkg from "npm:transliter";
-import { franc } from "npm:franc-all";
+import { franc } from "npm:franc-min";
 import Kuroshiro from "npm:kuroshiro";
 import langs from "npm:langs";
 import { getJyutpingList } from "npm:to-jyutping";
@@ -483,6 +483,81 @@ function persistTranslationCache() {
   } catch { /* quota exceeded – silently skip */ }
 }
 
+// Export function to clear translation cache
+export function clearTranslationCache(): void {
+  try {
+    localStorage.removeItem(TRANSLATION_CACHE_KEY);
+    _translationCache = null;
+    console.log("[SpicyLyrics:Translation] Translation cache cleared");
+  } catch (err) {
+    console.warn("[SpicyLyrics:Translation] Failed to clear cache:", err);
+  }
+}
+
+/**
+ * Split text into 7 sections and run franc on each for better mixed-language detection.
+ * Uses foreign language priority logic for optimal romanization/translation triggering.
+ */
+function detectLanguageInSections(text: string): string {
+  if (!text || text.trim().length < 30) {
+    return franc(text) || "und";
+  }
+
+  const lines = text.split("\n").filter(line => line.trim());
+  if (lines.length < 7) {
+    // Not enough lines to split meaningfully, use single detection
+    return franc(text);
+  }
+
+  const sectionSize = Math.ceil(lines.length / 7);
+  
+  const sections = [
+    lines.slice(0, sectionSize).join("\n"),
+    lines.slice(sectionSize, sectionSize * 2).join("\n"),
+    lines.slice(sectionSize * 2, sectionSize * 3).join("\n"),
+    lines.slice(sectionSize * 3, sectionSize * 4).join("\n"),
+    lines.slice(sectionSize * 4, sectionSize * 5).join("\n"),
+    lines.slice(sectionSize * 5, sectionSize * 6).join("\n"),
+    lines.slice(sectionSize * 6).join("\n")
+  ];
+  
+  const languages = sections.map((section, i) => {
+    const lang = franc(section);
+    console.log(`[SpicyLyrics:Debug] Section ${i+1}/7: ${lang} ("${section.substring(0, 40)}...")`);
+    return lang;
+  });
+  
+  const counts: Record<string, number> = {};
+  
+  // Count occurrences
+  for (const lang of languages) {
+    counts[lang] = (counts[lang] || 0) + 1;
+  }
+  
+  // Priority 1: Any non-English language detected (even 1/7) should win
+  // This ensures romanization/translation triggers for mixed content
+  const nonEnglishLangs = Object.keys(counts).filter(lang => lang !== "eng" && lang !== "und");
+  if (nonEnglishLangs.length > 0) {
+    // Pick the most frequent non-English language
+    const bestNonEng = nonEnglishLangs.reduce((a, b) => 
+      (counts[a] || 0) >= (counts[b] || 0) ? a : b
+    );
+    console.log(`[SpicyLyrics:Debug] Non-English detected: ${bestNonEng} (${counts[bestNonEng]}/7 sections) - processing as foreign language`);
+    return bestNonEng;
+  }
+  
+  // Priority 2: Strong English majority (6+/7 sections all English)
+  if ((counts["eng"] || 0) >= 6) {
+    console.log(`[SpicyLyrics:Debug] Strong English majority: eng (${counts["eng"]}/7 sections)`);
+    return "eng";
+  }
+  
+  // Priority 3: Fallback to first non-undefined result
+  const validLang = languages.find(lang => lang !== "und") || languages[0];
+  console.log(`[SpicyLyrics:Debug] Mixed/unclear results, using: ${validLang}`);
+  return validLang;
+}
+
 function translationCacheKey(text: string, targetLang: string): string {
   // Simple but collision-resistant key
   return `${targetLang}:${text}`;
@@ -503,6 +578,8 @@ async function batchTranslate(
   const results: string[] = new Array(lines.length).fill("");
   const uncachedIndices: number[] = [];
   const uncachedTexts: string[] = [];
+
+  console.log(`[SpicyLyrics:Translation] Starting batch translate: ${lines.length} lines, target: ${targetLang}`);
 
   // 1. Check cache first
   for (let i = 0; i < lines.length; i++) {
@@ -537,12 +614,12 @@ async function batchTranslate(
     const joined = chunk.join("\n");
 
     try {
-      // Map franc/ISO 639-3 source lang to Google's ISO 639-1 code
-      const slCode = sourceLang === "und" ? "auto"
-        : (langs.where("3", sourceLang)?.["1"] || "auto");
+      // Use Google Translate's auto-detection instead of franc results for much better accuracy
+      const slCode = "auto";
 
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(joined)}`;
 
+      console.log(`[SpicyLyrics:Translation] API call: ${chunk.length} lines, chunk ${Math.floor(ci/CHUNK_SIZE) + 1}`);
       const resp = await fetch(url);
       if (!resp.ok) {
         console.warn(`[SpicyLyrics:Translation] API returned ${resp.status}`);
@@ -550,6 +627,7 @@ async function batchTranslate(
       }
 
       const data = await resp.json();
+      console.log(`[SpicyLyrics:Translation] API response received, processing ${chunk.length} translations`);
 
       // Google returns [[["translated\n...", "source\n...", ...], ...], ...]
       // Reassemble all translated segments
@@ -582,6 +660,7 @@ async function batchTranslate(
 
   // 3. Persist cache to localStorage
   persistTranslationCache();
+  console.log(`[SpicyLyrics:Translation] Batch complete: ${lines.length} lines processed, cache updated`);
 
   return results;
 }
@@ -596,12 +675,15 @@ async function TranslateLyrics(lyrics: any): Promise<void> {
   const sourceLang = lyrics.Language || "und";
   const targetLang = translationTargetLang;
 
-  // Don't translate if source matches target
+  // Skip translation if franc detects source matches target (avoids unnecessary API calls)
+  // But still use Google auto-detection in API for better accuracy
   const sourceISO2 = langs.where("3", sourceLang)?.["1"];
   if (sourceISO2 === targetLang || sourceLang === targetLang) {
-    console.log("[SpicyLyrics:Translation] Source matches target, skipping");
+    console.log(`[SpicyLyrics:Translation] Source (${sourceLang}/${sourceISO2}) matches target (${targetLang}), skipping`);
     return;
   }
+
+  console.log(`[SpicyLyrics:Translation] Starting TranslateLyrics: source=${sourceLang}/${sourceISO2}, target=${targetLang}`);
 
   // Collect all line texts
   const lineTexts: string[] = [];
@@ -647,8 +729,12 @@ async function TranslateLyrics(lyrics: any): Promise<void> {
     }
   }
 
-  if (lineTexts.length === 0) return;
+  if (lineTexts.length === 0) {
+    console.log("[SpicyLyrics:Translation] No text found to translate");
+    return;
+  }
 
+  console.log(`[SpicyLyrics:Translation] Collected ${lineTexts.length} text segments for translation`);
   const translations = await batchTranslate(lineTexts, sourceLang, targetLang);
 
   // Assign translated text to each line object
@@ -674,9 +760,9 @@ export const ProcessLyrics = async (lyrics: any) => {
         textToProcess += `\n${lyrics.Lines[index].Text}`;
       }
 
-      const language = franc(textToProcess);
+      const language = detectLanguageInSections(textToProcess);
       const languageISO2 = langs.where("3", language)?.["1"];
-      console.log("[SpicyLyrics:Debug] Static franc result:", language, "iso2:", languageISO2, "text sample:", textToProcess.substring(0, 100));
+      console.log("[SpicyLyrics:Debug] Static final result:", language, "iso2:", languageISO2);
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
@@ -698,9 +784,9 @@ export const ProcessLyrics = async (lyrics: any) => {
       }
       const textToProcess = lines.join("\n");
 
-      const language = franc(textToProcess);
+      const language = detectLanguageInSections(textToProcess);
       const languageISO2 = langs.where("3", language)?.["1"];
-      console.log("[SpicyLyrics:Debug] Line franc result:", language, "iso2:", languageISO2, "text sample:", textToProcess.substring(0, 100));
+      console.log("[SpicyLyrics:Debug] Line final result:", language, "iso2:", languageISO2);
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
@@ -729,9 +815,9 @@ export const ProcessLyrics = async (lyrics: any) => {
       }
       const textToProcess = lines.join("\n");
 
-      const language = franc(textToProcess);
+      const language = detectLanguageInSections(textToProcess);
       const languageISO2 = langs.where("3", language)?.["1"];
-      console.log("[SpicyLyrics:Debug] Syllable franc result:", language, "iso2:", languageISO2, "text sample:", textToProcess.substring(0, 100));
+      console.log("[SpicyLyrics:Debug] Syllable final result:", language, "iso2:", languageISO2);
 
       lyrics.Language = language;
       lyrics.LanguageISO2 = languageISO2;
