@@ -2,6 +2,7 @@
   "tasks": {
     "dev": "deno run -A ./tasks/dev.ts",
     "release": "deno run -A ./tasks/release.ts",
+    "release-github": "deno run -A ./tasks/release-github.ts",
     "install-windows": "deno run -A ./tasks/install-windows.ts",
     "check": "deno run -A npm:@biomejs/biome check"
   },
