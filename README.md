@@ -1,18 +1,23 @@
-This fork contains extra features for my personal uses. 
+Personal fork of [Spikerko/spicy-lyrics](https://github.com/Spikerko/spicy-lyrics) with additional romanization and translation features.
 
-To try for yourself, download file: https://github.com/amarinne/spicy-lyrics/builds/spicy-lyrics@5.19.11.mjs
+## Features
 
-Put the file inside the Spicetify Extensions directory. Find the correct directory here: https://spicetify.app/docs/customization/extensions#manual-installation
-Run spicetify config extensions spicy-lyrics5.19.11.mjs
-Run spicetify apply
+- Romanization as a secondary lyric line (romaji, pinyin, jyutping, Cyrillic BGN/PCGN)
+- Pinyin / Jyutping toggle
+- Google Translate integration
 
-Added functions:
-    - Romanization as dual lyric
-    ![alt text](image-1.png)
-    - Cyrillic transliteration
-    ![alt text](image-3.png)
-    - Pinyin/Jyutping toggle
-    ![alt text](image-2.png)
-    - Google Translate API
-    ![alt text](image.png)
+## Installation
+
+Requires [Spicetify](https://spicetify.app/).
+
+1. Download `spicy-lyrics@5.19.12-fork.mjs` from the [`builds/`](./builds/) folder.
+2. Copy it to your Spicetify Extensions directory:
+   `%LOCALAPPDATA%\spicetify\Extensions`
+3. Register the extension (run once):
+   ```
+   spicetify config extensions spicy-lyrics@5.19.12-fork.mjs
+   spicetify apply
+   ```
+
+To update, replace the `.mjs` file and run `spicetify apply`.
 
