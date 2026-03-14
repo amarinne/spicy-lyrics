@@ -5,7 +5,13 @@ import { RemoveCurrentLyrics_AllCaches, RemoveCurrentLyrics_StateCache, RemoveLy
 import { setChineseTranslitMode, setTranslationEnabled, setTranslationTargetLang, type ChineseTranslitMode } from "./Lyrics/lyrics.ts";
 
 export async function setSettingsMenu() {
+  const maxWaitTime = 30000;
+  const startTime = Date.now();
   while (!Spicetify.React || !Spicetify.ReactDOM) {
+    if (Date.now() - startTime > maxWaitTime) {
+      console.error("SpicyLyrics: Timeout waiting for Spicetify to initialize");
+      break;
+    }
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
