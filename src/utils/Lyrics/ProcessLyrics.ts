@@ -1,8 +1,8 @@
-import transliterPkg from "npm:transliter";
-import { franc } from "npm:franc-min";
-import Kuroshiro from "npm:kuroshiro";
-import langs from "npm:langs";
-import { getJyutpingList } from "npm:to-jyutping";
+import transliterPkg from "transliter";
+import { franc } from "franc-min";
+import Kuroshiro from "kuroshiro";
+import langs from "langs";
+import { getJyutpingList } from "to-jyutping";
 import { RetrievePackage } from "../ImportPackage.ts";
 import * as KuromojiAnalyzer from "./KuromojiAnalyzer.ts";
 import { PageContainer } from "../../components/Pages/PageView.ts";

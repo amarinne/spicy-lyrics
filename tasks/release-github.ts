@@ -2,14 +2,14 @@
  * release-github.ts
  *
  * Builds a release bundle and publishes it as a GitHub Release, uploading
- * the .mjs as a downloadable asset.
+ * the .js as a downloadable asset.
  *
  * Creates the release if it doesn't exist; updates it if it does.
  * The existing asset is replaced if a file with the same name is already
  * attached to the release.
  *
  * Usage:
- *   deno task release-github
+ *   GITHUB_TOKEN=... bun run tasks/release-github.ts
  *
  * Requirements:
  *   GITHUB_TOKEN  Personal access token with repo scope (or fine-grained
@@ -18,23 +18,24 @@
  * The repo owner/name are inferred from the git remote automatically.
  */
 
-import { Bundle } from "@spicetify/bundler/cli";
+import { $ } from "bun";
+import { existsSync, readFileSync } from "fs";
 import { ProjectName, ProjectVersion } from "./config.ts";
 
 const TAG = `v${ProjectVersion}`;
 const RELEASE_NAME = `${ProjectName} ${ProjectVersion}`;
-const ASSET_NAME = `${ProjectName}@${ProjectVersion}.mjs`;
-const BUILT_FILE = `./builds/${ASSET_NAME}`;
+const ASSET_NAME = `${ProjectName}.js`;
+const BUILT_FILE = `./dist/${ASSET_NAME}`;
 
 // ---------------------------------------------------------------------------
 // Auth
 // ---------------------------------------------------------------------------
 
-const token = Deno.env.get("GITHUB_TOKEN");
+const token = process.env.GITHUB_TOKEN;
 if (!token) {
   console.error("GITHUB_TOKEN is not set.");
   console.error("Create a token at https://github.com/settings/tokens with repo scope.");
-  Deno.exit(1);
+  process.exit(1);
 }
 
 const headers = {
@@ -49,14 +50,12 @@ const headers = {
 // ---------------------------------------------------------------------------
 
 async function getRepo(): Promise<{ owner: string; repo: string }> {
-  const cmd = new Deno.Command("git", { args: ["remote", "get-url", "origin"], stdout: "piped" });
-  const { stdout } = await cmd.output();
-  const url = new TextDecoder().decode(stdout).trim();
+  const url = (await $`git remote get-url origin`.text()).trim();
   // git@github.com:owner/repo.git  or  https://github.com/owner/repo.git
   const match = url.match(/github\.com[:/](.+?)\/(.+?)(?:\.git)?$/);
   if (!match) {
     console.error(`Cannot parse GitHub repo from remote URL: ${url}`);
-    Deno.exit(1);
+    process.exit(1);
   }
   return { owner: match[1], repo: match[2] };
 }
@@ -72,21 +71,11 @@ console.log(`Repo: ${owner}/${repo}`);
 
 console.log(`\nBuilding ${ASSET_NAME}...`);
 
-Bundle({
-  Type: "Release",
-  Name: ProjectName,
-  Version: ProjectVersion,
-  EntrypointFile: "./src/app.tsx",
-  CustomBuildOptions: {
-    skipGlobalReplacementRules: true,
-  },
-});
+await $`bun run build`;
 
-try {
-  await Deno.stat(BUILT_FILE);
-} catch {
+if (!existsSync(BUILT_FILE)) {
   console.error(`Build failed: ${BUILT_FILE} not found.`);
-  Deno.exit(1);
+  process.exit(1);
 }
 
 // ---------------------------------------------------------------------------
@@ -98,7 +87,7 @@ async function getReleaseByTag(): Promise<{ id: number; upload_url: string } | n
   if (res.status === 404) return null;
   if (!res.ok) {
     console.error(`Failed to check release: ${res.status} ${await res.text()}`);
-    Deno.exit(1);
+    process.exit(1);
   }
   return res.json();
 }
@@ -116,7 +105,7 @@ async function createRelease(): Promise<{ id: number; upload_url: string }> {
   });
   if (!res.ok) {
     console.error(`Failed to create release: ${res.status} ${await res.text()}`);
-    Deno.exit(1);
+    process.exit(1);
   }
   return res.json();
 }
@@ -149,7 +138,7 @@ async function deleteExistingAsset(releaseId: number): Promise<void> {
 await deleteExistingAsset(release.id);
 
 // ---------------------------------------------------------------------------
-// Upload the .mjs asset
+// Upload the .js asset
 // ---------------------------------------------------------------------------
 
 // upload_url looks like: https://uploads.github.com/repos/.../assets{?name,label}
@@ -158,7 +147,7 @@ const uploadUrl = `${uploadBase}?name=${encodeURIComponent(ASSET_NAME)}`;
 
 console.log(`\nUploading ${ASSET_NAME}...`);
 
-const fileBytes = await Deno.readFile(BUILT_FILE);
+const fileBytes = readFileSync(BUILT_FILE);
 const uploadRes = await fetch(uploadUrl, {
   method: "POST",
   headers: {
@@ -171,7 +160,7 @@ const uploadRes = await fetch(uploadUrl, {
 
 if (!uploadRes.ok) {
   console.error(`Upload failed: ${uploadRes.status} ${await uploadRes.text()}`);
-  Deno.exit(1);
+  process.exit(1);
 }
 
 const asset = await uploadRes.json();
