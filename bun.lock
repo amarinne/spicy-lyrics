@@ -16,12 +16,15 @@
         "cyrillic-romanization": "^1.1.8",
         "d3-ease": "^3.0.1",
         "franc-all": "^7.2.0",
+        "franc-min": "^6.2.0",
         "kuroshiro": "^1.2.0",
         "langs": "^2.0.0",
         "react": "^19.2.4",
         "react-dom": "^19.2.4",
         "semver": "^7.7.4",
         "simplebar": "^6.3.3",
+        "to-jyutping": "^3.1.1",
+        "transliter": "^3.0.0",
       },
       "devDependencies": {
         "@types/bun": "latest",
@@ -420,6 +423,8 @@
 
     "franc-all": ["franc-all@7.2.0", "", { "dependencies": { "trigram-utils": "^2.0.0" } }, "sha512-ZR6ciLQTDBaOvBdkOd8+vqDzaLtmIXRa9GCzcAlaBpqNAKg9QrtClPmqiKac5/xZXfCZGMo1d8dIu1T0BLhHEg=="],
 
+    "franc-min": ["franc-min@6.2.0", "", { "dependencies": { "trigram-utils": "^2.0.0" } }, "sha512-1uDIEUSlUZgvJa2AKYR/dmJC66v/PvGQ9mWfI9nOr/kPpMFyvswK0gPXOwpYJYiYD008PpHLkGfG58SPjQJFxw=="],
+
     "fs-extra": ["fs-extra@10.0.0", "", { "dependencies": { "graceful-fs": "^4.2.0", "jsonfile": "^6.0.1", "universalify": "^2.0.0" } }, "sha512-C5owb14u9eJwizKGdchcDUQeFtlSHHthBk8pbX9Vc1PFZrLombudjDnNns88aYslCyF6IY5SUw3Roz6xShcEIQ=="],
 
     "fs.realpath": ["fs.realpath@1.0.0", "", {}, "sha512-OO0pH2lK6a0hZnAdau5ItzHPI6pUlvI7jMVnxUQRtw4owF2wk8lOSabtGDCTP4Ggrg2MbGnWO9X8K1t4+fGMDw=="],
@@ -680,7 +685,11 @@
 
     "tmp": ["tmp@0.2.1", "", { "dependencies": { "rimraf": "^3.0.0" } }, "sha512-76SUhtfqR2Ijn+xllcI5P1oyannHNHByD80W1q447gU3mp9G9PSpGdWmjUOHRDPiHYacIk66W7ubDTuPF3BEtQ=="],
 
+    "to-jyutping": ["to-jyutping@3.1.1", "", {}, "sha512-8dqSOTbYC5pBs1DQtC9olmFLhf/pzKqxMfQLRUYu1BXXtWgqyS8dSFy9mHuF0cHjgjtX86pCBvGIvKzzlVM6lw=="],
+
     "to-regex-range": ["to-regex-range@5.0.1", "", { "dependencies": { "is-number": "^7.0.0" } }, "sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ=="],
+
+    "transliter": ["transliter@3.0.0", "", {}, "sha512-CabV8mfF0ArDrtJss2go8S0HDjH6BxIuoQetHIgkqAu3Zbj6vpni0698KZfgCBxwL+Jur74nEmZEFz1GTnzSSg=="],
 
     "trigram-utils": ["trigram-utils@2.0.1", "", { "dependencies": { "collapse-white-space": "^2.0.0", "n-gram": "^2.0.0" } }, "sha512-nfWIXHEaB+HdyslAfMxSqWKDdmqY9I32jS7GnqpdWQnLH89r6A5sdk3fDVYqGAZ0CrT8ovAFSAo6HRiWcWNIGQ=="],
 
