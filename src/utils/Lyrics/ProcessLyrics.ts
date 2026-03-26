@@ -589,6 +589,18 @@ function persistTranslationCache() {
   } catch { /* quota exceeded – silently skip */ }
 }
 
+/**
+ * Clear the translation cache (both in-memory and localStorage).
+ * Called when user manually clears lyrics cache.
+ */
+export function clearTranslationCache() {
+  _translationCache = {};
+  try {
+    localStorage.removeItem(TRANSLATION_CACHE_KEY);
+  } catch { /* ignore */ }
+  console.log("[SpicyLyrics:Translation] Cache cleared");
+}
+
 function translationCacheKey(text: string, targetLang: string): string {
   // Simple but collision-resistant key
   return `${targetLang}:${text}`;
