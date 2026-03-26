@@ -324,7 +324,7 @@ export const ProcessLyrics = async (lyrics: any) => {
       const lines = [];
       for (const vocalGroup of lyrics.Content) {
         const text = vocalGroup.Text;
-        if (text) {
+        if (text && (vocalGroup.Type === undefined || vocalGroup.Type === "Vocal")) {
           lines.push(text);
         }
       }
@@ -347,7 +347,7 @@ export const ProcessLyrics = async (lyrics: any) => {
     }
 
     for (const vocalGroup of lyrics.Content) {
-      if (vocalGroup.Text) {
+      if (vocalGroup.Text && (vocalGroup.Type === undefined || vocalGroup.Type === "Vocal")) {
         romanizationPromises.push(Romanize(vocalGroup, lyrics, romanizeOptions));
       }
     }

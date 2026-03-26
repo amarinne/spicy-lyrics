@@ -14,6 +14,9 @@
 // Jukujikun dictionary for compound kanji readings
 export { JUKUJIKUN, getJukujikun, hasJukujikun } from "./JukujikuDict.ts";
 
+// Shared jukujikun + token merge logic
+export { applyJukujikun, computeNoSpaceBefore, type MergeableEntry } from "./JukujikunMerge.ts";
+
 // Text detection patterns and utilities
 export {
   KoreanTextTest,
