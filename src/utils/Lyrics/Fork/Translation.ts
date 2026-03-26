@@ -18,6 +18,7 @@ const TRANSLATION_CACHE_MAX_ENTRIES = 5000;
 
 // In-memory mirror – loaded once from localStorage
 let _translationCache: Record<string, string> | null = null;
+let _cacheCount = -1; // lazy, -1 = unknown
 
 // ─── Cache Management ─────────────────────────────────────────────────────────
 
@@ -29,6 +30,7 @@ function getTranslationCache(): Record<string, string> {
   } catch {
     _translationCache = {};
   }
+  _cacheCount = Object.keys(_translationCache).length;
   return _translationCache!;
 }
 
@@ -36,10 +38,11 @@ function persistTranslationCache() {
   try {
     const cache = getTranslationCache();
     // Evict oldest entries if over limit (FIFO by insertion order)
-    const keys = Object.keys(cache);
-    if (keys.length > TRANSLATION_CACHE_MAX_ENTRIES) {
+    if (_cacheCount > TRANSLATION_CACHE_MAX_ENTRIES) {
+      const keys = Object.keys(cache);
       const toRemove = keys.slice(0, keys.length - TRANSLATION_CACHE_MAX_ENTRIES);
       for (const k of toRemove) delete cache[k];
+      _cacheCount = TRANSLATION_CACHE_MAX_ENTRIES;
     }
     localStorage.setItem(TRANSLATION_CACHE_KEY, JSON.stringify(cache));
   } catch { /* quota exceeded – silently skip */ }
@@ -51,6 +54,7 @@ function persistTranslationCache() {
  */
 export function clearTranslationCache() {
   _translationCache = {};
+  _cacheCount = 0;
   try {
     localStorage.removeItem(TRANSLATION_CACHE_KEY);
   } catch { /* ignore */ }
@@ -102,6 +106,10 @@ export async function batchTranslate(
 
   console.log(`[SpicyLyrics:Translation] Translating ${uncachedTexts.length}/${lines.length} uncached lines (${sourceLang} → ${targetLang})`);
 
+  // Map franc/ISO 639-3 source lang to Google's ISO 639-1 code (once per batch)
+  const slCode = sourceLang === "und" ? "auto"
+    : (langs.where("3", sourceLang)?.["1"] || "auto");
+
   // 2. Batch into chunks of ~50 lines to avoid URL length limits
   const CHUNK_SIZE = 50;
   for (let ci = 0; ci < uncachedTexts.length; ci += CHUNK_SIZE) {
@@ -112,10 +120,6 @@ export async function batchTranslate(
     const joined = chunk.join("\n");
 
     try {
-      // Map franc/ISO 639-3 source lang to Google's ISO 639-1 code
-      const slCode = sourceLang === "und" ? "auto"
-        : (langs.where("3", sourceLang)?.["1"] || "auto");
-
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(joined)}`;
 
       const resp = await fetch(url);
@@ -147,7 +151,11 @@ export async function batchTranslate(
         // Cache the result
         const originalText = lines[idx].trim();
         if (translated && originalText) {
-          cache[translationCacheKey(originalText, targetLang)] = translated;
+          const key = translationCacheKey(originalText, targetLang);
+          if (!cache[key]) {
+            _cacheCount++;
+          }
+          cache[key] = translated;
         }
       }
     } catch (err) {
