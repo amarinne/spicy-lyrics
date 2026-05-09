@@ -8,8 +8,8 @@
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
     "fmt": "oxfmt",
-    "install-windows": "bun run tasks/install-windows.ts",
-    "release-github": "bun run tasks/release-github.ts"
+    "install-windows": "bun run project/install-windows.ts",
+    "release-github": "bun run project/release-github.ts"
   },
   "dependencies": {
     "@kawarp/core": "^1.1.1",
