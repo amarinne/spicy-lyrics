@@ -1,11 +1,25 @@
-import cyrillicToLatin from "cyrillic-romanization";
 import { franc } from "franc-all";
 import Kuroshiro from "kuroshiro";
 import langs from "langs";
 import { RetrievePackage } from "../ImportPackage.ts";
 import * as KuromojiAnalyzer from "./KuromojiAnalyzer.ts";
 import { PageContainer } from "../../components/Pages/PageView.ts";
-import Logger from "../logger.ts";
+import Logger from "../Logger.ts";
+import { chineseTranslitMode } from "./lyrics.ts";
+import {
+  ChineseTextTest,
+  JapaneseTextTest,
+  KoreanTextTest,
+  CyrillicTextTest,
+  GreekTextTest,
+  CJKIdeographTest,
+  isCyrillicLanguage,
+} from "./Fork/index.ts";
+import { buildRomajiFromTokens, romanizeCantonese, romanizeCyrillic } from "./Fork/Romanization.ts";
+import { mapRomajiToJapaneseSyllables } from "./Fork/SyllableSync.ts";
+import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
+
+export { clearTranslationCache };
 
 // Constants
 const RomajiConverter = new Kuroshiro();
@@ -13,44 +27,24 @@ const RomajiPromise = RomajiConverter.init(KuromojiAnalyzer);
 
 const romanizationLogger = new Logger("Lyrics Romanization");
 
-const KoreanTextTest =
-  /[가-힯]|[ᄀ-ᇿ]|[㄰-㆏]|[ꥠ-꥿]|[ힰ-퟿]/;
-const ChineseTextText = /([一-鿿])/;
-const JapaneseTextText = /([ぁ-んァ-ン])/;
-
-// Cyrillic (basic + supplements + extended). The {2,} threshold avoids false
-// positives on single Latin-lookalike Cyrillic letters at the song level.
-const CyrillicTextTest = /[Ѐ-ӿԀ-ԯⷠ-ⷿꙀ-ꚟ]{2,}/;
-
-// Greek (Basic + Extended)
-const GreekTextTest = /[Ͱ-Ͽἀ-῿]/;
-
 // Per-item (1-char) presence tests. Once a script is confirmed present in the
-// whole song, a single matching character in an item is enough to romanize it
-// (mirrors the previous "force conversion for the detected branch" behaviour).
-const ItemJapaneseTest = /[぀-ヿ一-鿿]/; // kana + kanji
+// whole song, a single matching character in an item is enough to romanize it.
+const ItemJapaneseTest = /[぀-ヿ一-鿿]/;
 const ItemChineseTest = /[一-鿿]/;
 const ItemKoreanTest = KoreanTextTest;
 const ItemCyrillicTest = /[Ѐ-ӿԀ-ԯⷠ-ⷿꙀ-ꚟ]/;
 const ItemGreekTest = GreekTextTest;
 
 // Any original (non-Latin) romanizable script — used in dev to flag residue.
-const ResidualScriptTest =
-  /[぀-ヿ一-鿿가-힯ᄀ-ᇿ㄰-㆏Ѐ-ԯͰ-Ͽἀ-῿]/;
+const ResidualScriptTest = /[぀-ヿ一-鿿가-힯ᄀ-ᇿ㄰-㆏Ѐ-ԯͰ-Ͽἀ-῿]/;
 
 // Load Packages
-RetrievePackage("pinyin", "4.0.0", "mjs")
-  .catch(() => {});
-
-RetrievePackage("aromanize", "1.0.0", "js")
-  .catch(() => {});
-
-RetrievePackage("GreekRomanization", "1.0.0", "js")
-  .catch(() => {});
+RetrievePackage("pinyin", "4.0.0", "mjs").catch(() => {});
+RetrievePackage("aromanize", "1.0.0", "js").catch(() => {});
+RetrievePackage("GreekRomanization", "1.0.0", "js").catch(() => {});
 
 type RomanizationBranch = "Japanese" | "Chinese" | "Korean" | "Cyrillic" | "Greek";
 
-// Priority order used both for detection and for composing converters per item.
 const SCRIPT_PRIORITY: RomanizationBranch[] = [
   "Japanese",
   "Chinese",
@@ -70,28 +64,13 @@ const romanizationBranchFromFranc = (
   iso2Language: string | undefined
 ): RomanizationBranch | undefined => {
   if (primaryLanguage === "jpn") return "Japanese";
-  if (primaryLanguage === "cmn") return "Chinese";
+  if (primaryLanguage === "cmn" || primaryLanguage === "yue") return "Chinese";
   if (primaryLanguage === "kor") return "Korean";
-  if (
-    primaryLanguage === "bel" ||
-    primaryLanguage === "bul" ||
-    primaryLanguage === "kaz" ||
-    iso2Language === "ky" ||
-    primaryLanguage === "mkd" ||
-    iso2Language === "mn" ||
-    primaryLanguage === "rus" ||
-    primaryLanguage === "srp" ||
-    primaryLanguage === "tgk" ||
-    primaryLanguage === "ukr"
-  ) {
-    return "Cyrillic";
-  }
+  if (isCyrillicLanguage(primaryLanguage, iso2Language)) return "Cyrillic";
   if (primaryLanguage === "ell") return "Greek";
   return undefined;
 };
 
-// Load every package needed for the scripts present in the current song, once.
-// (Cyrillic uses the statically-imported cyrillicToLatin, so it needs nothing.)
 const loadPackagesForScripts = async (
   scripts: RomanizationBranch[]
 ): Promise<RomanizationPackages> => {
@@ -99,7 +78,7 @@ const loadPackagesForScripts = async (
   for (const script of scripts) {
     if (script === "Japanese") {
       await RomajiPromise;
-    } else if (script === "Chinese") {
+    } else if (script === "Chinese" && chineseTranslitMode !== "jyutping") {
       packages.pinyin = await RetrievePackage("pinyin", "4.0.0", "mjs");
     } else if (script === "Korean") {
       packages.aromanize = await RetrievePackage("aromanize", "1.0.0", "js");
@@ -110,18 +89,28 @@ const loadPackagesForScripts = async (
   return packages;
 };
 
-// --- Pure converter steps: romanize their own script, pass everything else
-// through unchanged so they can be composed for mixed-script text. ---
-
 const romanizeJapaneseText = async (text: string): Promise<string> => {
   await RomajiPromise;
-  return await RomajiConverter.convert(text, { to: "romaji", mode: "spaced" });
+  const normalized = text.normalize("NFKC");
+  let result = await RomajiConverter.convert(normalized, { to: "romaji", mode: "spaced" });
+  if (CJKIdeographTest.test(result)) {
+    const rebuilt = await buildRomajiFromTokens(normalized);
+    if (rebuilt) result = rebuilt;
+  }
+  return result;
 };
 
-const romanizeChineseText = (text: string, pinyin: any): string => {
+const romanizeChineseText = async (
+  text: string,
+  pinyin: any,
+  primaryLanguage: string
+): Promise<string> => {
+  if (chineseTranslitMode === "jyutping") {
+    return (await romanizeCantonese(text, primaryLanguage, true)) ?? text;
+  }
   if (!pinyin) return text;
   const result = pinyin.pinyin(text, { segment: false, group: true });
-  return result.join("-");
+  return result.join(" ");
 };
 
 const romanizeKoreanText = (text: string, aromanize: any): string => {
@@ -129,10 +118,7 @@ const romanizeKoreanText = (text: string, aromanize: any): string => {
   return aromanize.default(text, "RevisedRomanizationTransliteration");
 };
 
-const romanizeCyrillicText = (text: string): string => {
-  const result = cyrillicToLatin(text);
-  return result != null ? result : text;
-};
+const romanizeCyrillicText = (text: string): string => romanizeCyrillic(text);
 
 const romanizeGreekText = (text: string, greekRomanization: any): string => {
   if (!greekRomanization) return text;
@@ -140,17 +126,8 @@ const romanizeGreekText = (text: string, greekRomanization: any): string => {
   return result != null ? result : text;
 };
 
-// One unit of romanization work. `target` is the object that receives
-// TransliteratedText (a line, or an individual syllable); `line` is the
-// line-level object that receives the HasTransliterations flag. For Static and
-// Line lyrics these are the same object; for Syllable lyrics `line` is the
-// vocal group while `target` is each syllable.
 type RomanizeEntry = { target: any; line: any };
 
-// Collect the units that get romanized plus the text franc analyses.
-// The traversal (and which objects are romanized) is identical to the original
-// per-type logic; only Lead syllables feed franc, Background syllables are still
-// romanized.
 const gatherText = (
   lyrics: any
 ): { francText: string; scriptText: string; entries: RomanizeEntry[] } => {
@@ -165,14 +142,14 @@ const gatherText = (
     }
   } else if (lyrics.Type === "Line") {
     for (const vocalGroup of lyrics.Content) {
-      if (vocalGroup.Type === "Vocal") {
+      if (vocalGroup.Type === "Vocal" || vocalGroup.Text) {
         entries.push({ target: vocalGroup, line: vocalGroup });
         textLines.push(vocalGroup.Text);
       }
     }
   } else if (lyrics.Type === "Syllable") {
     for (const vocalGroup of lyrics.Content) {
-      if (vocalGroup.Type !== "Vocal") continue;
+      if (vocalGroup.Type !== undefined && vocalGroup.Type !== "Vocal") continue;
 
       const syllables = vocalGroup.Lead.Syllables;
       if (syllables.length > 0) {
@@ -187,26 +164,21 @@ const gatherText = (
       }
 
       if (vocalGroup.Background !== undefined) {
-        for (const syllable of vocalGroup.Background[0].Syllables) {
-          entries.push({ target: syllable, line: vocalGroup });
-          bgTextLines.push(syllable.Text);
+        for (const bg of vocalGroup.Background) {
+          for (const syllable of bg.Syllables) {
+            entries.push({ target: syllable, line: vocalGroup });
+            bgTextLines.push(syllable.Text);
+          }
         }
       }
     }
   }
 
-  // franc analyses lead text only (so Language detection is unchanged); script
-  // detection additionally considers background vocals, which are romanized too.
   const francText = textLines.join("\n");
-  const scriptText =
-    bgTextLines.length > 0 ? `${francText}\n${bgTextLines.join("\n")}` : francText;
+  const scriptText = bgTextLines.length > 0 ? `${francText}\n${bgTextLines.join("\n")}` : francText;
   return { francText, scriptText, entries };
 };
 
-// Which scripts actually appear in the song. CJK is disambiguated to exactly one
-// of Japanese/Chinese (kana => Japanese, else Han => Chinese) so pinyin never
-// runs over a kana song's kanji. franc is folded in as a hint to cover short
-// text where a regex threshold (e.g. Cyrillic {2,}) might miss.
 const detectPresentScripts = (
   scriptText: string,
   language: string,
@@ -214,9 +186,9 @@ const detectPresentScripts = (
 ): RomanizationBranch[] => {
   const present = new Set<RomanizationBranch>();
 
-  if (JapaneseTextText.test(scriptText)) {
+  if (JapaneseTextTest.test(scriptText)) {
     present.add("Japanese");
-  } else if (ChineseTextText.test(scriptText)) {
+  } else if (ChineseTextTest.test(scriptText)) {
     present.add("Chinese");
   }
   if (KoreanTextTest.test(scriptText)) present.add("Korean");
@@ -235,22 +207,107 @@ const detectPresentScripts = (
   return SCRIPT_PRIORITY.filter((script) => present.has(script));
 };
 
-// Whether an entry already carries a transliteration (e.g. supplied by the API).
 const hasTransliteration = (entry: any): boolean =>
   typeof entry.TransliteratedText === "string" && entry.TransliteratedText !== "";
 
-// Romanize a single entry by composing every present-script converter whose
-// characters it contains, in priority order, feeding each step's output forward.
-// Returns true if it produced a transliteration for this entry.
+const joinSyllables = (syllables: any[], compact = false): string => {
+  if (compact) return syllables.map((s) => s.Text).join("");
+  return syllables.reduce((acc, syl, index) => {
+    if (index === 0) return syl.Text || "";
+    return `${acc}${syl.IsPartOfWord ? "" : " "}${syl.Text || ""}`;
+  }, "");
+};
+
+const romanizeLineText = async (
+  text: string,
+  presentScripts: RomanizationBranch[],
+  packages: RomanizationPackages,
+  language: string
+): Promise<string | undefined> => {
+  const entry = { target: { Text: text }, line: {} };
+  const changed = await romanizeEntry(entry, presentScripts, packages, language);
+  return changed ? entry.target.TransliteratedText : undefined;
+};
+
+const postProcessSyllableRomanization = async (
+  lyrics: any,
+  presentScripts: RomanizationBranch[],
+  packages: RomanizationPackages,
+  language: string
+) => {
+  if (lyrics.Type !== "Syllable") return;
+
+  const isJapaneseSong =
+    language === "jpn" ||
+    lyrics.Content?.some((group: any) =>
+      group.Lead?.Syllables?.some((s: any) => JapaneseTextTest.test(s.Text || ""))
+    );
+  const isChineseSong =
+    language === "cmn" ||
+    language === "yue" ||
+    lyrics.Content?.some((group: any) =>
+      group.Lead?.Syllables?.some((s: any) => ChineseTextTest.test(s.Text || ""))
+    );
+
+  for (const vocalGroup of lyrics.Content || []) {
+    if (vocalGroup.Type !== undefined && vocalGroup.Type !== "Vocal") continue;
+
+    const processGroup = async (group: any) => {
+      const syllables = group?.Syllables;
+      if (!Array.isArray(syllables) || syllables.length === 0) return;
+
+      const lineText = joinSyllables(syllables, isJapaneseSong);
+      const fullRomaji = await romanizeLineText(lineText, presentScripts, packages, language);
+      if (!fullRomaji) return;
+
+      group.TransliteratedText = fullRomaji;
+      group.RomanizedText = fullRomaji;
+
+      if (isJapaneseSong) {
+        for (const syllable of syllables) {
+          delete syllable.RomanizedText;
+          delete syllable.TransliteratedText;
+          delete syllable.RomajiSpaceBefore;
+        }
+        await mapRomajiToJapaneseSyllables(lineText, fullRomaji, syllables, RomajiPromise);
+        for (const syllable of syllables) {
+          if (syllable.RomanizedText) {
+            syllable.TransliteratedText = syllable.RomanizedText;
+          } else {
+            delete syllable.TransliteratedText;
+          }
+        }
+      } else {
+        for (let index = 0; index < syllables.length; index += 1) {
+          const syllable = syllables[index];
+          if (syllable.TransliteratedText && !syllable.RomanizedText) {
+            syllable.RomanizedText = syllable.TransliteratedText;
+          }
+          if (isChineseSong && index > 0 && syllable.RomanizedText) {
+            syllable.RomajiSpaceBefore = true;
+          }
+        }
+      }
+    };
+
+    await processGroup(vocalGroup.Lead);
+    for (const bg of vocalGroup.Background || []) {
+      await processGroup(bg);
+    }
+  }
+};
+
 const romanizeEntry = async (
   entry: RomanizeEntry,
   presentScripts: RomanizationBranch[],
-  packages: RomanizationPackages
+  packages: RomanizationPackages,
+  primaryLanguage: string
 ): Promise<boolean> => {
   const { target, line } = entry;
 
-  // Prefer a transliteration the API already provided — only fill in the gaps.
   if (hasTransliteration(target)) return false;
+
+  if (target.Text) target.Text = target.Text.normalize("NFKC");
 
   let text: string = target.Text;
   let changed = false;
@@ -263,7 +320,7 @@ const romanizeEntry = async (
       }
     } else if (script === "Chinese") {
       if (ItemChineseTest.test(text)) {
-        text = romanizeChineseText(text, packages.pinyin);
+        text = await romanizeChineseText(text, packages.pinyin, primaryLanguage);
         changed = true;
       }
     } else if (script === "Korean") {
@@ -285,27 +342,27 @@ const romanizeEntry = async (
   }
 
   if (changed) {
-    // TransliteratedText lives on the word/syllable; the HasTransliterations flag
-    // lives on the line (and the root) — never on individual words/syllables.
     target.TransliteratedText = text;
+    target.RomanizedText = text;
     line.HasTransliterations = true;
     if (ResidualScriptTest.test(text)) {
-      romanizationLogger.warn(
-        "Incomplete romanization (original-script characters remain)",
-        { original: target.Text, romanized: text }
-      );
+      romanizationLogger.warn("Incomplete romanization (original-script characters remain)", {
+        original: target.Text,
+        romanized: text,
+      });
     }
   }
 
   return changed;
 };
 
-export const ProcessLyrics = async (lyrics: any) => {
-  // Transliterations the API already shipped are preferred and never overwritten,
-  // but we still romanize any entry that's missing one — partial API data should
-  // not leave gaps.
+export const ProcessLyrics = async (
+  lyrics: any,
+  options: { updatePageClasses?: boolean; awaitTranslation?: boolean } = {}
+) => {
+  const updatePageClasses = options.updatePageClasses !== false;
+  const awaitTranslation = options.awaitTranslation !== false;
   const hadApiTransliterations = lyrics.HasTransliterations === true;
-
   const { francText, scriptText, entries } = gatherText(lyrics);
 
   const language = franc(francText);
@@ -315,23 +372,50 @@ export const ProcessLyrics = async (lyrics: any) => {
 
   const presentScripts = detectPresentScripts(scriptText, language, languageISO2);
 
-  // Skip the work (incl. loading packages) when there are no romanizable scripts
-  // or every entry already has a transliteration.
   let appliedRomanization = false;
+  let packages: RomanizationPackages = {};
   if (presentScripts.length > 0 && entries.some((entry) => !hasTransliteration(entry.target))) {
-    const packages = await loadPackagesForScripts(presentScripts);
+    packages = await loadPackagesForScripts(presentScripts);
     const results = await Promise.all(
-      entries.map((entry) => romanizeEntry(entry, presentScripts, packages))
+      entries.map((entry) => romanizeEntry(entry, presentScripts, packages, language))
     );
     appliedRomanization = results.some(Boolean);
   }
 
-  // True if the API shipped transliterations or we generated any here.
+  if (presentScripts.length > 0) {
+    if (Object.keys(packages).length === 0) packages = await loadPackagesForScripts(presentScripts);
+    await postProcessSyllableRomanization(lyrics, presentScripts, packages, language);
+  }
+
+  lyrics.IncludesRomanization = hadApiTransliterations || appliedRomanization;
   lyrics.HasTransliterations = hadApiTransliterations || appliedRomanization;
 
-  if (lyrics.HasTransliterations === true) {
-    PageContainer?.classList.add("Lyrics_RomanizationAvailable");
-  } else {
-    PageContainer?.classList.remove("Lyrics_RomanizationAvailable");
+  if (updatePageClasses) {
+    if (lyrics.HasTransliterations === true) {
+      PageContainer?.classList.add("Lyrics_RomanizationAvailable");
+    } else {
+      PageContainer?.classList.remove("Lyrics_RomanizationAvailable");
+    }
+
+    const detectedChinese = presentScripts.includes("Chinese");
+    lyrics.DetectedChinese = detectedChinese;
+    if (detectedChinese) {
+      PageContainer?.classList.add("Lyrics_ChineseDetected");
+    } else {
+      PageContainer?.classList.remove("Lyrics_ChineseDetected");
+    }
+  }
+
+  if (awaitTranslation) {
+    lyrics.DetectedChinese = presentScripts.includes("Chinese");
+
+  await translateLyrics(lyrics);
+    if (updatePageClasses) {
+      if (lyrics.IncludesTranslation === true) {
+        PageContainer?.classList.add("Lyrics_TranslationAvailable");
+      } else {
+        PageContainer?.classList.remove("Lyrics_TranslationAvailable");
+      }
+    }
   }
 };

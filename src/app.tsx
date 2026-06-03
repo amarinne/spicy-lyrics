@@ -42,12 +42,12 @@ import {
 import { IsPlaying } from "./utils/Addons.ts";
 import { requestPositionSync } from "./utils/Gets/GetProgress.ts";
 import { IntervalManager } from "./utils/IntervalManager.ts";
-import fetchLyrics from "./utils/Lyrics/fetchLyrics.ts";
+import fetchLyrics, { PrefetchLyrics } from "./utils/Lyrics/fetchLyrics.ts";
 import ApplyLyrics from "./utils/Lyrics/Global/Applyer.ts";
 import { ScrollingIntervalTime } from "./utils/Lyrics/lyrics.ts";
 import { ScrollToActiveLine } from "./utils/Scrolling/ScrollToActiveLine.ts";
 import { ScrollSimplebar } from "./utils/Scrolling/Simplebar/ScrollSimplebar.ts";
-import { $fromVersion, $lastFetchedUri, $previousVersion, $sidebarStatus } from "./utils/uiState.ts";
+import { $fromVersion, $lastFetchedUri, $prefetchNextLyrics, $previousVersion, $sidebarStatus } from "./utils/uiState.ts";
 import { CheckForUpdates } from "./utils/version/CheckForUpdates.tsx";
 import { needsMigration, showMigrationModal } from "./utils/migration/DataMigration.tsx";
 import "./css/settings-panel.css";
@@ -63,7 +63,7 @@ import "./utils/settings.ts";
 import SLToaster from "./components/ReactComponents/SLToaster.tsx";
 import { openSettingsPanel } from "./utils/settings.ts";
 import { exposeToWindow } from "./utils/expose.ts";
-import Logger from "./utils/logger.ts";
+import Logger from "./utils/Logger.ts";
 import Whentil from "./modules/Whentil.ts";
 import App from "./utils/app.ts";
 
@@ -716,6 +716,62 @@ async function main() {
       scheduleNowPlayingBarDynamicBackgroundApply()
     });
 
+    function extractUri(candidate: any): string | undefined {
+      if (!candidate) return undefined;
+      if (typeof candidate === "string" && candidate.startsWith("spotify:track:")) return candidate;
+      return candidate.uri ?? candidate.item?.uri ?? candidate.track?.uri ?? candidate.contextTrack?.uri;
+    }
+
+    async function getNextTrackUri(): Promise<string | undefined> {
+      const playerData = (Spicetify.Player as any)?.data;
+      const platformPlayer = (Spicetify.Platform as any)?.PlayerAPI;
+      const candidates = [
+        playerData?.nextItems?.[0],
+        playerData?.next_tracks?.[0],
+        playerData?.queue?.nextTracks?.[0],
+        playerData?.queue?.[0],
+        platformPlayer?._state?.nextTracks?.[0],
+        platformPlayer?._state?.queue?.nextTracks?.[0],
+        platformPlayer?._queue?._queue?.[0],
+      ];
+
+      for (const candidate of candidates) {
+        const uri = extractUri(candidate);
+        if (uri?.startsWith("spotify:track:")) return uri;
+      }
+
+      try {
+        const queue = await platformPlayer?.getQueue?.();
+        const uri = extractUri(queue?.nextTracks?.[0] ?? queue?.queue?.[0] ?? queue?.tracks?.[0]);
+        if (uri?.startsWith("spotify:track:")) return uri;
+      } catch (err) {
+        playbackLogger.debug("Unable to read next track queue", err);
+      }
+
+      try {
+        const queue = await (Spicetify as any)?.CosmosAsync?.get?.("sp://player/v2/main");
+        const uri = extractUri(queue?.next_tracks?.[0] ?? queue?.nextTracks?.[0]);
+        if (uri?.startsWith("spotify:track:")) return uri;
+      } catch (err) {
+        playbackLogger.debug("Unable to read player queue via Cosmos", err);
+      }
+
+      return undefined;
+    }
+
+    let lastPrefetchedUri: string | null = null;
+    let prefetchTimer: ReturnType<typeof setTimeout> | null = null;
+    async function scheduleNextLyricsPrefetch(delayMs = 1200) {
+      if (!$prefetchNextLyrics.get()) return;
+      if (prefetchTimer) clearTimeout(prefetchTimer);
+      prefetchTimer = setTimeout(async () => {
+        const nextUri = await getNextTrackUri();
+        if (!nextUri || nextUri === SpotifyPlayer.GetUri() || nextUri === lastPrefetchedUri) return;
+        lastPrefetchedUri = nextUri;
+        void PrefetchLyrics(nextUri);
+      }, delayMs);
+    }
+
     async function onSongChange(event: any) {
       playbackLogger.debug("Song change pipeline");
       const contentType = SpotifyPlayer.GetContentType();
@@ -744,6 +800,7 @@ async function main() {
       if (songUri) {
         fetchLyrics(songUri).then(ApplyLyrics);
       }
+      void scheduleNextLyricsPrefetch();
 
       const _staticBgMode = $staticBackgroundMode.get();
       if (
@@ -777,6 +834,16 @@ async function main() {
     }
     Global.Event.listen("playback:songchange", onSongChange);
 
+    const initUri = SpotifyPlayer.GetUri();
+    if (initUri) {
+      fetchLyrics(initUri).then(ApplyLyrics);
+      void scheduleNextLyricsPrefetch(1800);
+    }
+
+    window.setInterval(() => {
+      void scheduleNextLyricsPrefetch(0);
+    }, 30000);
+
     const _initStaticBgMode = $staticBackgroundMode.get();
     if (
       _initStaticBgMode !== "off" &&
@@ -798,6 +865,13 @@ async function main() {
 
       fetchLyrics(Spicetify.Player.data?.item?.uri).then(ApplyLyrics);
     });
+
+    window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) => {
+      const { trackId, lyrics } = event.detail ?? {};
+      if (!trackId || SpotifyPlayer.GetId() !== trackId) return;
+      ApplyLyrics([lyrics, 200]);
+      PageView.AppendViewControls(true);
+    }) as EventListener);
 
     new IntervalManager(ScrollingIntervalTime, () => {
       if (ScrollSimplebar) {

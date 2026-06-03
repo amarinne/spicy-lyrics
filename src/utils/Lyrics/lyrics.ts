@@ -1,5 +1,10 @@
 import { $lyricsContainerExists, $minimalLyricsMode } from "../stores.ts";
-import { $romanization } from "../uiState.ts";
+import {
+  $chineseTranslitMode,
+  $romanization,
+  $translationEnabled,
+  $translationTargetLang,
+} from "../uiState.ts";
 import Global from "../../components/Global/Global.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import { Lyrics } from "./Animator/Main.ts";
@@ -51,6 +56,7 @@ export interface LineAnimatorStore {
 // Define the Lead item interface for syllables
 export interface SyllableLead {
   HTMLElement: HTMLElement;
+  RomajiElement?: HTMLElement;
   StartTime: number;
   EndTime: number;
   TotalTime: number;
@@ -339,6 +345,34 @@ export let isRomanized = $romanization.get();
 export const setRomanizedStatus = (val: boolean) => {
   isRomanized = val;
   $romanization.set(val);
+};
+
+export type ChineseTranslitMode = "pinyin" | "jyutping";
+
+export let chineseTranslitMode: ChineseTranslitMode = $chineseTranslitMode.get();
+$chineseTranslitMode.listen((val) => {
+  chineseTranslitMode = val;
+});
+export const setChineseTranslitMode = (val: ChineseTranslitMode) => {
+  chineseTranslitMode = val;
+  $chineseTranslitMode.set(val);
+};
+
+export let translationEnabled = $translationEnabled.get();
+$translationEnabled.listen((val) => {
+  translationEnabled = val;
+});
+export let translationTargetLang = $translationTargetLang.get();
+$translationTargetLang.listen((val) => {
+  translationTargetLang = val;
+});
+export const setTranslationEnabled = (val: boolean) => {
+  translationEnabled = val;
+  $translationEnabled.set(val);
+};
+export const setTranslationTargetLang = (val: string) => {
+  translationTargetLang = val;
+  $translationTargetLang.set(val);
 };
 
 export const preHiddenDotLineMs = 500;

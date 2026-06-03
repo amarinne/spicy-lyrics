@@ -5,7 +5,8 @@ import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import PageView, { PageContainer } from "../../components/Pages/PageView.ts";
 import { Query } from "../API/Query.ts";
 import { ProcessLyrics } from "./ProcessLyrics.ts";
-import Logger from "../logger.ts";
+import { translationEnabled } from "./lyrics.ts";
+import Logger from "../Logger.ts";
 import { LocalLyricsManager } from "./manager/index.ts";
 import { LyricsQueueRetry } from "./LyricsQueueRetry.ts";
 import { GetExpireStore } from "../../modules/Store.ts";
@@ -13,6 +14,8 @@ import { SLObjPack } from "../objpack.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
+const lyricsPrefetchLogger = new Logger("Lyrics Prefetch");
+const prefetchInFlight = new Set<string>();
 
 // recently updated key structure - changed name
 export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 1, {
@@ -35,16 +38,110 @@ function setRomanizationClass(hasTransliterations: boolean | undefined): void {
  * loader, publish the type, reveal the containers and view controls, and clear the
  * fetching flag. Used by every successful return path.
  */
+async function finishProcessingInBackground(trackId: string, lyrics: any): Promise<void> {
+  try {
+    await ProcessLyrics(lyrics, { updatePageClasses: false, awaitTranslation: true });
+    lyrics.ProcessingPending = false;
+    lyrics.RomanizationPending = false;
+    lyrics.TranslationPending = false;
+    await LyricsStore.SetItem(trackId, lyrics);
+    if (SpotifyPlayer.GetId() === trackId) {
+      $currentLyricsData.set(JSON.stringify(lyrics));
+      window.dispatchEvent(
+        new CustomEvent("spicy-lyrics:processing-ready", {
+          detail: { trackId, lyrics },
+        })
+      );
+    }
+  } catch (error) {
+    lyrics.ProcessingPending = false;
+    lyrics.RomanizationPending = false;
+    lyrics.TranslationPending = false;
+    lyricsCacheLogger.error("Background lyrics processing failed", error);
+  }
+}
+
+function detectChineseQuick(lyrics: any): boolean {
+  const parts: string[] = [];
+  if (lyrics?.Type === "Static") {
+    for (const line of lyrics.Lines || []) parts.push(line.Text || "");
+  } else if (lyrics?.Type === "Line") {
+    for (const line of lyrics.Content || []) parts.push(line.Text || "");
+  } else if (lyrics?.Type === "Syllable") {
+    for (const group of lyrics.Content || []) {
+      for (const syl of group.Lead?.Syllables || []) parts.push(syl.Text || "");
+      for (const bg of group.Background || []) {
+        for (const syl of bg.Syllables || []) parts.push(syl.Text || "");
+      }
+    }
+  }
+  const text = parts.join("");
+  return /[\u4E00-\u9FFF]/.test(text) && !/[ぁ-んァ-ン]/.test(text);
+}
+
 function presentLyrics(lyricsData: any): void {
   // Lyrics are in hand — end any 503 retry loop that was running for this track.
   LyricsQueueRetry.NotifyResolved(lyricsData?.uri);
-  setRomanizationClass(lyricsData?.HasTransliterations);
+  setRomanizationClass(lyricsData?.HasTransliterations || lyricsData?.RomanizationPending);
+  PageContainer?.classList.toggle("Lyrics_ChineseDetected", lyricsData?.DetectedChinese === true);
+  PageContainer?.classList.toggle("Lyrics_TranslationAvailable", lyricsData?.IncludesTranslation === true || lyricsData?.TranslationPending === true);
   HideLoaderContainer();
   $currentLyricsType.set(lyricsData.Type);
   PageContainer?.querySelector<HTMLElement>(".ContentBox")?.classList.remove("LyricsHidden");
   PageContainer?.querySelector(".ContentBox .LyricsContainer")?.classList.remove("Hidden");
   PageView.AppendViewControls(true);
   $currentlyFetching.set(false);
+}
+
+export async function PrefetchLyrics(uri: string): Promise<void> {
+  const trackId = uri?.split(":")?.[2];
+  if (!trackId || uri.startsWith("spotify:local:")) return;
+  if (prefetchInFlight.has(trackId)) return;
+
+  try {
+    const cached = await LyricsStore.GetItem(trackId);
+    if (cached) return;
+    const localLyric = await LocalLyricsManager.get(uri);
+    if (localLyric) {
+      await LyricsStore.SetItem(trackId, { ...localLyric, id: trackId });
+      return;
+    }
+  } catch (error) {
+    lyricsPrefetchLogger.debug("Prefetch cache probe failed", error);
+  }
+
+  prefetchInFlight.add(trackId);
+  try {
+    const Token = await Platform.GetSpotifyAccessToken();
+    const queries = await Query(
+      [
+        {
+          operation: "lyrics",
+          variables: {
+            id: trackId,
+            auth: "SpicyLyrics-WebAuth",
+          },
+        },
+      ],
+      {
+        "SpicyLyrics-WebAuth": `Bearer ${Token}`,
+      }
+    );
+
+    const lyricsQuery = queries.get("0");
+    if (!lyricsQuery || lyricsQuery.httpStatus !== 200) return;
+
+    const lyrics = lyricsPacker.unpack(lyricsQuery.data);
+    if (lyrics === null || lyrics === undefined || lyrics === "") return;
+
+    await ProcessLyrics(lyrics, { updatePageClasses: false });
+    await LyricsStore.SetItem(trackId, lyrics);
+    lyricsPrefetchLogger.debug("Prefetched next lyrics", { trackId, uri });
+  } catch (error) {
+    lyricsPrefetchLogger.debug("Prefetch failed", error);
+  } finally {
+    prefetchInFlight.delete(trackId);
+  }
 }
 
 export default async function fetchLyrics(uri: string): Promise<[object | string, number] | null> {
@@ -118,7 +215,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
       } else {
         const lyricsData = JSON.parse(savedLyricsData);
         // Return the stored lyrics if the URI matches the current track URI
-        if (lyricsData?.uri === uri) {
+        if (lyricsData?.uri === uri && lyricsData?.ProcessingPending !== true) {
           presentLyrics(lyricsData);
           return [lyricsData, 200];
         }
@@ -243,22 +340,18 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
       return ["lyrics-not-found", 404];
     }
 
-    await ProcessLyrics(lyrics);
-
     // Stamp the uri so every match downstream (saved-data, re-fetch, cache)
     // keys off the stable uri instead of the API-supplied id.
     lyrics.uri = uri;
+    lyrics.id = trackId;
+    lyrics.DetectedChinese = detectChineseQuick(lyrics);
+    lyrics.ProcessingPending = true;
+    lyrics.RomanizationPending = true;
+    lyrics.TranslationPending = translationEnabled;
     $currentLyricsData.set(JSON.stringify(lyrics));
 
-    if (LyricsStore) {
-      try {
-        await LyricsStore.SetItem(trackId, lyrics);
-      } catch (error) {
-        lyricsCacheLogger.error("Error saving lyrics to cache", error);
-      }
-    }
-
     presentLyrics(lyrics);
+    void finishProcessingInBackground(trackId, lyrics);
     return [{ ...lyrics, fromCache: false }, 200];
   } catch (error) {
     lyricsLogger.error("Error fetching lyrics", error);

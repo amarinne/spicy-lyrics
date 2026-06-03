@@ -21,6 +21,7 @@ import { ApplyIsByCommunity } from "./Credits/ApplyIsByCommunity.tsx";
 import { ApplyLyricsCredits } from "./Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "./OnApply.ts";
 import { ApplyLyricsProvider } from "./Credits/ApplyProvider.ts";
+import { isMeaningfullyDifferent } from "../TextCompare.ts";
 
 /**
  * Interface for static lyrics data
@@ -30,6 +31,7 @@ export interface StaticLyricsData {
   Lines: Array<{
     Text: string;
     TransliteratedText?: string;
+    TranslatedText?: string;
   }>;
   offline?: boolean;
   classes?: string;
@@ -75,14 +77,32 @@ export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean 
 
   const lineElements: HTMLElement[] = [];
 
+  const translationPending = (data as any).TranslationPending === true;
+  const romanizationPending = (data as any).RomanizationPending === true;
+
   data.Lines.forEach((line) => {
     const lineElem = document.createElement("div");
 
-    lineElem.textContent =
-      UseRomanized && line.TransliteratedText !== undefined ? line.TransliteratedText : line.Text;
+    lineElem.textContent = line.Text;
+
+    const hasDistinctRomanization = isMeaningfullyDifferent(line.TransliteratedText, line.Text);
+    if (UseRomanized && (hasDistinctRomanization || romanizationPending)) {
+      const romanizedElem = document.createElement("div");
+      romanizedElem.className = `romanized-below${romanizationPending && !hasDistinctRomanization ? " romanization-placeholder" : ""}`;
+      romanizedElem.textContent = hasDistinctRomanization ? line.TransliteratedText! : "";
+      lineElem.appendChild(romanizedElem);
+    }
 
     if (isRtl(line.Text) && !lineElem.classList.contains("rtl")) {
       lineElem.classList.add("rtl");
+    }
+
+    const hasDistinctTranslation = isMeaningfullyDifferent(line.TranslatedText, line.Text);
+    if (hasDistinctTranslation || translationPending) {
+      const translatedElem = document.createElement("div");
+      translatedElem.className = `translated-below${translationPending && !hasDistinctTranslation ? " translation-placeholder" : ""}`;
+      translatedElem.textContent = hasDistinctTranslation ? line.TranslatedText! : "";
+      lineElem.appendChild(translatedElem);
     }
 
     lineElem.classList.add("line");

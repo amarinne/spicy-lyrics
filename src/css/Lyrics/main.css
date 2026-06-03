@@ -121,6 +121,75 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   margin: 0 !important;
 }
 
+#SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below {
+  display: block;
+  width: 100%;
+  margin-top: 0.15em;
+  font-size: calc(var(--DefaultLyricsSize) * 0.42);
+  font-weight: 400;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.55);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
+  text-shadow: none;
+  background: none;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below.romanization-placeholder {
+  min-height: calc(var(--DefaultLyricsSize) * 0.5);
+  opacity: 0.28;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below.romanization-placeholder::after {
+  content: "";
+  display: inline-block;
+  width: min(42%, 13em);
+  height: 0.72em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below .romanized-syllable {
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-image: linear-gradient(
+    var(--gradient-degrees, 90deg),
+    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -20%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))
+  );
+  --gradient-position: -20%;
+  --gradient-degrees: 90deg;
+  --gradient-alpha-end: 0.35;
+  text-shadow: none;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below {
+  display: block;
+  width: 100%;
+  margin-top: 0.12em;
+  font-size: calc(var(--DefaultLyricsSize) * 0.38);
+  font-weight: 400;
+  line-height: 1.2;
+  color: rgba(255, 255, 255, 0.45);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
+  font-style: italic;
+  text-shadow: none;
+  background: none;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below.translation-placeholder {
+  min-height: calc(var(--DefaultLyricsSize) * 0.46);
+  opacity: 0.28;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below.translation-placeholder::after {
+  content: "";
+  display: inline-block;
+  width: min(38%, 12em);
+  height: 0.7em;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+}
+
 #SpicyLyricsPage.Fullscreen.MinimalLyricsMode
   .LyricsContainer
   .LyricsContent

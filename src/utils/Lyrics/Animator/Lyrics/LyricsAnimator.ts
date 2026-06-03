@@ -769,6 +769,10 @@ export function Animate(position: number): void {
             const currentYOffset = word.AnimatorStore.YOffset.Step(deltaTime);
             const currentGlow = word.AnimatorStore.Glow.Step(deltaTime);
 
+            if (word.RomajiElement) {
+              word.RomajiElement.style.setProperty("--gradient-position", `${targetGradientPos}%`);
+            }
+
             setStyleIfChanged(word.HTMLElement, "scale", `${currentScale}`, 0.001);
             // Use translate3d to ensure GPU-accelerated transforms
             setStyleIfChanged(
@@ -860,6 +864,9 @@ export function Animate(position: number): void {
                 }
               } else {
                 word.HTMLElement.style.setProperty("--gradient-position", `${targetGradientPos}%`);
+                if (word.RomajiElement) {
+                  word.RomajiElement.style.setProperty("--gradient-position", `${targetGradientPos}%`);
+                }
               }
               // Reduce redundant writes using thresholds for smoother performance
               setStyleIfChanged(
@@ -1407,12 +1414,18 @@ export function Animate(position: number): void {
               );
               setStyleIfChanged(word.HTMLElement, "scale", `${currentScale}`, 0.001);
               //}
+              if (word.RomajiElement) {
+                word.RomajiElement.style.setProperty("--gradient-position", "100%");
+              }
               if (!word.LetterGroup) {
                 if ($simpleLyricsMode.get()) {
                   word.HTMLElement.style.animation = "none";
                   word.HTMLElement.style.setProperty("--SLM_GradientPosition", "100%");
                 } else {
                   word.HTMLElement.style.setProperty("--gradient-position", "100%");
+                  if (word.RomajiElement) {
+                    word.RomajiElement.style.setProperty("--gradient-position", "100%");
+                  }
                 }
                 setStyleIfChanged(
                   word.HTMLElement,

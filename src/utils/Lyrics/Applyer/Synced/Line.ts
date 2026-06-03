@@ -25,6 +25,7 @@ import { ApplyIsByCommunity } from "../Credits/ApplyIsByCommunity.tsx";
 import { ApplyLyricsCredits } from "../Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "../OnApply.ts";
 import { ApplyLyricsProvider } from "../Credits/ApplyProvider.ts";
+import { isMeaningfullyDifferent } from "../../TextCompare.ts";
 
 // Define the data structure for lyrics
 interface LyricsLineData {
@@ -32,6 +33,7 @@ interface LyricsLineData {
   StartTime: number;
   EndTime: number;
   TransliteratedText?: string;
+  TranslatedText?: string;
   OppositeAligned?: boolean;
 }
 
@@ -174,10 +176,35 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
     lineElements.push(musicalLine);
   }
 
+  const translationPending = (data as any).TranslationPending === true;
+  const romanizationPending = (data as any).RomanizationPending === true;
+
   data.Content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
-    lineElem.textContent =
-      UseRomanized && line.TransliteratedText !== undefined ? line.TransliteratedText : line.Text;
+    lineElem.textContent = line.Text;
+    const hasDistinctRomanization = isMeaningfullyDifferent(line.TransliteratedText, line.Text);
+    if (UseRomanized && (hasDistinctRomanization || romanizationPending)) {
+      lineElem.style.display = "block";
+      lineElem.style.backgroundImage = "none";
+      lineElem.style.webkitTextFillColor = "inherit";
+      if (line.OppositeAligned) lineElem.style.textAlign = "end";
+      const romanizedElem = document.createElement("div");
+      romanizedElem.className = `romanized-below${romanizationPending && !hasDistinctRomanization ? " romanization-placeholder" : ""}`;
+      romanizedElem.textContent = hasDistinctRomanization ? line.TransliteratedText! : "";
+      lineElem.appendChild(romanizedElem);
+    }
+    const hasDistinctTranslation = isMeaningfullyDifferent(line.TranslatedText, line.Text);
+    if (hasDistinctTranslation || translationPending) {
+      lineElem.style.display = "block";
+      lineElem.style.backgroundImage = "none";
+      lineElem.style.webkitTextFillColor = "inherit";
+      if (line.OppositeAligned) lineElem.style.textAlign = "end";
+      const translatedElem = document.createElement("div");
+      translatedElem.className = `translated-below${translationPending && !hasDistinctTranslation ? " translation-placeholder" : ""}`;
+      translatedElem.textContent = hasDistinctTranslation ? line.TranslatedText! : "";
+      lineElem.appendChild(translatedElem);
+    }
+
     lineElem.classList.add("line");
 
     if (isRtl(line.Text) && !lineElem.classList.contains("rtl")) {

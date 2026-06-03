@@ -759,6 +759,35 @@
     inset 0 -1px 0 rgba(255, 255, 255, 0.24) !important;
 }
 
+#SpicyLyricsPage.Fullscreen.FlatViewControls
+  .ContentBox
+  .NowBar
+  .CenteredView
+  .Header
+  .MediaBox
+  .MediaContent
+  .ViewControls
+  .ViewControl {
+  background: rgba(255, 255, 255, 0.08) !important;
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+  box-shadow: none !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+}
+
+#SpicyLyricsPage.Fullscreen.FlatViewControls
+  .ContentBox
+  .NowBar
+  .CenteredView
+  .Header
+  .MediaBox
+  .MediaContent
+  .ViewControls
+  .ViewControl:hover {
+  background: rgba(255, 255, 255, 0.16) !important;
+  box-shadow: none !important;
+}
+
 #SpicyLyricsPage.Fullscreen
   .ContentBox
   .NowBar
