@@ -29,7 +29,9 @@
     "react-dom": "^19.2.6",
     "semver": "^7.8.1",
     "simplebar": "^6.3.3",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.7",
+    "to-jyutping": "^3.1.1",
+    "transliter": "^3.0.0"
   },
   "devDependencies": {
     "@types/bun": "latest",

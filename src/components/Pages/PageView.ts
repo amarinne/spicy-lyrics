@@ -1,5 +1,10 @@
-import fetchLyrics from "../../utils/Lyrics/fetchLyrics.ts";
-import { $forceCompactMode, $isGlobalNav } from "../../utils/uiState.ts";
+import fetchLyrics, { LyricsStore } from "../../utils/Lyrics/fetchLyrics.ts";
+import {
+  $flatViewControls,
+  $forceCompactMode,
+  $isGlobalNav,
+  $showChineseTranslitButton,
+} from "../../utils/uiState.ts";
 import "../../css/Loaders/DotLoader.css";
 import { DestroyAllLyricsContainers } from "../../utils/Lyrics/Applyer/CreateLyricsContainer.ts";
 import ApplyLyrics, {
@@ -7,9 +12,13 @@ import ApplyLyrics, {
 } from "../../utils/Lyrics/Global/Applyer.ts";
 import {
   addLinesEvListener,
+  chineseTranslitMode,
   isRomanized,
   removeLinesEvListener,
+  setChineseTranslitMode,
   setRomanizedStatus,
+  setTranslationEnabled,
+  translationEnabled,
 } from "../../utils/Lyrics/lyrics.ts";
 import {
   CleanupScrollEvents,
@@ -59,7 +68,7 @@ import { IsPIP, _IsPIP_after, ClosePopupLyrics } from "../Utils/PopupLyrics.ts";
 import { CleanUpIsByCommunity } from "../../utils/Lyrics/Applyer/Credits/ApplyIsByCommunity.tsx";
 import { OpenLyricsDBPanel } from "../../utils/openLyricsDBPanel.tsx";
 import { openSettingsPanel } from "../../utils/settings.ts";
-import Logger from "../../utils/logger.ts";
+import Logger from "../../utils/Logger.ts";
 import Whentil from "../../modules/Whentil.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 
@@ -179,6 +188,10 @@ async function OpenPage(
             <div class="ViewControls"></div>
         </div>
     `;
+
+  if ($flatViewControls.get()) {
+    elem.classList.add("FlatViewControls");
+  }
 
   if ($viewControlsPosition.get() === "Top") {
     elem.classList.add("ViewControlsPosition_Top")
@@ -433,6 +446,16 @@ function AppendViewControls(ReAppend: boolean = false) {
           }
         </button>
         ${
+          $showChineseTranslitButton.get() && PageContainer.classList.contains("Lyrics_ChineseDetected")
+            ? `<button id="ChineseTranslitToggle" class="ViewControl" style="font-size: 14px; font-weight: 600; line-height: 1;">${
+                chineseTranslitMode === "jyutping" ? "粵" : "拼"
+              }</button>`
+            : ""
+        }
+        <button id="TranslationToggle" class="ViewControl">
+          ${translationEnabled ? Icons.DisableTranslation : Icons.EnableTranslation}
+        </button>
+        ${
           !Fullscreen.IsOpen &&
           !Fullscreen.CinemaViewOpen &&
           !isSpicySidebarMode
@@ -602,6 +625,58 @@ function AppendViewControls(ReAppend: boolean = false) {
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Romanization tooltip", err);
+      }
+    }
+
+    const reprocessCurrentLyrics = async () => {
+      const songUri = SpotifyPlayer.GetUri();
+      const songId = SpotifyPlayer.GetId();
+      if (!songUri) return;
+      PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.add("HiddenTransitioned");
+      $currentLyricsData.set("");
+      if (songId) await LyricsStore.RemoveItem(songId).catch(() => {});
+      const lyrics = await fetchLyrics(songUri);
+      ApplyLyrics(lyrics);
+      setTimeout(() => {
+        AppendViewControls();
+        triggerRemeasureLV();
+        PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.remove("HiddenTransitioned");
+      }, 45);
+    };
+
+    const chineseTranslitToggle = elem.querySelector("#ChineseTranslitToggle");
+    if (chineseTranslitToggle) {
+      try {
+        if (!isPip) {
+          Tooltips.Close = Spicetify.Tippy(chineseTranslitToggle, {
+            ...Spicetify.TippyProps,
+            content: chineseTranslitMode === "jyutping" ? "Switch to Mandarin (Pinyin)" : "Switch to Cantonese (Jyutping)",
+          });
+        }
+        chineseTranslitToggle.addEventListener("click", async () => {
+          setChineseTranslitMode(chineseTranslitMode === "jyutping" ? "pinyin" : "jyutping");
+          await reprocessCurrentLyrics();
+        });
+      } catch (err) {
+        controlsLogger.warn("Failed to setup Chinese transliteration tooltip", err);
+      }
+    }
+
+    const translationToggle = elem.querySelector("#TranslationToggle");
+    if (translationToggle) {
+      try {
+        if (!isPip) {
+          Tooltips.Close = Spicetify.Tippy(translationToggle, {
+            ...Spicetify.TippyProps,
+            content: translationEnabled ? "Disable Translation" : "Enable Translation",
+          });
+        }
+        translationToggle.addEventListener("click", async () => {
+          setTranslationEnabled(!translationEnabled);
+          await reprocessCurrentLyrics();
+        });
+      } catch (err) {
+        controlsLogger.warn("Failed to setup Translation tooltip", err);
       }
     }
 
@@ -814,6 +889,16 @@ $viewControlsPosition.listen((v) => {
   if (!PageContainer) return;
   PageContainer.classList.toggle("ViewControlsPosition_Top", v === "Top");
   PageContainer.classList.toggle("ViewControlsPosition_Bottom", v === "Bottom");
+  AppendViewControls(true);
+});
+
+$flatViewControls.listen((v) => {
+  if (!PageContainer) return;
+  PageContainer.classList.toggle("FlatViewControls", v);
+});
+
+$showChineseTranslitButton.listen(() => {
+  if (!PageContainer) return;
   AppendViewControls(true);
 });
 

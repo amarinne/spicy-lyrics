@@ -5,7 +5,7 @@ import {
   $timelineOutsideMediaContent,
   $viewControlsPosition,
 } from "../../../utils/stores.ts";
-import { $isGlobalNav } from "../../../utils/uiState.ts";
+import { $flatViewControls, $isGlobalNav, $prefetchNextLyrics } from "../../../utils/uiState.ts";
 import { matches, Row, Select, SectionTitle, Toggle } from "./components.tsx";
 
 const SECTION_NAME = "Interface";
@@ -22,6 +22,8 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const viewControlsPosition = useStore($viewControlsPosition);
   const timelineOutsideMediaContent = useStore($timelineOutsideMediaContent);
   const isGlobalNav = useStore($isGlobalNav);
+  const flatViewControls = useStore($flatViewControls);
+  const prefetchNextLyrics = useStore($prefetchNextLyrics);
 
   if (sectionFilter !== "All" && sectionFilter !== SECTION_NAME) return null;
 
@@ -29,8 +31,10 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const r3 = matches(query, "Disable Popup Lyrics Window", "Prevent lyrics from opening in a floating popup window.");
   const r4 = matches(query, "Lyrics Controls Position", "Where the lyrics view controls (play, scroll, etc.) appear.");
   const r5 = matches(query, "Timeline Outside Media Box", "Display the playback timeline outside the media box, in the NowBar header. Stays inside the media box in Compact Mode or PIP.");
+  const r6 = matches(query, "Flat Lyrics Controls", "Use old flat translucent controls instead of glossy glass buttons.");
+  const r7 = matches(query, "Prefetch Next Lyrics", "Fetch and process upcoming track lyrics before the song changes.");
 
-  if (!r2 && !r3 && !r4 && !r5) return null;
+  if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7) return null;
 
   return (
     <>
@@ -78,6 +82,18 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
             checked={timelineOutsideMediaContent}
             onChange={(v) => $timelineOutsideMediaContent.set(v)}
           />
+        </Row>
+      )}
+
+      {r6 && (
+        <Row label="Flat Lyrics Controls" description="Use old flat translucent controls instead of glossy glass buttons.">
+          <Toggle checked={flatViewControls} onChange={(v) => $flatViewControls.set(v)} />
+        </Row>
+      )}
+
+      {r7 && (
+        <Row label="Prefetch Next Lyrics" description="Fetch and process upcoming track lyrics before the song changes.">
+          <Toggle checked={prefetchNextLyrics} onChange={(v) => $prefetchNextLyrics.set(v)} />
         </Row>
       )}
     </>

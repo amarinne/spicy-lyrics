@@ -161,6 +161,32 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) .ViewControls 
   scale: 0.94;
 }
 
+#SpicyLyricsPage.FlatViewControls .ViewControls .ViewControl {
+  background: rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  box-shadow: none;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.82);
+  transition: background 0.18s ease, color 0.18s ease, opacity 0.18s ease, scale 0.18s ease;
+}
+
+#SpicyLyricsPage.FlatViewControls .ViewControls .ViewControl:hover {
+  scale: 1;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  box-shadow: none;
+}
+
+#SpicyLyricsPage.FlatViewControls .ViewControls .ViewControl:active {
+  scale: 0.96;
+  background: rgba(255, 255, 255, 0.22);
+}
+
+#SpicyLyricsPage.FlatViewControls .ViewControls:has(.ViewControl:hover) > .ViewControl:not(:hover) {
+  opacity: 0.78;
+}
+
 #SpicyLyricsPage .ViewControls:has(.ViewControl:hover) > .ViewControl:not(:hover) {
   opacity: 0.78;
 }
