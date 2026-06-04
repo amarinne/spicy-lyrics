@@ -2,6 +2,7 @@ import fetchLyrics, { LyricsStore } from "../../utils/Lyrics/fetchLyrics.ts";
 import {
   $flatViewControls,
   $forceCompactMode,
+  $forceDarkBackground,
   $isGlobalNav,
   $showChineseTranslitButton,
 } from "../../utils/uiState.ts";
@@ -194,6 +195,10 @@ async function OpenPage(
 
   if ($flatViewControls.get()) {
     elem.classList.add("FlatViewControls");
+  }
+
+  if ($forceDarkBackground.get()) {
+    elem.classList.add("ForceDarkBackground");
   }
 
   if ($viewControlsPosition.get() === "Top") {

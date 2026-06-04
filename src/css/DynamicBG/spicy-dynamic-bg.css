@@ -36,6 +36,14 @@ aside .spicy-dynamic-bg {
   filter: brightness(0.6) saturate(2.65);
 }
 
+#SpicyLyricsPage.ForceDarkBackground .spicy-dynamic-bg:not(.ColorBackground) {
+  filter: brightness(0.38) saturate(0.9) contrast(0.95) !important;
+}
+
+#SpicyLyricsPage.ForceDarkBackground .spicy-dynamic-bg.StaticBackground {
+  filter: brightness(0.34) saturate(0.85) contrast(0.95) !important;
+}
+
 @property --sl_videocanvas_mask-stop {
   syntax: '<percentage>';
   inherits: false;
