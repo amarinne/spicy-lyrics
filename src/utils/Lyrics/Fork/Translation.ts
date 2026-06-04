@@ -296,10 +296,7 @@ export async function translateLyrics(lyrics: any): Promise<void> {
   }
 
   const candidateTexts = candidateIndices.map((index) => lineTexts[index]);
-  const sourceISO2 = langs.where("3", sourceLang)?.["1"];
-  const sourceMatchesTarget = sourceISO2 === targetLang || sourceLang === targetLang;
-  const translateSourceLang = sourceMatchesTarget ? "und" : sourceLang;
-  const translations = await batchTranslate(candidateTexts, translateSourceLang, targetLang);
+  const translations = await batchTranslate(candidateTexts, "und", targetLang);
 
   let assignedCount = 0;
   for (let i = 0; i < lineRefs.length; i++) {
