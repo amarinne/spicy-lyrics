@@ -8,6 +8,7 @@
  * @fork-feature Google Translate integration
  */
 
+import { franc } from "franc-all";
 import langs from "langs";
 import { translationEnabled, translationTargetLang } from "../lyrics.ts";
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
@@ -64,6 +65,69 @@ export function clearTranslationCache() {
 
 function translationCacheKey(text: string, targetLang: string): string {
   return `${targetLang}:${text}`;
+}
+
+const SCRIPT_TESTS = {
+  han: /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/,
+  kana: /[\u3040-\u30FF]/,
+  hangul: /[\uAC00-\uD7AF]/,
+  cyrillic: /[\u0400-\u04FF]/,
+  greek: /[\u0370-\u03FF]/,
+};
+
+const latinTargetLanguages = new Set([
+  "en", "es", "fr", "de", "it", "pt", "nl", "pl", "sv", "da", "no", "fi", "tr", "id", "ms", "vi",
+]);
+
+function targetAllowsScript(targetLang: string, script: keyof typeof SCRIPT_TESTS): boolean {
+  if (script === "han") return targetLang.startsWith("zh") || targetLang === "ja";
+  if (script === "kana") return targetLang === "ja";
+  if (script === "hangul") return targetLang === "ko";
+  if (script === "cyrillic") return ["ru", "uk", "bg", "sr", "mk", "be"].includes(targetLang);
+  if (script === "greek") return targetLang === "el";
+  return false;
+}
+
+function hasObviousNonTargetScript(text: string, targetLang: string): boolean {
+  return (Object.keys(SCRIPT_TESTS) as Array<keyof typeof SCRIPT_TESTS>).some((script) =>
+    SCRIPT_TESTS[script].test(text) && !targetAllowsScript(targetLang, script)
+  );
+}
+
+function lineLooksNonTargetLatin(text: string, targetLang: string): boolean {
+  if (!latinTargetLanguages.has(targetLang)) return false;
+  const compact = text.replace(/[^\p{L}\s']/gu, " ").replace(/\s+/g, " ").trim();
+  if (compact.length < 24) return false;
+  const detected = franc(compact);
+  if (detected === "und") return false;
+  const detectedISO2 = langs.where("3", detected)?.["1"];
+  return !!detectedISO2 && detectedISO2 !== targetLang;
+}
+
+function shouldTranslateLine(text: string, sourceLang: string, targetLang: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || trimmed === "♪") return false;
+
+  const sourceISO2 = langs.where("3", sourceLang)?.["1"];
+  const sourceMatchesTarget = sourceISO2 === targetLang || sourceLang === targetLang;
+
+  if (!sourceMatchesTarget) return true;
+  if (hasObviousNonTargetScript(trimmed, targetLang)) return true;
+  return lineLooksNonTargetLatin(trimmed, targetLang);
+}
+
+function joinSyllableText(syllables: any[] | undefined): string {
+  if (!Array.isArray(syllables) || syllables.length === 0) return "";
+  let lineText = "";
+  let previousWasWordEnd = false;
+  for (const syl of syllables) {
+    const text = syl?.Text || "";
+    if (!text) continue;
+    if (previousWasWordEnd && lineText && !lineText.endsWith(" ")) lineText += " ";
+    lineText += text;
+    previousWasWordEnd = syl?.IsPartOfWord === false;
+  }
+  return lineText.trim();
 }
 
 // ─── Batch Translation ────────────────────────────────────────────────────────
@@ -182,13 +246,6 @@ export async function translateLyrics(lyrics: any): Promise<void> {
   const sourceLang = lyrics.Language || "und";
   const targetLang = translationTargetLang;
 
-  // Don't translate if source matches target
-  const sourceISO2 = langs.where("3", sourceLang)?.["1"];
-  if (sourceISO2 === targetLang || sourceLang === targetLang) {
-    console.log("[SpicyLyrics:Translation] Source matches target, skipping");
-    return;
-  }
-
   // Collect all line texts
   const lineTexts: string[] = [];
   const lineRefs: Array<{ obj: any; field: string }> = [];
@@ -209,22 +266,14 @@ export async function translateLyrics(lyrics: any): Promise<void> {
     for (const vocalGroup of lyrics.Content) {
       if (vocalGroup.Type === "Vocal") {
         // Build full line text from syllables
-        let lineText = vocalGroup.Lead.Syllables[0]?.Text || "";
-        for (let i = 1; i < vocalGroup.Lead.Syllables.length; i++) {
-          const syl = vocalGroup.Lead.Syllables[i];
-          lineText += (syl.IsPartOfWord ? "" : " ") + syl.Text;
-        }
+        const lineText = joinSyllableText(vocalGroup.Lead.Syllables);
         lineTexts.push(lineText);
         lineRefs.push({ obj: vocalGroup.Lead, field: "TranslatedText" });
 
         // Background vocals
         if (vocalGroup.Background) {
           for (const bg of vocalGroup.Background) {
-            let bgText = bg.Syllables[0]?.Text || "";
-            for (let i = 1; i < bg.Syllables.length; i++) {
-              const syl = bg.Syllables[i];
-              bgText += (syl.IsPartOfWord ? "" : " ") + syl.Text;
-            }
+            const bgText = joinSyllableText(bg.Syllables);
             lineTexts.push(bgText);
             lineRefs.push({ obj: bg, field: "TranslatedText" });
           }
@@ -235,18 +284,38 @@ export async function translateLyrics(lyrics: any): Promise<void> {
 
   if (lineTexts.length === 0) return;
 
-  const translations = await batchTranslate(lineTexts, sourceLang, targetLang);
+  const candidateIndices = lineTexts
+    .map((text, index) => shouldTranslateLine(text, sourceLang, targetLang) ? index : -1)
+    .filter((index) => index >= 0);
 
-  // Assign translated text to each line object
+  if (candidateIndices.length === 0) {
+    for (const ref of lineRefs) delete ref.obj[ref.field];
+    lyrics.IncludesTranslation = false;
+    console.log("[SpicyLyrics:Translation] No mixed-language lines need translation");
+    return;
+  }
+
+  const candidateTexts = candidateIndices.map((index) => lineTexts[index]);
+  const sourceISO2 = langs.where("3", sourceLang)?.["1"];
+  const sourceMatchesTarget = sourceISO2 === targetLang || sourceLang === targetLang;
+  const translateSourceLang = sourceMatchesTarget ? "und" : sourceLang;
+  const translations = await batchTranslate(candidateTexts, translateSourceLang, targetLang);
+
+  let assignedCount = 0;
   for (let i = 0; i < lineRefs.length; i++) {
+    delete lineRefs[i].obj[lineRefs[i].field];
+  }
+
+  // Assign translated text to candidate line objects
+  for (let i = 0; i < candidateIndices.length; i++) {
+    const originalIndex = candidateIndices[i];
     const translated = translations[i];
-    if (isMeaningfullyDifferent(translated, lineTexts[i])) {
-      lineRefs[i].obj[lineRefs[i].field] = translated;
-    } else {
-      delete lineRefs[i].obj[lineRefs[i].field];
+    if (isMeaningfullyDifferent(translated, lineTexts[originalIndex])) {
+      lineRefs[originalIndex].obj[lineRefs[originalIndex].field] = translated;
+      assignedCount++;
     }
   }
 
-  lyrics.IncludesTranslation = true;
-  console.log(`[SpicyLyrics:Translation] Done. ${translations.filter(t => t).length}/${lineTexts.length} lines translated`);
+  lyrics.IncludesTranslation = assignedCount > 0;
+  console.log(`[SpicyLyrics:Translation] Done. ${assignedCount}/${lineTexts.length} lines translated (${candidateIndices.length} candidates)`);
 }
