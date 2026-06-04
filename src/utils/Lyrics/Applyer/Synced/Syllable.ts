@@ -76,6 +76,14 @@ interface LyricsData {
   styles?: Record<string, string>;
 }
 
+const joinSyllableDisplayText = (syllables: SyllableData[]): string => {
+  return syllables.reduce((acc, syl, index) => {
+    const text = syl.Text || "";
+    if (index === 0) return text;
+    return `${acc}${syl.IsPartOfWord ? "" : " "}${text}`;
+  }, "").trim();
+};
+
 export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = false): void {
   if (!$lyricsContainerExists.get()) return;
   EmitNotApplyed();
@@ -331,7 +339,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       }
     });
 
-    const leadSourceText = line.Lead.Syllables.map((s) => s.Text).join("");
+    const leadSourceText = joinSyllableDisplayText(line.Lead.Syllables);
     const leadRomanizedText = line.Lead.RomanizedText || line.Lead.TransliteratedText;
     const hasDistinctLeadRomanization = isMeaningfullyDifferent(leadRomanizedText, leadSourceText);
     if (UseRomanized && (hasDistinctLeadRomanization || romanizationPending)) {
@@ -369,10 +377,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       lineElem.appendChild(romanizedDiv);
     }
 
-    const leadTranslationSourceText = line.Lead.Syllables.reduce((acc, syl, index) => {
-      if (index === 0) return syl.Text || "";
-      return `${acc}${syl.IsPartOfWord ? "" : " "}${syl.Text || ""}`;
-    }, "");
+    const leadTranslationSourceText = joinSyllableDisplayText(line.Lead.Syllables);
     const hasDistinctLeadTranslation = isMeaningfullyDifferent(line.Lead.TranslatedText, leadTranslationSourceText);
     if (hasDistinctLeadTranslation || translationPending) {
       const translatedElem = document.createElement("div");
@@ -493,7 +498,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
           }
         });
 
-        const bgSourceText = bg.Syllables.map((s) => s.Text).join("");
+        const bgSourceText = joinSyllableDisplayText(bg.Syllables);
         const bgRomanizedText = bg.RomanizedText || bg.TransliteratedText;
         const hasDistinctBGRomanization = isMeaningfullyDifferent(bgRomanizedText, bgSourceText);
         if (UseRomanized && (hasDistinctBGRomanization || romanizationPending)) {
@@ -530,10 +535,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
           lineE.appendChild(bgRomanizedDiv);
         }
 
-        const bgTranslationSourceText = bg.Syllables.reduce((acc, syl, index) => {
-          if (index === 0) return syl.Text || "";
-          return `${acc}${syl.IsPartOfWord ? "" : " "}${syl.Text || ""}`;
-        }, "");
+        const bgTranslationSourceText = joinSyllableDisplayText(bg.Syllables);
         const hasDistinctBGTranslation = isMeaningfullyDifferent(bg.TranslatedText, bgTranslationSourceText);
         if (hasDistinctBGTranslation || translationPending) {
           const translatedElem = document.createElement("div");
