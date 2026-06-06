@@ -25,6 +25,7 @@ import {
 import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
 
 export { clearTranslationCache };
+export const LYRICS_PROCESSING_VERSION = 2;
 
 // Constants
 const RomajiConverter = new Kuroshiro();
@@ -381,6 +382,7 @@ export const ProcessLyrics = async (
   lyrics: any,
   options: { updatePageClasses?: boolean; awaitTranslation?: boolean } = {}
 ) => {
+  lyrics.ProcessingVersion = LYRICS_PROCESSING_VERSION;
   const updatePageClasses = options.updatePageClasses !== false;
   const awaitTranslation = options.awaitTranslation !== false;
   const hadApiTransliterations = lyrics.HasTransliterations === true;

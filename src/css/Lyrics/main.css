@@ -138,8 +138,14 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
 }
 
 @keyframes SLProcessingReadyReveal {
-  from { filter: blur(2px); }
-  to { filter: blur(var(--ExtraLineBlurAmount, 0px)); }
+  from {
+    opacity: 0.55;
+    transform: translateY(-0.04em);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .has-furigana {

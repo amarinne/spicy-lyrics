@@ -4,7 +4,7 @@ import Platform from "../../components/Global/Platform.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import PageView, { PageContainer } from "../../components/Pages/PageView.ts";
 import { Query } from "../API/Query.ts";
-import { ProcessLyrics } from "./ProcessLyrics.ts";
+import { LYRICS_PROCESSING_VERSION, ProcessLyrics } from "./ProcessLyrics.ts";
 import { translationEnabled } from "./lyrics.ts";
 import Logger from "../Logger.ts";
 import { LocalLyricsManager } from "./manager/index.ts";
@@ -87,6 +87,25 @@ function presentLyrics(lyricsData: any): void {
   PageContainer?.querySelector(".ContentBox .LyricsContainer")?.classList.remove("Hidden");
   PageView.AppendViewControls(true);
   $currentlyFetching.set(false);
+}
+
+async function ensureProcessingVersion(trackId: string, lyrics: any): Promise<any> {
+  if (!lyrics || lyrics.ProcessingPending === true || lyrics.ProcessingVersion === LYRICS_PROCESSING_VERSION) {
+    return lyrics;
+  }
+
+  lyricsCacheLogger.debug("Reprocessing stale cached lyrics", {
+    trackId,
+    fromVersion: lyrics.ProcessingVersion,
+    toVersion: LYRICS_PROCESSING_VERSION,
+  });
+  await ProcessLyrics(lyrics, { updatePageClasses: false, awaitTranslation: true });
+  lyrics.ProcessingPending = false;
+  lyrics.RomanizationPending = false;
+  lyrics.TranslationPending = false;
+  lyrics.id = lyrics.id || trackId;
+  await LyricsStore.SetItem(trackId, lyrics);
+  return lyrics;
 }
 
 export async function PrefetchLyrics(uri: string): Promise<void> {
@@ -210,8 +229,10 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         const lyricsData = JSON.parse(savedLyricsData);
         // Return the stored lyrics if the ID matches the track ID
         if (lyricsData?.id === trackId && lyricsData?.ProcessingPending !== true) {
-          presentLyrics(lyricsData);
-          return [lyricsData, 200];
+          const processedLyrics = await ensureProcessingVersion(trackId, lyricsData);
+          $currentLyricsData.set(JSON.stringify(processedLyrics));
+          presentLyrics(processedLyrics);
+          return [processedLyrics, 200];
         }
       }
     } catch (error) {
@@ -246,7 +267,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
           $currentlyFetching.set(false);
           return ["lyrics-not-found", 404];
         }
-        const lyricsFromCache = lyricsFromCacheRes ?? {};
+        const lyricsFromCache = await ensureProcessingVersion(trackId, lyricsFromCacheRes ?? {});
         $currentLyricsData.set(JSON.stringify(lyricsFromCache));
         presentLyrics(lyricsFromCache);
         return [{ ...lyricsFromCache, fromCache: true }, 200];
