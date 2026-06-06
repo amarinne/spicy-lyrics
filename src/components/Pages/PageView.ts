@@ -969,13 +969,9 @@ $japaneseReadingMode.listen(() => {
 window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) => {
   const trackId = event.detail?.trackId;
   if (trackId && trackId !== SpotifyPlayer.GetId()) return;
-  PageContainer?.querySelector(".LyricsContainer")?.classList.add("ProcessingReadyReveal");
   ApplyLyrics([event.detail.lyrics, 200]).then(() => {
     AppendViewControls(true);
     setTimeout(() => triggerRemeasureLV(), 60);
-    setTimeout(() => {
-      PageContainer?.querySelector(".LyricsContainer")?.classList.remove("ProcessingReadyReveal");
-    }, 220);
   });
 }) as EventListener);
 

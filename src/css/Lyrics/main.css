@@ -133,21 +133,6 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   text-align: end;
 }
 
-#SpicyLyricsPage .LyricsContainer.ProcessingReadyReveal .LyricsContent .line.HasExtras :is(.furigana-cluster, .romanized-below, .translated-below) {
-  animation: SLProcessingReadyReveal 0.18s ease-out both;
-}
-
-@keyframes SLProcessingReadyReveal {
-  from {
-    opacity: 0.55;
-    transform: translateY(-0.04em);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
 #SpicyLyricsPage .LyricsContainer .LyricsContent .has-furigana {
   --furigana-rt-size: 0.38em;
   --furigana-rt-gap: 0.12em;
