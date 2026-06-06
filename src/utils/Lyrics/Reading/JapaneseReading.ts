@@ -94,7 +94,6 @@ const KANA_READING_OVERRIDE_ENTRIES: Record<string, KanaReadingOverride> = {
   "今日": { kana: "きょう", reason: "jukujikun" },
   "明日": { kana: "あした", reason: "jukujikun" },
   "昨日": { kana: "きのう", reason: "jukujikun" },
-  "日々": { kana: "ひび", reason: "jukujikun" },
 };
 
 const KANA_READING_OVERRIDES: Record<string, string> = Object.fromEntries(
@@ -181,6 +180,10 @@ function kanaReadingSegments(surface: string, reading: string): TokenFuriganaRea
 
   const normalizedSurface = kataToHira(surface);
   const chars = Array.from(normalizedSurface);
+
+  if (normalizedSurface.includes("々") && KanjiLikeSequenceTest.test(normalizedSurface)) {
+    return [{ text: kana, targetStart: 0, targetEnd: chars.length }];
+  }
 
   if (KanjiLikeSequenceTest.test(normalizedSurface) && chars.length > 1 && !KANA_READING_OVERRIDES[normalizedSurface]) {
     return splitKanaEvenly(kana, chars.length)

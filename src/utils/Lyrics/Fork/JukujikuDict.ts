@@ -67,7 +67,6 @@ export const JUKUJIKUN: Record<string, string> = {
   "十": "tou",
 
   // Abstract/misc
-  "日々": "hibi",
   "言葉": "kotoba",
   "何処": "doko",
   "何時": "itsu",

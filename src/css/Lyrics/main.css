@@ -125,6 +125,7 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .line.HasExtras {
+  --ExtraLineBlurAmount: clamp(0px, calc(var(--BlurAmount, 0px) * 0.14), 1.25px);
   display: block;
 }
 
@@ -137,8 +138,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
 }
 
 @keyframes SLProcessingReadyReveal {
-  from { filter: blur(3px); }
-  to { filter: blur(var(--BlurAmount, 0px)); }
+  from { filter: blur(2px); }
+  to { filter: blur(var(--ExtraLineBlurAmount, 0px)); }
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .has-furigana {
@@ -187,7 +188,7 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   -webkit-text-fill-color: rgba(255, 255, 255, 0.72);
   color: rgba(255, 255, 255, 0.72);
   text-shadow: inherit;
-  filter: blur(var(--BlurAmount, 0px));
+  filter: blur(var(--ExtraLineBlurAmount, 0px));
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-reading.furigana-placeholder {
@@ -213,7 +214,7 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   color: rgba(255, 255, 255, 0.55);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
   text-shadow: inherit;
-  filter: blur(var(--BlurAmount, 0px));
+  filter: blur(var(--ExtraLineBlurAmount, 0px));
   background: none;
 }
 
@@ -243,7 +244,7 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   --gradient-degrees: 90deg;
   --gradient-alpha-end: 0.35;
   text-shadow: inherit;
-  filter: blur(var(--BlurAmount, 0px));
+  filter: blur(var(--ExtraLineBlurAmount, 0px));
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below {
@@ -257,7 +258,7 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
   font-style: italic;
   text-shadow: inherit;
-  filter: blur(var(--BlurAmount, 0px));
+  filter: blur(var(--ExtraLineBlurAmount, 0px));
   background: none;
 }
 
