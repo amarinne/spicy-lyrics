@@ -12,10 +12,23 @@ export const JUKUJIKUN: Record<string, string> = {
   // People/counters
   "一人": "hitori",
   "二人": "futari",
+  "1人": "hitori",
+  "2人": "futari",
   "大人": "otona",
   "素人": "shirouto",
   "玄人": "kurouto",
   "友達": "tomodachi",
+  // Lyric context: usually second-person きみ, not honorific/on-reading くん.
+  "君": "kimi",
+  "貴方": "anata",
+
+  // Common lyric/life compounds. Keep bare 生 contextual; never global-override it.
+  "人生": "jinsei",
+  "生きる": "ikiru",
+  "生きて": "ikite",
+  "生まれ": "umare",
+  "生まれる": "umareru",
+  "生まれた": "umareta",
 
   // Skill levels
   "下手": "heta",

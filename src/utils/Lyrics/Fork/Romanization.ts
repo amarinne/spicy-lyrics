@@ -11,11 +11,10 @@
  */
 
 import transliterPkg from "transliter";
-import Kuroshiro from "kuroshiro";
+import type Kuroshiro from "kuroshiro";
 import { getJyutpingList } from "to-jyutping";
-import * as KuromojiAnalyzer from "../KuromojiAnalyzer.ts";
 import { hasUnromanizedKanji, ChineseTextTest } from "./TextDetection.ts";
-import { applyJukujikun, computeNoSpaceBefore } from "./JukujikunMerge.ts";
+import { analyzeJapaneseLine } from "../Reading/JapaneseReading.ts";
 
 // ─── Cantonese (Jyutping) ─────────────────────────────────────────────────────
 
@@ -73,41 +72,7 @@ export function romanizeCyrillic(text: string): string {
  * @returns Spaced romaji string, or null if tokenization fails
  */
 export async function buildRomajiFromTokens(text: string): Promise<string | null> {
-  const KUtil = (Kuroshiro as any).Util;
-  const tokens = await KuromojiAnalyzer.parse(text);
-  if (!tokens || tokens.length === 0) return null;
-
-  // Build per-token romaji entries
-  interface TokenEntry { romaji: string; consumed: boolean; }
-  const entries: TokenEntry[] = tokens.map((t: any) => {
-    const pron: string = t.pronunciation || t.reading || "";
-    let romaji: string;
-    if (pron && pron !== "*" && KUtil.hasKana(pron)) {
-      romaji = KUtil.kanaToRomaji(pron);
-    } else if (KUtil.hasKana(t.surface_form)) {
-      romaji = KUtil.kanaToRomaji(t.surface_form);
-    } else {
-      // If no pronunciation available and surface is pure kanji, leave as-is (rare)
-      romaji = t.surface_form;
-    }
-    return { romaji, consumed: false };
-  });
-
-  // Apply jukujikun compounds and phonetic merge rules
-  applyJukujikun(entries, tokens);
-  const noSpaceBefore = computeNoSpaceBefore(entries, tokens);
-
-  // Build final romaji string
-  const parts: string[] = [];
-  for (let i = 0; i < entries.length; i++) {
-    if (entries[i].consumed) continue;
-    if (parts.length > 0 && !noSpaceBefore[i]) {
-      parts.push(" ");
-    }
-    parts.push(entries[i].romaji);
-  }
-
-  return parts.join("").replace(/\s{2,}/g, " ").trim();
+  return (await analyzeJapaneseLine(text))?.romaji || null;
 }
 
 /**

@@ -37,6 +37,13 @@ function migrateUiStateKeys(blob: Record<string, any>): Record<string, any> {
 }
 
 const _uiState: Record<string, any> = migrateUiStateKeys(readUiStateBlob());
+if (_uiState.japaneseReadingMode === undefined) {
+  _uiState.japaneseReadingMode = _uiState.japaneseFurigana
+    ? _uiState.showRomajiWithFurigana
+      ? "both"
+      : "furigana"
+    : "romaji";
+}
 
 function persistAtom<T>(key: string, defaultValue: T) {
   const store = atom<T>(_uiState[key] !== undefined ? _uiState[key] : defaultValue);
@@ -54,6 +61,7 @@ export const $nowBarSide = persistAtom<"left" | "right">("nowBarSide", "left");
 export const $forceCompactMode = persistAtom<boolean>("forceCompactMode", false);
 export const $romanization = persistAtom<boolean>("romanization", false);
 export const $chineseTranslitMode = persistAtom<"pinyin" | "jyutping">("chineseTranslitMode", "pinyin");
+export const $japaneseReadingMode = persistAtom<"romaji" | "furigana" | "both">("japaneseReadingMode", "romaji");
 export const $translationEnabled = persistAtom<boolean>("translationEnabled", false);
 export const $translationTargetLang = persistAtom<string>("translationTargetLang", "en");
 export const $lyricsCopyFormat = persistAtom<"plain" | "timestamps" | "translation" | "metadata">("lyricsCopyFormat", "plain");

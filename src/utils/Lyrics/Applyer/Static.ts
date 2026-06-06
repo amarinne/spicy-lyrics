@@ -21,18 +21,15 @@ import { ApplyIsByCommunity } from "./Credits/ApplyIsByCommunity.tsx";
 import { ApplyLyricsCredits } from "./Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "./OnApply.ts";
 import { ApplyLyricsProvider } from "./Credits/ApplyProvider.ts";
-import { isMeaningfullyDifferent } from "../TextCompare.ts";
+import { appendLineExtras, forceStackedLine, isJapaneseEntry, renderBaseTextWithReadings } from "./ReadingRenderer.ts";
+import type { ProcessedTextEntry } from "../Reading/JapaneseReading.ts";
 
 /**
  * Interface for static lyrics data
  */
 export interface StaticLyricsData {
   Type: string;
-  Lines: Array<{
-    Text: string;
-    TransliteratedText?: string;
-    TranslatedText?: string;
-  }>;
+  Lines: ProcessedTextEntry[];
   offline?: boolean;
   classes?: string;
   styles?: StyleProperties;
@@ -80,29 +77,24 @@ export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean 
   const translationPending = (data as any).TranslationPending === true;
   const romanizationPending = (data as any).RomanizationPending === true;
 
+  const isJapaneseLyrics = (data as any).Language === "jpn" || data.Lines.some((line) => isJapaneseEntry(line));
+
   data.Lines.forEach((line) => {
     const lineElem = document.createElement("div");
+    const renderOptions = {
+      useRomanized: UseRomanized,
+      romanizationPending,
+      translationPending,
+      isJapaneseLyrics,
+    };
 
-    lineElem.textContent = line.Text;
-
-    const hasDistinctRomanization = isMeaningfullyDifferent(line.TransliteratedText, line.Text);
-    if (UseRomanized && (hasDistinctRomanization || romanizationPending)) {
-      const romanizedElem = document.createElement("div");
-      romanizedElem.className = `romanized-below${romanizationPending && !hasDistinctRomanization ? " romanization-placeholder" : ""}`;
-      romanizedElem.textContent = hasDistinctRomanization ? line.TransliteratedText! : "";
-      lineElem.appendChild(romanizedElem);
+    if (renderBaseTextWithReadings(lineElem, line, renderOptions)) {
+      forceStackedLine(lineElem);
     }
+    appendLineExtras(lineElem, line, renderOptions);
 
     if (isRtl(line.Text) && !lineElem.classList.contains("rtl")) {
       lineElem.classList.add("rtl");
-    }
-
-    const hasDistinctTranslation = isMeaningfullyDifferent(line.TranslatedText, line.Text);
-    if (hasDistinctTranslation || translationPending) {
-      const translatedElem = document.createElement("div");
-      translatedElem.className = `translated-below${translationPending && !hasDistinctTranslation ? " translation-placeholder" : ""}`;
-      translatedElem.textContent = hasDistinctTranslation ? line.TranslatedText! : "";
-      lineElem.appendChild(translatedElem);
     }
 
     lineElem.classList.add("line");

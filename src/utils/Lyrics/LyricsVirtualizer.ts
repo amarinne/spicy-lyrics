@@ -112,7 +112,9 @@ class LyricsVirtualizer {
     // too so there is no double-gap between the surrounding lines.
     const el = this._allElements[index];
     if (el?.classList.contains("musical-line") && !el.classList.contains("Active")) return 0;
-    return (this._isNextBgLine(index) ? GAP_LINE_TO_BG : GAP_NORMAL) * (this._containerWidth / 100);
+
+    const gap = this._isNextBgLine(index) ? GAP_LINE_TO_BG : GAP_NORMAL;
+    return gap * (this._containerWidth / 100);
   }
 
   private _estimateSize = (index: number): number => {

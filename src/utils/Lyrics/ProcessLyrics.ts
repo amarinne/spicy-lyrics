@@ -16,7 +16,12 @@ import {
   isCyrillicLanguage,
 } from "./Fork/index.ts";
 import { buildRomajiFromTokens, romanizeCantonese, romanizeCyrillic } from "./Fork/Romanization.ts";
-import { mapRomajiToJapaneseSyllables } from "./Fork/SyllableSync.ts";
+import { JUKUJIKUN } from "./Fork/JukujikuDict.ts";
+import {
+  annotateJapaneseTextTarget,
+  applyJapaneseReadingToSyllables,
+  clearLegacyFuriganaFields,
+} from "./Reading/JapaneseReading.ts";
 import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
 
 export { clearTranslationCache };
@@ -93,7 +98,7 @@ const romanizeJapaneseText = async (text: string): Promise<string> => {
   await RomajiPromise;
   const normalized = text.normalize("NFKC");
   let result = await RomajiConverter.convert(normalized, { to: "romaji", mode: "spaced" });
-  if (CJKIdeographTest.test(result)) {
+  if (CJKIdeographTest.test(result) || /[っッ]/.test(normalized) || Object.keys(JUKUJIKUN).some((term) => normalized.includes(term))) {
     const rebuilt = await buildRomajiFromTokens(normalized);
     if (rebuilt) result = rebuilt;
   }
@@ -210,11 +215,18 @@ const detectPresentScripts = (
 const hasTransliteration = (entry: any): boolean =>
   typeof entry.TransliteratedText === "string" && entry.TransliteratedText !== "";
 
+const LatinWordTextTest = /[A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ]/;
+
 const joinSyllables = (syllables: any[], compact = false): string => {
-  if (compact) return syllables.map((s) => s.Text).join("");
   return syllables.reduce((acc, syl, index) => {
-    if (index === 0) return syl.Text || "";
-    return `${acc}${syl.IsPartOfWord ? "" : " "}${syl.Text || ""}`;
+    const text = syl.Text || "";
+    if (index === 0) return text;
+
+    if (!compact) return `${acc}${syl.IsPartOfWord ? "" : " "}${text}`;
+
+    const prevText = syllables[index - 1]?.Text || "";
+    const shouldPreserveWordSpace = !syl.IsPartOfWord && (LatinWordTextTest.test(prevText) || LatinWordTextTest.test(text));
+    return `${acc}${shouldPreserveWordSpace ? " " : ""}${text}`;
   }, "");
 };
 
@@ -225,7 +237,7 @@ const romanizeLineText = async (
   language: string
 ): Promise<string | undefined> => {
   const entry = { target: { Text: text }, line: {} };
-  const changed = await romanizeEntry(entry, presentScripts, packages, language);
+  const changed = await romanizeEntry(entry, presentScripts, packages, language, false);
   return changed ? entry.target.TransliteratedText : undefined;
 };
 
@@ -268,8 +280,10 @@ const postProcessSyllableRomanization = async (
           delete syllable.RomanizedText;
           delete syllable.TransliteratedText;
           delete syllable.RomajiSpaceBefore;
+          clearLegacyFuriganaFields(syllable);
+          delete syllable.JapaneseReading;
         }
-        await mapRomajiToJapaneseSyllables(lineText, fullRomaji, syllables, RomajiPromise);
+        group.JapaneseReading = await applyJapaneseReadingToSyllables(lineText, fullRomaji, syllables, RomajiPromise);
         for (const syllable of syllables) {
           if (syllable.RomanizedText) {
             syllable.TransliteratedText = syllable.RomanizedText;
@@ -301,13 +315,19 @@ const romanizeEntry = async (
   entry: RomanizeEntry,
   presentScripts: RomanizationBranch[],
   packages: RomanizationPackages,
-  primaryLanguage: string
+  primaryLanguage: string,
+  annotateJapanese: boolean = true
 ): Promise<boolean> => {
   const { target, line } = entry;
 
-  if (hasTransliteration(target)) return false;
-
   if (target.Text) target.Text = target.Text.normalize("NFKC");
+
+  if (hasTransliteration(target)) {
+    if (annotateJapanese && ItemJapaneseTest.test(target.Text || "") && !target.JapaneseReading) {
+      await annotateJapaneseTextTarget(target, target.RomanizedText || target.TransliteratedText, RomajiPromise);
+    }
+    return false;
+  }
 
   let text: string = target.Text;
   let changed = false;
@@ -316,6 +336,7 @@ const romanizeEntry = async (
     if (script === "Japanese") {
       if (ItemJapaneseTest.test(text)) {
         text = await romanizeJapaneseText(text);
+        if (annotateJapanese) await annotateJapaneseTextTarget(target, text, RomajiPromise);
         changed = true;
       }
     } else if (script === "Chinese") {
@@ -374,10 +395,14 @@ export const ProcessLyrics = async (
 
   let appliedRomanization = false;
   let packages: RomanizationPackages = {};
-  if (presentScripts.length > 0 && entries.some((entry) => !hasTransliteration(entry.target))) {
+  const needsRomanizationOrJapaneseReading = entries.some((entry) =>
+    !hasTransliteration(entry.target) ||
+    (presentScripts.includes("Japanese") && ItemJapaneseTest.test(entry.target.Text || "") && !entry.target.JapaneseReading)
+  );
+  if (presentScripts.length > 0 && needsRomanizationOrJapaneseReading) {
     packages = await loadPackagesForScripts(presentScripts);
     const results = await Promise.all(
-      entries.map((entry) => romanizeEntry(entry, presentScripts, packages, language))
+      entries.map((entry) => romanizeEntry(entry, presentScripts, packages, language, lyrics.Type !== "Syllable"))
     );
     appliedRomanization = results.some(Boolean);
   }

@@ -119,6 +119,88 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
    Specificity (1,6,0) beats Mixed.css rules at (1,5,0) that are loaded after this file. */
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .SpicyLyricsScrollContainer .VirtualLyricsContainer .line {
   margin: 0 !important;
+  box-sizing: border-box;
+  max-width: 100%;
+  overflow: visible;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line.HasExtras {
+  display: block;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line.HasOppositeAlignedExtras {
+  text-align: end;
+}
+
+#SpicyLyricsPage .LyricsContainer.ProcessingReadyReveal .LyricsContent .line.HasExtras :is(.furigana-cluster, .romanized-below, .translated-below) {
+  animation: SLProcessingReadyReveal 0.18s ease-out both;
+}
+
+@keyframes SLProcessingReadyReveal {
+  from { filter: blur(3px); }
+  to { filter: blur(var(--BlurAmount, 0px)); }
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .has-furigana {
+  --furigana-rt-size: 0.38em;
+  --furigana-rt-gap: 0.12em;
+  overflow: visible;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line.has-furigana,
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line:has(.has-furigana),
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line.furigana-pending {
+  row-gap: 0.12em;
+  padding-top: 0.08em;
+  padding-bottom: 0.16em;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line.furigana-pending::before {
+  content: "";
+  display: block;
+  height: calc(var(--DefaultLyricsSize) * 0.52);
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-cluster {
+  display: inline-grid;
+  grid-template-rows: calc(var(--furigana-rt-size) + var(--furigana-rt-gap)) 1em;
+  justify-items: center;
+  align-items: end;
+  vertical-align: bottom;
+  line-height: 1;
+  overflow: visible;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-reading {
+  grid-row: 1;
+  width: max-content;
+  max-width: 4.5em;
+  overflow: visible;
+  white-space: nowrap;
+  text-align: center;
+  font-size: var(--furigana-rt-size);
+  font-weight: 500;
+  line-height: 1;
+  pointer-events: none;
+  background: none !important;
+  background-image: none !important;
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.72);
+  text-shadow: inherit;
+  filter: blur(var(--BlurAmount, 0px));
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-reading.furigana-placeholder {
+  visibility: hidden;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-base {
+  grid-row: 2;
+  line-height: 1;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .word.has-furigana {
+  display: inline-block;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below {
@@ -130,7 +212,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   line-height: 1.2;
   color: rgba(255, 255, 255, 0.55);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
-  text-shadow: none;
+  text-shadow: inherit;
+  filter: blur(var(--BlurAmount, 0px));
   background: none;
 }
 
@@ -159,7 +242,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   --gradient-position: -20%;
   --gradient-degrees: 90deg;
   --gradient-alpha-end: 0.35;
-  text-shadow: none;
+  text-shadow: inherit;
+  filter: blur(var(--BlurAmount, 0px));
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below {
@@ -172,7 +256,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   color: rgba(255, 255, 255, 0.45);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
   font-style: italic;
-  text-shadow: none;
+  text-shadow: inherit;
+  filter: blur(var(--BlurAmount, 0px));
   background: none;
 }
 

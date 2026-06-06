@@ -31,7 +31,7 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const r3 = matches(query, "Disable Popup Lyrics Window", "Prevent lyrics from opening in a floating popup window.");
   const r4 = matches(query, "Lyrics Controls Position", "Where the lyrics view controls (play, scroll, etc.) appear.");
   const r5 = matches(query, "Timeline Outside Media Box", "Display the playback timeline outside the media box, in the NowBar header. Stays inside the media box in Compact Mode or PIP.");
-  const r6 = matches(query, "Flat Lyrics Controls", "Use old flat translucent controls instead of glossy glass buttons.");
+  const r6 = matches(query, "Flat Controls (No Liquid Glass)", "Use flat lyrics control buttons instead of liquid-glass buttons.");
   const r7 = matches(query, "Prefetch Next Lyrics", "Fetch and process upcoming track lyrics before the song changes.");
 
   if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7) return null;
@@ -86,7 +86,7 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
       )}
 
       {r6 && (
-        <Row label="Flat Lyrics Controls" description="Use old flat translucent controls instead of glossy glass buttons.">
+        <Row label="Flat Controls (No Liquid Glass)" description="Use flat lyrics control buttons instead of liquid-glass buttons.">
           <Toggle checked={flatViewControls} onChange={(v) => $flatViewControls.set(v)} />
         </Row>
       )}

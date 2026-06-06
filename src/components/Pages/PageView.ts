@@ -5,6 +5,7 @@ import {
   $forceCompactMode,
   $forceDarkBackground,
   $isGlobalNav,
+  $japaneseReadingMode,
   $showChineseTranslitButton,
 } from "../../utils/uiState.ts";
 import "../../css/Loaders/DotLoader.css";
@@ -941,7 +942,44 @@ $showChineseTranslitButton.listen(() => {
   AppendViewControls(true);
 });
 
-$ttmlMakerMode.listen((v) => {
+const rerenderCurrentLyrics = async () => {
+  if (!PageContainer) return;
+  const raw = $currentLyricsData.get();
+  if (raw && !raw.startsWith("NO_LYRICS:")) {
+    try {
+      await ApplyLyrics([JSON.parse(raw), 200]);
+      setTimeout(() => triggerRemeasureLV(), 60);
+      return;
+    } catch (error) {
+      pageLogger.warn("Failed to rerender cached lyrics", error);
+    }
+  }
+
+  const uri = SpotifyPlayer.GetUri();
+  if (uri) fetchLyrics(uri).then(async (lyrics) => {
+    await ApplyLyrics(lyrics);
+    setTimeout(() => triggerRemeasureLV(), 60);
+  });
+};
+
+$japaneseReadingMode.listen(() => {
+  rerenderCurrentLyrics();
+});
+
+window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) => {
+  const trackId = event.detail?.trackId;
+  if (trackId && trackId !== SpotifyPlayer.GetId()) return;
+  PageContainer?.querySelector(".LyricsContainer")?.classList.add("ProcessingReadyReveal");
+  ApplyLyrics([event.detail.lyrics, 200]).then(() => {
+    AppendViewControls(true);
+    setTimeout(() => triggerRemeasureLV(), 60);
+    setTimeout(() => {
+      PageContainer?.querySelector(".LyricsContainer")?.classList.remove("ProcessingReadyReveal");
+    }, 220);
+  });
+}) as EventListener);
+
+$ttmlMakerMode.listen(() => {
   if (!PageContainer) return;
   AppendViewControls(true);
 })

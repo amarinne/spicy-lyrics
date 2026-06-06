@@ -49,6 +49,3 @@ export {
   batchTranslate,
   translateLyrics,
 } from "./Translation.ts";
-
-// Syllable synchronization for karaoke
-export { mapRomajiToJapaneseSyllables } from "./SyllableSync.ts";

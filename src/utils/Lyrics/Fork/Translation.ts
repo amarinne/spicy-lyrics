@@ -175,8 +175,10 @@ export async function batchTranslate(
   const slCode = sourceLang === "und" ? "auto"
     : (langs.where("3", sourceLang)?.["1"] || "auto");
 
-  // 2. Batch into chunks of ~50 lines to avoid URL length limits
-  const CHUNK_SIZE = 50;
+  // 2. Translate one lyric line per request. Google newline-batch responses can
+  // merge/drop/reorder line boundaries, which assigns neighboring translations to
+  // short repeated lines (e.g. "yeah") and bypasses duplicate suppression.
+  const CHUNK_SIZE = 1;
   for (let ci = 0; ci < uncachedTexts.length; ci += CHUNK_SIZE) {
     const chunk = uncachedTexts.slice(ci, ci + CHUNK_SIZE);
     const chunkIndices = uncachedIndices.slice(ci, ci + CHUNK_SIZE);
@@ -208,7 +210,8 @@ export async function batchTranslate(
 
       const translatedLines = fullTranslation.split("\n");
 
-      // Map back to results and cache
+      // Map back to results and cache. Google sometimes drops/merges newline
+      // boundaries inside batch responses; empty slots get retried individually below.
       for (let j = 0; j < chunkIndices.length; j++) {
         const idx = chunkIndices[j];
         const translated = (translatedLines[j] || "").trim();
@@ -225,6 +228,36 @@ export async function batchTranslate(
       }
     } catch (err) {
       console.error("[SpicyLyrics:Translation] Fetch error:", err);
+    }
+  }
+
+  const missingIndices = uncachedIndices.filter((idx) => !results[idx]?.trim());
+  if (missingIndices.length > 0) {
+    console.warn(`[SpicyLyrics:Translation] Retrying ${missingIndices.length} missing batch translations individually`);
+    for (const idx of missingIndices) {
+      const originalText = lines[idx].trim();
+      if (!originalText) continue;
+      try {
+        const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(originalText)}`;
+        const resp = await fetch(url);
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        let translated = "";
+        if (Array.isArray(data) && Array.isArray(data[0])) {
+          for (const segment of data[0]) {
+            if (segment && typeof segment[0] === "string") translated += segment[0];
+          }
+        }
+        translated = translated.trim();
+        if (translated) {
+          results[idx] = translated;
+          const key = translationCacheKey(originalText, targetLang);
+          if (!cache[key]) _cacheCount++;
+          cache[key] = translated;
+        }
+      } catch (err) {
+        console.error("[SpicyLyrics:Translation] Individual retry error:", err);
+      }
     }
   }
 
