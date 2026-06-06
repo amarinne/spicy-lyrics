@@ -13,6 +13,7 @@ import { LocalLyricsManager } from "./manager/index.ts";
 import { LyricsQueueRetry } from "./LyricsQueueRetry.ts";
 import { GetExpireStore } from "../../modules/Store.ts";
 import { SLObjPack } from "../objpack.ts";
+import { translateLyrics } from "./Fork/Translation.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
@@ -40,26 +41,45 @@ function setRomanizationClass(hasTransliterations: boolean | undefined): void {
  * loader, publish the type, reveal the containers and view controls, and clear the
  * fetching flag. Used by every successful return path.
  */
+function dispatchProcessingReady(trackId: string, lyrics: any): void {
+  if (SpotifyPlayer.GetId() !== trackId) return;
+  $currentLyricsData.set(JSON.stringify(lyrics));
+  window.dispatchEvent(
+    new CustomEvent("spicy-lyrics:processing-ready", {
+      detail: { trackId, lyrics },
+    })
+  );
+}
+
 async function finishProcessingInBackground(trackId: string, lyrics: any): Promise<void> {
+  const shouldTranslate = lyrics.TranslationPending === true;
+  const shouldRerenderAfterRomanization = lyrics.RomanizationPending === true;
+
   try {
-    await ProcessLyrics(lyrics, { updatePageClasses: false, awaitTranslation: true });
+    await ProcessLyrics(lyrics, { updatePageClasses: false, awaitTranslation: false });
     lyrics.ProcessingPending = false;
     lyrics.RomanizationPending = false;
-    lyrics.TranslationPending = false;
+    lyrics.TranslationPending = shouldTranslate;
     await LyricsStore.SetItem(trackId, lyrics);
-    if (SpotifyPlayer.GetId() === trackId) {
-      $currentLyricsData.set(JSON.stringify(lyrics));
-      window.dispatchEvent(
-        new CustomEvent("spicy-lyrics:processing-ready", {
-          detail: { trackId, lyrics },
-        })
-      );
-    }
+    if (shouldRerenderAfterRomanization) dispatchProcessingReady(trackId, lyrics);
   } catch (error) {
     lyrics.ProcessingPending = false;
     lyrics.RomanizationPending = false;
     lyrics.TranslationPending = false;
-    lyricsCacheLogger.error("Background lyrics processing failed", error);
+    lyricsCacheLogger.error("Background lyrics romanization failed", error);
+    return;
+  }
+
+  if (!shouldTranslate) return;
+
+  try {
+    await translateLyrics(lyrics);
+  } catch (error) {
+    lyricsCacheLogger.error("Background lyrics translation failed", error);
+  } finally {
+    lyrics.TranslationPending = false;
+    await LyricsStore.SetItem(trackId, lyrics);
+    dispatchProcessingReady(trackId, lyrics);
   }
 }
 
