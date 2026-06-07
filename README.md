@@ -1,13 +1,24 @@
-Personal fork of [Spikerko/spicy-lyrics](https://github.com/Spikerko/spicy-lyrics) with extra reading, romanization, and translation features.
+Personal fork of [Spikerko/spicy-lyrics](https://github.com/Spikerko/spicy-lyrics).
 
-## Fork features
+## Fork stuff
 
-- Japanese furigana and romaji, generated from full lyric-line context
-- Chinese pinyin or Jyutping romanization
-- Korean, Cyrillic, and Greek romanization
-- Optional Google Translate extra line for foreign or mixed-language lyrics
-- Extra lyric lines supported in static, line-synced, and syllable-synced views
-- Plain-lyric fast path, so English-only songs avoid reading/translation processing
+Lyrics:
+- JP furigana / romaji
+- CN pinyin / jyutping
+- KR / Cyrillic / Greek romanization
+- Google Translate line
+- mixed-language translate
+- static / line / syllable modes work
+- plain English skips romanization/translation path
+
+UI:
+- flat controls by default, no liquid glass buttons
+- force dark background toggle
+- copy lyrics button, multiple formats
+- romanization / translation quick toggles
+- Chinese translit quick toggle
+- prefetch next lyrics
+- cache migration for old processed lyrics
 
 ## Installation
 
