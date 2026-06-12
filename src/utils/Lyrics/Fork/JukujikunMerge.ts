@@ -9,12 +9,12 @@ import { JUKUJIKUN } from "./JukujikuDict.ts";
 export interface MergeableEntry {
   romaji: string;
   consumed: boolean;
+  surface?: string;
+  readingKana?: string;
 }
 
 const SMALL_TSU_ROMAJI = /(?:xtsu|ltsu|tsu)$/i;
-const NUMBER_LIKE = /^(?:\d+|[一二三四五六七八九十百千万億兆何]+)$/;
 const PLURAL_PRONOUN_BEFORE_KATA = /^(?:あなた|貴方|君|きみ|皆|みんな|僕|ぼく|私|わたし|我々)$/;
-const DEMONSTRATIVE_BEFORE_KATA = /^(?:この|その|あの|どの)$/;
 
 const doubledSokuon = (romaji: string): string => {
   if (!romaji) return romaji;
@@ -22,6 +22,18 @@ const doubledSokuon = (romaji: string): string => {
   if (/^[aeioun]/.test(lower)) return romaji;
   return `${romaji[0]}${romaji}`;
 };
+
+function previousActive(entries: MergeableEntry[], index: number): number {
+  for (let i = index; i >= 0; i -= 1) {
+    if (!entries[i].consumed) return i;
+  }
+  return -1;
+}
+
+function setReading(entry: MergeableEntry, romaji: string, readingKana: string): void {
+  entry.romaji = romaji;
+  entry.readingKana = readingKana;
+}
 
 /**
  * Apply phonetic mutations that need neighboring tokens.
@@ -34,38 +46,19 @@ export function applyContextualReadingOverrides(
   for (let i = 0; i < tokens.length; i++) {
     if (entries[i].consumed) continue;
 
-    const sf = tokens[i].surface_form || "";
-    const prevSf = tokens[i - 1]?.surface_form || "";
-    const nextSf = tokens[i + 1]?.surface_form || "";
+    const sf = entries[i].surface || tokens[i].surface_form || "";
+    const prevIndex = previousActive(entries, i - 1);
+    const prevSf = prevIndex >= 0 ? entries[prevIndex].surface || tokens[prevIndex]?.surface_form || "" : "";
 
     if (sf === "私") {
-      // Lyrics overwhelmingly use わたし; avoid kuromoji's formal わたくし drift.
-      entries[i].romaji = "watashi";
+      // Lyrics register: prefer わたし over formal わたくし. Keep as cited lexical override.
+      setReading(entries[i], "watashi", "わたし");
       continue;
     }
 
-    if (sf === "人") {
-      // Counter suffix: 三 人 => san nin. Bare/word 人 in lyrics usually hito.
-      entries[i].romaji = NUMBER_LIKE.test(prevSf) ? "nin" : "hito";
-      continue;
-    }
-
-    if (sf === "方") {
-      if (PLURAL_PRONOUN_BEFORE_KATA.test(prevSf)) {
-        entries[i].romaji = "gata";
-      } else if (DEMONSTRATIVE_BEFORE_KATA.test(prevSf)) {
-        entries[i].romaji = "kata";
-      } else if (prevSf === "の" || /^[へにをがはも]$/.test(nextSf)) {
-        entries[i].romaji = "hou";
-      }
-      continue;
-    }
-
-    if (sf === "生") {
-      // Bare 生 is too ambiguous (sei/shou/nama/i/u/ha). Only handle clear okurigana splits.
-      if (/^[きくけ]$/.test(nextSf)) entries[i].romaji = "i";
-      else if (/^[ま]$/.test(nextSf)) entries[i].romaji = "u";
-      else if (/^[え]$/.test(nextSf)) entries[i].romaji = "ha";
+    if (sf === "方" && PLURAL_PRONOUN_BEFORE_KATA.test(prevSf)) {
+      // Dictionary cannot infer plural-pronoun rendaku when tokenized as 貴方 + 方.
+      setReading(entries[i], "gata", "がた");
     }
   }
 }
@@ -107,6 +100,7 @@ export function applyJukujikun(
         .map((t: any) => t.surface_form).join("");
       if (JUKUJIKUN[combined]) {
         entries[i].romaji = JUKUJIKUN[combined];
+        entries[i].surface = combined;
         for (let j = 1; j < len; j++) entries[i + j].consumed = true;
         break;
       }
@@ -159,6 +153,17 @@ export function computeNoSpaceBefore(
       if ("エケセテネヘメレゲゼデベペェ".includes(last)) {
         noSpaceBefore[i] = true;
       }
+    }
+
+    const prevPos1 = tokens[pi].pos || tokens[pi].part_of_speech || "";
+    const prevPos2 = tokens[pi].pos_detail_1 || "";
+    const currPos1 = tokens[i].pos || tokens[i].part_of_speech || "";
+    const currPos2 = tokens[i].pos_detail_1 || "";
+    const prevVerbLike = prevPos1 === "動詞" || prevPos1 === "助動詞" || prevPos2 === "接続助詞";
+    if (prevVerbLike) {
+      if (currPos1 === "動詞" && (currPos2 === "非自立" || currPos2 === "接尾")) noSpaceBefore[i] = true;
+      if (currPos1 === "助詞" && currPos2 === "接続助詞") noSpaceBefore[i] = true;
+      if (currPos1 === "助動詞" && !/^(?:でしょ|です|だろ)/.test(currSf)) noSpaceBefore[i] = true;
     }
 
     // Punctuation — no space before

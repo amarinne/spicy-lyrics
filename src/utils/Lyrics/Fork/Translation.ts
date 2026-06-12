@@ -17,6 +17,8 @@ import { isMeaningfullyDifferent } from "../TextCompare.ts";
 
 const TRANSLATION_CACHE_KEY = "spicy-lyrics:translationCache";
 const TRANSLATION_CACHE_MAX_ENTRIES = 5000;
+const GOOGLE_REQUEST_SPACING_MS = 250;
+const GOOGLE_RETRY_DELAY_MS = 900;
 
 // In-memory mirror – loaded once from localStorage
 let _translationCache: Record<string, string> | null = null;
@@ -65,6 +67,60 @@ export function clearTranslationCache() {
 
 function translationCacheKey(text: string, targetLang: string): string {
   return `${targetLang}:${text}`;
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+let nextGoogleRequestAt = 0;
+
+async function waitForGoogleRequestSlot(): Promise<void> {
+  const now = Date.now();
+  const waitMs = Math.max(0, nextGoogleRequestAt - now);
+  nextGoogleRequestAt = Math.max(now, nextGoogleRequestAt) + GOOGLE_REQUEST_SPACING_MS;
+  if (waitMs > 0) await sleep(waitMs);
+}
+
+function shouldRetryGoogle(errorOrStatus: unknown): boolean {
+  if (typeof errorOrStatus === "number") return errorOrStatus === 429 || errorOrStatus >= 500;
+  return true;
+}
+
+function extractGoogleTranslation(data: any): string {
+  let translated = "";
+  if (Array.isArray(data) && Array.isArray(data[0])) {
+    for (const segment of data[0]) {
+      if (segment && typeof segment[0] === "string") translated += segment[0];
+    }
+  }
+  return translated.trim();
+}
+
+async function requestGoogleTranslation(url: string): Promise<string> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await waitForGoogleRequestSlot();
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        lastError = resp.status;
+        if (attempt === 0 && shouldRetryGoogle(resp.status)) {
+          await sleep(GOOGLE_RETRY_DELAY_MS);
+          continue;
+        }
+        console.warn(`[SpicyLyrics:Translation] API returned ${resp.status}`);
+        return "";
+      }
+      return extractGoogleTranslation(await resp.json());
+    } catch (error) {
+      lastError = error;
+      if (attempt === 0 && shouldRetryGoogle(error)) {
+        await sleep(GOOGLE_RETRY_DELAY_MS);
+        continue;
+      }
+    }
+  }
+  console.error("[SpicyLyrics:Translation] Fetch error:", lastError);
+  return "";
 }
 
 const SCRIPT_TESTS = {
@@ -144,7 +200,7 @@ export async function batchTranslate(
   targetLang: string,
 ): Promise<string[]> {
   const cache = getTranslationCache();
-  const results: string[] = new Array(lines.length).fill("");
+  const results: string[] = Array.from({ length: lines.length }, () => "");
   const uncachedIndices: number[] = [];
   const uncachedTexts: string[] = [];
 
@@ -188,27 +244,7 @@ export async function batchTranslate(
 
     try {
       const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(joined)}`;
-
-      const resp = await fetch(url);
-      if (!resp.ok) {
-        console.warn(`[SpicyLyrics:Translation] API returned ${resp.status}`);
-        continue;
-      }
-
-      const data = await resp.json();
-
-      // Google returns [[["translated\n...", "source\n...", ...], ...], ...]
-      // Reassemble all translated segments
-      let fullTranslation = "";
-      if (Array.isArray(data) && Array.isArray(data[0])) {
-        for (const segment of data[0]) {
-          if (segment && typeof segment[0] === "string") {
-            fullTranslation += segment[0];
-          }
-        }
-      }
-
-      const translatedLines = fullTranslation.split("\n");
+      const translatedLines = (await requestGoogleTranslation(url)).split("\n");
 
       // Map back to results and cache. Google sometimes drops/merges newline
       // boundaries inside batch responses; empty slots get retried individually below.
@@ -239,16 +275,7 @@ export async function batchTranslate(
       if (!originalText) continue;
       try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(originalText)}`;
-        const resp = await fetch(url);
-        if (!resp.ok) continue;
-        const data = await resp.json();
-        let translated = "";
-        if (Array.isArray(data) && Array.isArray(data[0])) {
-          for (const segment of data[0]) {
-            if (segment && typeof segment[0] === "string") translated += segment[0];
-          }
-        }
-        translated = translated.trim();
+        const translated = await requestGoogleTranslation(url);
         if (translated) {
           results[idx] = translated;
           const key = translationCacheKey(originalText, targetLang);

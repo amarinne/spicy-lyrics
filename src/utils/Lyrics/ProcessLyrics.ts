@@ -12,11 +12,9 @@ import {
   KoreanTextTest,
   CyrillicTextTest,
   GreekTextTest,
-  CJKIdeographTest,
   isCyrillicLanguage,
 } from "./Fork/index.ts";
 import { buildRomajiFromTokens, romanizeCantonese, romanizeCyrillic } from "./Fork/Romanization.ts";
-import { JUKUJIKUN } from "./Fork/JukujikuDict.ts";
 import {
   annotateJapaneseTextTarget,
   applyJapaneseReadingToSyllables,
@@ -25,7 +23,7 @@ import {
 import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
 
 export { clearTranslationCache };
-export const LYRICS_PROCESSING_VERSION = 2;
+export const LYRICS_PROCESSING_VERSION = 4;
 
 // Constants
 const RomajiConverter = new Kuroshiro();
@@ -98,12 +96,8 @@ const loadPackagesForScripts = async (
 const romanizeJapaneseText = async (text: string): Promise<string> => {
   await RomajiPromise;
   const normalized = text.normalize("NFKC");
-  let result = await RomajiConverter.convert(normalized, { to: "romaji", mode: "spaced" });
-  if (CJKIdeographTest.test(result) || /[っッ]/.test(normalized) || Object.keys(JUKUJIKUN).some((term) => normalized.includes(term))) {
-    const rebuilt = await buildRomajiFromTokens(normalized);
-    if (rebuilt) result = rebuilt;
-  }
-  return result;
+  return (await buildRomajiFromTokens(normalized)) ||
+    await RomajiConverter.convert(normalized, { to: "romaji", mode: "spaced" });
 };
 
 const romanizeChineseText = async (
@@ -216,6 +210,28 @@ const detectPresentScripts = (
 const hasTransliteration = (entry: any): boolean =>
   typeof entry.TransliteratedText === "string" && entry.TransliteratedText !== "";
 
+const lyricsHaveAnyTransliteration = (lyrics: any): boolean => {
+  if (lyrics.Type === "Static") {
+    return lyrics.Lines?.some((line: any) => hasTransliteration(line) || typeof line.RomanizedText === "string") === true;
+  }
+  if (lyrics.Type === "Line") {
+    return lyrics.Content?.some((line: any) => hasTransliteration(line) || typeof line.RomanizedText === "string") === true;
+  }
+  if (lyrics.Type === "Syllable") {
+    return lyrics.Content?.some((group: any) =>
+      hasTransliteration(group.Lead) ||
+      typeof group.Lead?.RomanizedText === "string" ||
+      group.Lead?.Syllables?.some((s: any) => hasTransliteration(s) || typeof s.RomanizedText === "string") === true ||
+      group.Background?.some((bg: any) =>
+        hasTransliteration(bg) ||
+        typeof bg.RomanizedText === "string" ||
+        bg.Syllables?.some((s: any) => hasTransliteration(s) || typeof s.RomanizedText === "string") === true
+      ) === true
+    ) === true;
+  }
+  return false;
+};
+
 const LatinWordTextTest = /[A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ]/;
 
 const joinSyllables = (syllables: any[], compact = false): string => {
@@ -324,10 +340,22 @@ const romanizeEntry = async (
   if (target.Text) target.Text = target.Text.normalize("NFKC");
 
   if (hasTransliteration(target)) {
-    if (annotateJapanese && ItemJapaneseTest.test(target.Text || "") && !target.JapaneseReading) {
-      await annotateJapaneseTextTarget(target, target.RomanizedText || target.TransliteratedText, RomajiPromise);
+    if (annotateJapanese && ItemJapaneseTest.test(target.Text || "")) {
+      // Provider romaji can leak Chinese readings for kanji or mishandle particles.
+      // Rebuild Japanese reading locally; preserve provider furigana only if local analysis has none.
+      const previousRomanized = target.RomanizedText || target.TransliteratedText;
+      const providerReading = target.JapaneseReading;
+      const localReading = await annotateJapaneseTextTarget(target, undefined, RomajiPromise);
+      if (localReading?.romaji) {
+        target.TransliteratedText = localReading.romaji;
+        target.RomanizedText = localReading.romaji;
+      }
+      if (providerReading?.furigana?.length && !target.JapaneseReading?.furigana?.length) {
+        target.JapaneseReading = { ...target.JapaneseReading, furigana: providerReading.furigana };
+      }
+      return (target.RomanizedText || target.TransliteratedText) !== previousRomanized;
     }
-    return false;
+    return true;
   }
 
   let text: string = target.Text;
@@ -414,8 +442,9 @@ export const ProcessLyrics = async (
     await postProcessSyllableRomanization(lyrics, presentScripts, packages, language);
   }
 
-  lyrics.IncludesRomanization = hadApiTransliterations || appliedRomanization;
-  lyrics.HasTransliterations = hadApiTransliterations || appliedRomanization;
+  const hasAnyTransliteration = lyricsHaveAnyTransliteration(lyrics);
+  lyrics.IncludesRomanization = hadApiTransliterations || appliedRomanization || hasAnyTransliteration;
+  lyrics.HasTransliterations = hadApiTransliterations || appliedRomanization || hasAnyTransliteration;
 
   if (updatePageClasses) {
     if (lyrics.HasTransliterations === true) {
