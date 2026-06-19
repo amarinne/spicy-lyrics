@@ -17,8 +17,8 @@ import { isMeaningfullyDifferent } from "../TextCompare.ts";
 
 const TRANSLATION_CACHE_KEY = "spicy-lyrics:translationCache";
 const TRANSLATION_CACHE_MAX_ENTRIES = 5000;
-const GOOGLE_REQUEST_SPACING_MS = 250;
-const GOOGLE_RETRY_DELAY_MS = 900;
+const GOOGLE_INITIAL_BACKOFF_MS = 900;
+const GOOGLE_MAX_BACKOFF_MS = 8000;
 
 // In-memory mirror – loaded once from localStorage
 let _translationCache: Record<string, string> | null = null;
@@ -71,13 +71,22 @@ function translationCacheKey(text: string, targetLang: string): string {
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
-let nextGoogleRequestAt = 0;
+let googleBackoffUntil = 0;
+let googleBackoffMs = GOOGLE_INITIAL_BACKOFF_MS;
 
-async function waitForGoogleRequestSlot(): Promise<void> {
-  const now = Date.now();
-  const waitMs = Math.max(0, nextGoogleRequestAt - now);
-  nextGoogleRequestAt = Math.max(now, nextGoogleRequestAt) + GOOGLE_REQUEST_SPACING_MS;
+async function waitForGoogleBackoff(): Promise<void> {
+  const waitMs = Math.max(0, googleBackoffUntil - Date.now());
   if (waitMs > 0) await sleep(waitMs);
+}
+
+function registerGoogleSuccess(): void {
+  googleBackoffUntil = 0;
+  googleBackoffMs = GOOGLE_INITIAL_BACKOFF_MS;
+}
+
+function registerGoogleFailure(): void {
+  googleBackoffUntil = Date.now() + googleBackoffMs;
+  googleBackoffMs = Math.min(googleBackoffMs * 2, GOOGLE_MAX_BACKOFF_MS);
 }
 
 function shouldRetryGoogle(errorOrStatus: unknown): boolean {
@@ -98,25 +107,23 @@ function extractGoogleTranslation(data: any): string {
 async function requestGoogleTranslation(url: string): Promise<string> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    await waitForGoogleRequestSlot();
+    await waitForGoogleBackoff();
     try {
       const resp = await fetch(url);
       if (!resp.ok) {
         lastError = resp.status;
-        if (attempt === 0 && shouldRetryGoogle(resp.status)) {
-          await sleep(GOOGLE_RETRY_DELAY_MS);
-          continue;
-        }
+        if (shouldRetryGoogle(resp.status)) registerGoogleFailure();
+        if (attempt === 0 && shouldRetryGoogle(resp.status)) continue;
         console.warn(`[SpicyLyrics:Translation] API returned ${resp.status}`);
         return "";
       }
-      return extractGoogleTranslation(await resp.json());
+      const translation = extractGoogleTranslation(await resp.json());
+      registerGoogleSuccess();
+      return translation;
     } catch (error) {
       lastError = error;
-      if (attempt === 0 && shouldRetryGoogle(error)) {
-        await sleep(GOOGLE_RETRY_DELAY_MS);
-        continue;
-      }
+      if (shouldRetryGoogle(error)) registerGoogleFailure();
+      if (attempt === 0 && shouldRetryGoogle(error)) continue;
     }
   }
   console.error("[SpicyLyrics:Translation] Fetch error:", lastError);
