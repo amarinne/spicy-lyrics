@@ -5,7 +5,7 @@ import { RetrievePackage } from "../ImportPackage.ts";
 import * as KuromojiAnalyzer from "./KuromojiAnalyzer.ts";
 import { PageContainer } from "../../components/Pages/PageView.ts";
 import Logger from "../Logger.ts";
-import { chineseTranslitMode } from "./lyrics.ts";
+import { chineseTranslitMode, cyrillicKeepSigns, cyrillicRomanizationMode, koreanRomanizationMode } from "./lyrics.ts";
 import {
   ChineseTextTest,
   JapaneseTextTest,
@@ -14,7 +14,7 @@ import {
   GreekTextTest,
   isCyrillicLanguage,
 } from "./Fork/index.ts";
-import { buildRomajiFromTokens, romanizeCantonese, romanizeCyrillic } from "./Fork/Romanization.ts";
+import { buildRomajiFromTokens, romanizeCantonese, romanizeCyrillic, romanizeKorean } from "./Fork/Romanization.ts";
 import {
   annotateJapaneseTextTarget,
   applyJapaneseReadingToSyllables,
@@ -23,7 +23,7 @@ import {
 import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
 
 export { clearTranslationCache };
-export const LYRICS_PROCESSING_VERSION = 4;
+export const LYRICS_PROCESSING_VERSION = 5;
 
 // Constants
 const RomajiConverter = new Kuroshiro();
@@ -44,7 +44,6 @@ const ResidualScriptTest = /[぀-ヿ一-鿿가-힯ᄀ-ᇿ㄰-㆏Ѐ-ԯͰ-Ͽἀ-�
 
 // Load Packages
 RetrievePackage("pinyin", "4.0.0", "mjs").catch(() => {});
-RetrievePackage("aromanize", "1.0.0", "js").catch(() => {});
 RetrievePackage("GreekRomanization", "1.0.0", "js").catch(() => {});
 
 type RomanizationBranch = "Japanese" | "Chinese" | "Korean" | "Cyrillic" | "Greek";
@@ -58,7 +57,6 @@ const SCRIPT_PRIORITY: RomanizationBranch[] = [
 ];
 
 type RomanizationPackages = {
-  aromanize?: any;
   pinyin?: any;
   greekRomanization?: any;
 };
@@ -84,8 +82,6 @@ const loadPackagesForScripts = async (
       await RomajiPromise;
     } else if (script === "Chinese" && chineseTranslitMode !== "jyutping") {
       packages.pinyin = await RetrievePackage("pinyin", "4.0.0", "mjs");
-    } else if (script === "Korean") {
-      packages.aromanize = await RetrievePackage("aromanize", "1.0.0", "js");
     } else if (script === "Greek") {
       packages.greekRomanization = await RetrievePackage("GreekRomanization", "1.0.0", "js");
     }
@@ -113,12 +109,10 @@ const romanizeChineseText = async (
   return result.join(" ");
 };
 
-const romanizeKoreanText = (text: string, aromanize: any): string => {
-  if (!aromanize) return text;
-  return aromanize.default(text, "RevisedRomanizationTransliteration");
-};
+const romanizeKoreanText = (text: string): string => romanizeKorean(text, koreanRomanizationMode);
 
-const romanizeCyrillicText = (text: string): string => romanizeCyrillic(text);
+const romanizeCyrillicText = (text: string): string =>
+  romanizeCyrillic(text, cyrillicRomanizationMode, cyrillicKeepSigns);
 
 const romanizeGreekText = (text: string, greekRomanization: any): string => {
   if (!greekRomanization) return text;
@@ -375,7 +369,7 @@ const romanizeEntry = async (
       }
     } else if (script === "Korean") {
       if (ItemKoreanTest.test(text)) {
-        text = romanizeKoreanText(text, packages.aromanize);
+        text = romanizeKoreanText(text);
         changed = true;
       }
     } else if (script === "Cyrillic") {
