@@ -356,7 +356,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         // re-fetch checks (which match on uri) recognise it — older cache
         // entries predate the uri field.
         const lyricsFromCache = await ensureProcessingVersion(trackId, uri, {
-          ...(lyricsFromCacheRes ?? {}),
+          ...lyricsFromCacheRes,
           uri,
         });
         $currentLyricsData.set(JSON.stringify(lyricsFromCache));
