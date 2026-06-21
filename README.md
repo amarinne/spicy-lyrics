@@ -1,5 +1,10 @@
 Personal fork of [Spikerko/spicy-lyrics](https://github.com/Spikerko/spicy-lyrics).
 
+<p>
+  <img src="assets/demo-lyrics-settings.gif" width="49%" alt="">
+  <img src="assets/demo-lyrics-display.gif" width="49%" alt="">
+</p>
+
 ## Fork stuff
 
 Lyrics:
@@ -36,4 +41,3 @@ Requires [Spicetify](https://spicetify.app/).
    ```
 
 To update, download the new `.mjs` from the latest release, replace the file, and run `spicetify apply`.
-
