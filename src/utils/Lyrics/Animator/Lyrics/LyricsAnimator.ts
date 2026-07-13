@@ -36,6 +36,10 @@ export const Clamp = (value: number, min: number, max: number): number => {
 };
 
 const LetterGlowMultiplier_Opacity = 185;
+const GradientUnsungPosition = -40;
+const GradientRange = 140;
+const gradientPositionAt = (progress: number) =>
+  GradientUnsungPosition + GradientRange * Clamp(progress, 0, 1);
 
 const ScaleRange = [
   { Time: 0, Value: 0.95 },
@@ -742,7 +746,7 @@ export function Animate(position: number): void {
               if ($simpleLyricsMode.get()) {
                 targetGradientPos = -50 + 120 * percentage;
               } else {
-                targetGradientPos = -20 + 120 * percentage;
+                targetGradientPos = gradientPositionAt(percentage);
               }
             } else if (wordState === "NotSung") {
               targetScale = ScaleSpline.at(0);
@@ -751,7 +755,7 @@ export function Animate(position: number): void {
               if ($simpleLyricsMode.get()) {
                 targetGradientPos = -50;
               } else {
-                targetGradientPos = -20;
+                targetGradientPos = GradientUnsungPosition;
               }
             } else {
               // Sung
@@ -1114,7 +1118,7 @@ export function Animate(position: number): void {
                   if ($simpleLyricsMode.get()) {
                     targetGradient = -50;
                   } else {
-                    targetGradient = -20;
+                    targetGradient = GradientUnsungPosition;
                   }
                 } else if (letterState === "Sung") {
                   targetGradient = 100;
@@ -1122,7 +1126,7 @@ export function Animate(position: number): void {
                   // Active
                   // Only the *actual* active letter gets the animated gradient
                   targetGradient =
-                    k === activeLetterIndex ? -20 + 120 * easeSinOut(activeLetterPercentage) : -20;
+                    k === activeLetterIndex ? gradientPositionAt(easeSinOut(activeLetterPercentage)) : GradientUnsungPosition;
                   if ($simpleLyricsMode.get()) {
                     targetGradient =
                       k === activeLetterIndex
@@ -1131,8 +1135,8 @@ export function Animate(position: number): void {
                   } else {
                     targetGradient =
                       k === activeLetterIndex
-                        ? -20 + 120 * easeSinOut(activeLetterPercentage)
-                        : -20;
+                        ? gradientPositionAt(easeSinOut(activeLetterPercentage))
+                        : GradientUnsungPosition;
                   }
                 }
 
@@ -1222,7 +1226,7 @@ export function Animate(position: number): void {
                   letter.HTMLElement.style.animation = "none";
                   letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "-50%");
                 } else {
-                  letter.HTMLElement.style.setProperty("--gradient-position", `-20%`);
+                  letter.HTMLElement.style.setProperty("--gradient-position", `${GradientUnsungPosition}%`);
                 }
 
                 setStyleIfChanged(
@@ -1315,7 +1319,7 @@ export function Animate(position: number): void {
                         word.HTMLElement.style.transform = `translateY(calc(var(--DefaultLyricsSize) * ${currentYOffset}))`;
                         word.HTMLElement.style.scale = `${currentScale}`;
                         if (!word.LetterGroup) {
-                          word.HTMLElement.style.setProperty("--gradient-position", `-20%`);
+                          word.HTMLElement.style.setProperty("--gradient-position", `${GradientUnsungPosition}%`);
                           word.HTMLElement.style.setProperty("--text-shadow-blur-radius", `${4 + (2 * currentGlow * 1)}px`);
                           word.HTMLElement.style.setProperty("--text-shadow-opacity", `${Math.min(currentGlow * 35, 100)}%`);
                         }
@@ -1354,7 +1358,7 @@ export function Animate(position: number): void {
                       const currentYOffset = letter.AnimatorStore.YOffset.Step(deltaTime);
                       const currentGlow = letter.AnimatorStore.Glow.Step(deltaTime);
 
-                      letter.HTMLElement.style.setProperty("--gradient-position", `-20%`);
+                      letter.HTMLElement.style.setProperty("--gradient-position", `${GradientUnsungPosition}%`);
                       letter.HTMLElement.style.transform = `translateY(calc(var(--DefaultLyricsSize) * ${currentYOffset * 2}))`;
                       letter.HTMLElement.style.scale = `${currentScale}`;
                       letter.HTMLElement.style.setProperty("--text-shadow-blur-radius", `${4 + (8 * currentGlow)}px`);
@@ -1788,10 +1792,10 @@ export function Animate(position: number): void {
 
           if (lineState === "Active") {
             targetGlow = LineGlowSpline.at(percentage);
-            targetGradientPos = percentage * 100; // Keep gradient separate from spring for now
+            targetGradientPos = gradientPositionAt(percentage); // Keep gradient separate from spring for now
           } else if (lineState === "NotSung") {
             targetGlow = LineGlowSpline.at(0);
-            targetGradientPos = -20;
+            targetGradientPos = GradientUnsungPosition;
           } else {
             // Sung
             targetGlow = LineGlowSpline.at(1);

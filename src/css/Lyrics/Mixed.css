@@ -40,7 +40,7 @@
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line,
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line .word,
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line .letter {
-  --gradient-position: -20%;
+  --gradient-position: -40%;
   --gradient-color: 255;
   --gradient-alpha: 0.85;
   --gradient-alpha-end: 0.5;
@@ -80,7 +80,7 @@
     var(--gradient-degrees),
     rgba(255, 255, 255, var(--gradient-alpha)) var(--gradient-position),
     rgba(255, 255, 255, var(--gradient-alpha-end))
-      calc(var(--gradient-position) + 20% + var(--gradient-offset))
+      calc(var(--gradient-position) + 40% + var(--gradient-offset))
   );
 }
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line.NotSung,
@@ -275,7 +275,7 @@
 
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line.NotSung {
   opacity: var(--Vocal-NotSung-opacity);
-  --gradient-position: -20% !important;
+  --gradient-position: -40% !important;
 }
 
 /* #SpicyLyricsPage.SpicyRenderer.Podcast .LyricsContainer .LyricsContent .line.NotSung {
@@ -311,7 +311,7 @@
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line.NotSung .letter {
   --text-shadow-blur-radius: 4px !important;
   --text-shadow-opacity: 0% !important;
-  --gradient-position: -20% !important;
+  --gradient-position: -40% !important;
 }
 
 /* #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line.NotSung .word {

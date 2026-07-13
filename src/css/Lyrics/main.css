@@ -253,14 +253,27 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   background-clip: text;
   background-image: linear-gradient(
     var(--gradient-degrees, 90deg),
-    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -20%),
-    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))
+    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -40%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -40%) + 40% + var(--gradient-offset, 0%))
   );
-  --gradient-position: -20%;
+  --gradient-position: -40%;
   --gradient-degrees: 90deg;
   --gradient-alpha-end: 0.35;
   text-shadow: inherit;
   filter: blur(var(--ExtraLineBlurAmount, 0px));
+}
+
+#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below,
+#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .translated-below {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
+    var(--gradient-degrees, 180deg),
+    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -40%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -40%) + 40%)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below {

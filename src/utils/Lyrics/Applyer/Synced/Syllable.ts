@@ -139,7 +139,7 @@ const createSyllableWord = (
   renderBaseTextWithReadings(word, syllable, renderOptions);
 
   if (!$simpleLyricsMode.get()) {
-    word.style.setProperty("--gradient-position", isBackground ? `0%` : `-20%`);
+    word.style.setProperty("--gradient-position", isBackground ? `0%` : `-40%`);
     word.style.setProperty("--text-shadow-opacity", `0%`);
     word.style.setProperty("--text-shadow-blur-radius", `4px`);
     word.style.scale = IdleLyricsScale.toString();
@@ -165,7 +165,7 @@ const createLineLevelJapaneseWord = (
   renderBaseTextWithReadings(word, { ...group, Text: sourceText }, renderOptions);
 
   if (!$simpleLyricsMode.get()) {
-    word.style.setProperty("--gradient-position", isBackground ? "0%" : "-20%");
+    word.style.setProperty("--gradient-position", isBackground ? "0%" : "-40%");
     word.style.setProperty("--text-shadow-opacity", "0%");
     word.style.setProperty("--text-shadow-blur-radius", "4px");
     word.style.scale = IdleLyricsScale.toString();
