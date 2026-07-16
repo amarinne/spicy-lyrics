@@ -13,7 +13,7 @@ import {
   romanizeCyrillic,
   stripJyutpingTones,
 } from "../src/utils/Lyrics/Fork/Romanization.ts";
-import { cleanInvisibles, scriptBranchForLine } from "../src/utils/Lyrics/Fork/TextDetection.ts";
+import { cleanInvisibles, cleanInvisiblesPreserveEdges, scriptBranchForLine } from "../src/utils/Lyrics/Fork/TextDetection.ts";
 import {
   buildKoreanNormalizedLine,
   buildKoreanReadingPlan,
@@ -42,6 +42,7 @@ test("invisible lyric markers are cleaned before processing", () => {
   assert.equal(cleanInvisibles("tell \u200Bme"), "tell me");
   assert.equal(cleanInvisibles("\uFEFFhello\u00A0world"), "hello world");
   assert.equal(cleanInvisibles("\u0915\u094D\u200D\u0937"), "\u0915\u094D\u200D\u0937");
+  assert.equal(cleanInvisiblesPreserveEdges("go \u200B"), "go ");
 });
 
 test("romanization branch selection is line-scoped", () => {

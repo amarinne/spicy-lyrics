@@ -10,6 +10,7 @@ import {
   CyrillicTextTest,
   GreekTextTest,
   cleanInvisibles,
+  cleanInvisiblesPreserveEdges,
 } from "./Fork/index.ts";
 import {
   romanizationBranchFromLanguage,
@@ -36,7 +37,7 @@ import type { ParsedLine } from "./Processing/Model.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 25;
+export const LYRICS_PROCESSING_VERSION = 26;
 export const READING_PLAN_SCHEMA_VERSION = 1;
 
 // Constants
@@ -118,6 +119,12 @@ const normalizeLyricsText = (target: any): string => {
   return target.Text;
 };
 
+const normalizeSyllableText = (target: any): string => {
+  if (typeof target?.Text !== "string") return "";
+  target.Text = cleanInvisiblesPreserveEdges(target.Text.normalize("NFKC"));
+  return target.Text;
+};
+
 const gatherText = (
   lyrics: any
 ): { francText: string; scriptText: string; entries: RomanizeEntry[] } => {
@@ -145,11 +152,13 @@ const gatherText = (
 
       const syllables = vocalGroup.Lead.Syllables;
       if (syllables.length > 0) {
-        let text = normalizeLyricsText(syllables[0]);
+        let text = normalizeSyllableText(syllables[0]);
         const lineEntries: RomanizeEntry[] = [{ target: syllables[0], line: vocalGroup, lineText: "" }];
         for (let index = 1; index < syllables.length; index += 1) {
           const syllable = syllables[index];
-          text += `${syllable.IsPartOfWord ? "" : " "}${normalizeLyricsText(syllable)}`;
+          const normalized = normalizeSyllableText(syllable);
+          if (!/\s$/u.test(text) && !/^\s/u.test(normalized) && !syllable.IsPartOfWord) text += " ";
+          text += normalized;
           lineEntries.push({ target: syllable, line: vocalGroup, lineText: "" });
         }
         for (const entry of lineEntries) entry.lineText = text;
@@ -386,7 +395,12 @@ const romanizeEntry = async (
 ): Promise<boolean> => {
   const { target, line } = entry;
 
-  if (target.Text) target.Text = cleanInvisibles(target.Text.normalize("NFKC"));
+  if (target.Text) {
+    const normalized = target.Text.normalize("NFKC");
+    target.Text = annotateJapanese
+      ? cleanInvisibles(normalized)
+      : cleanInvisiblesPreserveEdges(normalized);
+  }
   const lineScripts = scriptBranchForLine(entry.lineText || target.Text || "", docContext);
   const replaceKoreanTransliteration = shouldReplaceKoreanTransliteration(entry, docContext);
 

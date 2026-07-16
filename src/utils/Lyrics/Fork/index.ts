@@ -27,6 +27,7 @@ export {
   BengaliTextTest,
   CJKIdeographTest,
   cleanInvisibles,
+  cleanInvisiblesPreserveEdges,
   detectScript,
   hasCJK,
   hasIndicScript,

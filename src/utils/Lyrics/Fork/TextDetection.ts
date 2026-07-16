@@ -44,6 +44,14 @@ export function cleanInvisibles(text: string): string {
     .trim();
 }
 
+/** Remove invisible markers without destroying timing-span edge whitespace. */
+export function cleanInvisiblesPreserveEdges(text: string): string {
+  return text
+    .replace(/[\u200B\uFEFF]/g, "")
+    .replace(/\u00A0/g, " ")
+    .replace(/[ \t]{2,}/g, " ");
+}
+
 /**
  * Detect the primary script type in text.
  * Returns the first matching script type found.

@@ -2,6 +2,7 @@ import {
   loadBrowserJmdictFurigana,
   loadBrowserUniDicTokenizer,
   processJapaneseLine,
+  type BoundaryEvidence,
   type FuriganaSpan as PackageFuriganaSpan,
   type SourceSpan as PackageSourceSpan,
 } from "japanese-lyrics-processor";
@@ -22,6 +23,26 @@ function providerFurigana(text: string, syllables: JapaneseReadable[], spans: Ja
     });
   }
   return output;
+}
+
+function authoredBoundaries(displayText: string, spans: PackageSourceSpan[]): BoundaryEvidence[] {
+  const chars = Array.from(displayText);
+  const boundaries: BoundaryEvidence[] = [];
+  for (let index = 1; index < spans.length; index += 1) {
+    const previous = spans[index - 1];
+    const current = spans[index];
+    if (current.start <= previous.end) continue;
+    const gap = chars.slice(previous.end, current.start).join("");
+    if (/^\s+$/u.test(gap)) {
+      boundaries.push({
+        offset: current.start,
+        kind: "authored-whitespace",
+        strength: "hard",
+        sourceId: current.ownerId,
+      });
+    }
+  }
+  return boundaries;
 }
 
 export function furiganaContainedByTimingSpan(
@@ -48,7 +69,12 @@ export async function processJapanesePackageLine(
     start: cp(displayText, span.start), end: cp(displayText, span.end), text: span.rawText, ownerId: String(span.index),
     beginMs: Number(times[span.index]?.StartTime || 0), endMs: Number(times[span.index]?.EndTime || 0),
   }));
-  const result = await processJapaneseLine({ displayText, spans: sourceSpans, providerFurigana: providerFurigana(displayText, syllables, spans) }, { tokenizer, jmdict });
+  const result = await processJapaneseLine({
+    displayText,
+    spans: sourceSpans,
+    providerFurigana: providerFurigana(displayText, syllables, spans),
+    boundaries: authoredBoundaries(displayText, sourceSpans),
+  }, { tokenizer, jmdict });
   if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
   for (const span of spans) {
     // Ruby is semantic token geometry. A timing fragment may bisect it, but must
