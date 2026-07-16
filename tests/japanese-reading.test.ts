@@ -45,3 +45,16 @@ test("Japanese line text map preserves explicit Latin spacing", () => {
     ]
   );
 });
+
+test("Japanese line text map preserves authored space before attached Japanese span", () => {
+  const map = buildJapaneseLineTextMap([
+    { Text: "I ", IsPartOfWord: false },
+    { Text: "let ", IsPartOfWord: false },
+    { Text: "you ", IsPartOfWord: false },
+    { Text: "go ", IsPartOfWord: false },
+    { Text: "君のた", IsPartOfWord: true },
+    { Text: "めなら", IsPartOfWord: true },
+  ] as Array<{ Text: string; IsPartOfWord: boolean }>);
+
+  assert.equal(map.lineText, "I let you go 君のためなら");
+});

@@ -13,7 +13,7 @@ import {
   computeNoSpaceBefore,
   type MergeableEntry,
 } from "../Fork/JukujikunMerge.ts";
-import { cleanInvisibles } from "../Fork/TextDetection.ts";
+import { cleanInvisiblesPreserveEdges } from "../Fork/TextDetection.ts";
 import type { RenderPlan } from "../Processing/Model.ts";
 
 export type FuriganaSegment = {
@@ -114,7 +114,7 @@ type JapaneseTokenContext = {
 const tokenPos1 = (token: any): string => token?.pos || token?.part_of_speech || token?.pos_detail_1 || "";
 
 function normalizeJapaneseTimedText(text: string): string {
-  return cleanInvisibles((text || "").normalize("NFKC"));
+  return cleanInvisiblesPreserveEdges((text || "").normalize("NFKC"));
 }
 
 function appendLineSpaceIfNeeded(lineText: string): string {
