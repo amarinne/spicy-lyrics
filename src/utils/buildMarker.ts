@@ -1,1 +1,1 @@
-export const SPICY_LYRICS_BUILD_MARKER = "kr-mode-refactor-20260709-1";
+export const SPICY_LYRICS_BUILD_MARKER = "jp-boundary-preservation-20260716-1";
