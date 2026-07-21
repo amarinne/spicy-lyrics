@@ -107,6 +107,7 @@ test("Cantonese Jyutping phrase corpus", async () => {
 test("Chinese tone toggle strips only Jyutping tone digits", async () => {
   assert.equal(await romanizeCantonese("你好", "yue", true, true), "nei5 hou2");
   assert.equal(await romanizeCantonese("你好", "yue", true, false), "nei hou");
+  assert.equal(await romanizeCantonese("唱 mp3 歌", "yue", true, false), "coeng mp3 go");
   assert.equal(stripJyutpingTones("nei5 hou2 remix 2026"), "nei hou remix 2026");
 });
 
@@ -122,7 +123,7 @@ test("Korean spelling-mode corpus", () => {
   assert.equal(romanizeKorean("한국어", "spelling"), "hangukeo");
   assert.equal(romanizeKorean("학교", "spelling"), "hakgyo");
   assert.equal(romanizeKorean("백마", "spelling"), "baekma");
-  assert.equal(romanizeKorean("안녕하세요", "spelling"), "annyeong haseyo");
+  assert.equal(romanizeKorean("안녕하세요", "spelling"), "annyeonghaseyo");
   assert.equal(romanizeKorean("사랑", "spelling"), "sarang");
   assert.equal(romanizeKorean("BTS feat. IU", "spelling"), "BTS feat. IU");
 });
@@ -150,11 +151,11 @@ test("Korean pronunciation-mode corpus", () => {
   assert.equal(romanizeKorean("음악 rock", "pronunciation"), "eumak rock");
 });
 
-test("Korean readability spacing", () => {
-  assert.equal(romanizeKorean("안녕하세요", "spelling"), "annyeong haseyo");
-  assert.equal(romanizeKorean("안녕하세요", "pronunciation"), "annyeong haseyo");
+test("Korean output preserves authored spacing", () => {
+  assert.equal(romanizeKorean("안녕하세요", "spelling"), "annyeonghaseyo");
+  assert.equal(romanizeKorean("안녕하세요", "pronunciation"), "annyeonghaseyo");
   assert.equal(romanizeKorean("텅 빈 말 더는 늘어놓지 말고", "spelling"), "teong bin mal deoneun neuleonotji malgo");
-  assert.equal(romanizeKorean("감사합니다", "spelling"), "gamsa hapnida");
+  assert.equal(romanizeKorean("감사합니다", "spelling"), "gamsahapnida");
 });
 
 test("Korean real-line corpus", () => {
@@ -297,6 +298,33 @@ test("Korean TTML spans split across p blocks preserve missing eojeol space", ()
   assert.equal(romanizeKoreanForDisplay(line, "vnPronunciation").display, "do isang gidêl gôsưn piryô opsso");
 });
 
+test("Korean Heart Burn TTML preserves authored edge spaces", () => {
+  const cases = [
+    [["그대 ", "아무런 ", "말", "도 ", "하", "지 ", "마", "요"], "그대 아무런 말도 하지 마요", "geudae amureon maldo haji mayo"],
+    [["이 ", "맘은 ", "여전", "히 ", "그대", "로", "예", "요"], "이 맘은 여전히 그대로예요", "i mameun yeojeonhi geudaeroyeyo"],
+    [["따가", "운 ", "햇살 ", "그 ", "아", "래 ", "우리"], "따가운 햇살 그 아래 우리", "ttagaun haessal geu arae uri"],
+    [["이 ", "분", "위기 ", "난 ", "좋아", "요"], "이 분위기 난 좋아요", "i bunwigi nan joayo"],
+    [["어떡", "해 ", "나 ", "숨이 ", "가", "빠져요"], "어떡해 나 숨이 가빠져요", "eotteokae na sumi gappajeoyo"],
+    [["열이 ", "올라", "요 ", "에", "오"], "열이 올라요 에오", "yeori ollayo e-o"],
+    [["뜨거워진 ", "온도 ", "탓", "일까", "요"], "뜨거워진 온도 탓일까요", "tteugeowojin ondo tasilkkayo"],
+    [["약이 ", "올라", "요 ", "에", "오"], "약이 올라요 에오", "yagi ollayo e-o"],
+    [["한 ", "번쯤은 ", "무", "너", "져", "줄", "게", "요"], "한 번쯤은 무너져줄게요", "han beonjjeumeun muneojeojulgeyo"],
+  ] as const;
+
+  for (const [texts, source, display] of cases) {
+    const rawLine = buildKoreanLineTextFromSyllables(texts.map((Text) => ({ Text, IsPartOfWord: false })));
+    assert.equal(rawLine, source);
+    assert.equal(romanizeKoreanForDisplay(rawLine, "rrPronunciation").display, display);
+
+    const parserTrimmedLine = buildKoreanLineTextFromSyllables(texts.map((Text) => ({
+      Text: Text.trim(),
+      IsPartOfWord: !Text.endsWith(" "),
+    })));
+    assert.equal(parserTrimmedLine, source);
+    assert.equal(romanizeKoreanForDisplay(parserTrimmedLine, "rrPronunciation").display, display);
+  }
+});
+
 test("Korean normalized source maps timed spans with code-point ranges", () => {
   const spans = ["더 ", "이", "상 ", "기", "댈 ", "곳", "은", "필", "요 ", "없", "어"].map((Text) => ({
     Text,
@@ -348,7 +376,7 @@ test("Korean reading plan separates logical groups from timed span assignments",
 
 test("Korean reading plan keeps mixed English spans aligned after eojeol rejoin", () => {
   const texts = ["주", "저", "없", "이", "다,", "Probably", "delete", "it"];
-  const partOfWord = [false, true, false, true, false, false, false, false];
+  const partOfWord = [true, false, true, false, false, false, false, false];
   const spans = texts.map((Text, index) => ({ Text, IsPartOfWord: partOfWord[index] }));
   const plan = buildKoreanReadingPlan(spans, "vnPronunciation");
 

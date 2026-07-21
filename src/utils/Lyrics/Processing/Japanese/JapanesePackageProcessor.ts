@@ -45,6 +45,67 @@ function authoredBoundaries(displayText: string, spans: PackageSourceSpan[]): Bo
   return boundaries;
 }
 
+export function timingSpanMergeRanges(
+  displayText: string,
+  spans: JapaneseTimedTextSpan[],
+  furigana: PackageFuriganaSpan[]
+): Array<{ start: number; end: number }> {
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const ruby of furigana) {
+    const rubyStart = utf16(displayText, ruby.start);
+    const rubyEnd = utf16(displayText, ruby.end);
+    const crossed = spans.filter((span) => ruby.end > cp(displayText, span.start) && ruby.start < cp(displayText, span.end));
+    if (crossed.length < 2) continue;
+    const first = spans.indexOf(crossed[0]);
+    const last = spans.indexOf(crossed.at(-1)!);
+    if (rubyStart < spans[first].end && rubyEnd > spans[last].start) ranges.push({ start: first, end: last });
+  }
+  ranges.sort((left, right) => left.start - right.start);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of ranges) {
+    const previous = merged.at(-1);
+    if (!previous || range.start > previous.end) merged.push({ ...range });
+    else previous.end = Math.max(previous.end, range.end);
+  }
+  return merged;
+}
+
+function coalesceTimedWords(
+  displayText: string,
+  syllables: JapaneseReadable[],
+  spans: JapaneseTimedTextSpan[],
+  times: Array<{ StartTime?: number; EndTime?: number }>,
+  furigana: PackageFuriganaSpan[]
+): JapaneseTimedTextSpan[] {
+  const ranges = timingSpanMergeRanges(displayText, spans, furigana);
+  if (!ranges.length) return spans;
+  const mergedSyllables: JapaneseReadable[] = [];
+  const mergedTimes: Array<{ StartTime?: number; EndTime?: number }> = [];
+  const mergedSpans: JapaneseTimedTextSpan[] = [];
+  let rangeIndex = 0;
+  for (let index = 0; index < spans.length;) {
+    const range = ranges[rangeIndex];
+    const mergesRange = range?.start === index;
+    const end = mergesRange ? range!.end : index;
+    const firstSpan = spans[index];
+    const lastSpan = spans[end];
+    const firstSyllable = syllables[firstSpan.index] as JapaneseReadable & Record<string, unknown>;
+    const text = displayText.slice(firstSpan.start, lastSpan.end);
+    const nextIndex = mergedSyllables.length;
+    mergedSyllables.push({ ...firstSyllable, Text: text } as JapaneseReadable);
+    mergedTimes.push({ StartTime: times[firstSpan.index]?.StartTime, EndTime: times[lastSpan.index]?.EndTime });
+    mergedSpans.push({ index: nextIndex, start: firstSpan.start, end: lastSpan.end, rawText: text });
+    index = end + 1;
+    if (mergesRange) rangeIndex += 1;
+  }
+  syllables.splice(0, syllables.length, ...mergedSyllables);
+  if (times !== syllables) times.splice(0, times.length, ...mergedTimes);
+  else {
+    for (let index = 0; index < syllables.length; index += 1) Object.assign(syllables[index]!, mergedTimes[index]);
+  }
+  return mergedSpans;
+}
+
 export function furiganaContainedByTimingSpan(
   displayText: string,
   timingSpan: Pick<JapaneseTimedTextSpan, "start" | "end">,
@@ -76,20 +137,47 @@ export async function processJapanesePackageLine(
     boundaries: authoredBoundaries(displayText, sourceSpans),
   }, { tokenizer, jmdict });
   if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
-  for (const span of spans) {
+  const displaySpans = coalesceTimedWords(displayText, syllables, spans, times, result.furigana);
+  const spanRanges = displaySpans.map((span) => ({
+    start: cp(displayText, span.start),
+    end: cp(displayText, span.end),
+  }));
+  const romajiBySpan = displaySpans.map(() => [] as string[]);
+  for (const unit of result.readingUnits) {
+    let owner = -1;
+    let ownerOverlap = 0;
+    for (let index = 0; index < spanRanges.length; index += 1) {
+      const range = spanRanges[index];
+      const overlap = Math.max(0, Math.min(unit.end, range.end) - Math.max(unit.start, range.start));
+      if (overlap > ownerOverlap) {
+        owner = index;
+        ownerOverlap = overlap;
+      }
+    }
+    if (owner >= 0 && unit.romaji) romajiBySpan[owner].push(unit.romaji);
+  }
+  for (const span of displaySpans) {
     // Ruby is semantic token geometry. A timing fragment may bisect it, but must
     // never receive a clipped range paired with the original full reading.
     const ruby = furiganaContainedByTimingSpan(displayText, span, result.furigana);
-    syllables[span.index].JapaneseReading = { sourceText: syllables[span.index].Text || "", romaji: result.timedReadingUnits.find((unit) => unit.ownerId === String(span.index))?.romaji || "", furigana: ruby };
+    const spanIndex = displaySpans.indexOf(span);
+    const romaji = romajiBySpan[spanIndex].join("");
+    syllables[span.index].JapaneseReading = { sourceText: syllables[span.index].Text || "", romaji, furigana: ruby };
   }
-  const timedReadingUnits = result.timedReadingUnits.map((unit, index) => ({
-    spanId: unit.ownerId, canonicalRange: { startCp: unit.start, endCp: unit.end }, text: unit.romaji,
-    logicalGroupId: result.layoutGroups.findIndex((group) => group.end > unit.start && group.start < unit.end) >= 0 ? `jp-${result.layoutGroups.findIndex((group) => group.end > unit.start && group.start < unit.end)}` : `jp-${index}`,
-  }));
+  const timedReadingUnits = displaySpans.map((span, index) => {
+    const startCp = cp(displayText, span.start);
+    const endCp = cp(displayText, span.end);
+    const groupIndex = result.layoutGroups.findIndex((group) => group.end > startCp && group.start < endCp);
+    return {
+      spanId: String(span.index), canonicalRange: { startCp, endCp },
+      text: syllables[span.index].JapaneseReading?.romaji || "",
+      logicalGroupId: groupIndex >= 0 ? `jp-${groupIndex}` : `jp-${index}`,
+    };
+  });
   const readingUnits = timedReadingUnits.map((unit) => ({ canonicalRange: unit.canonicalRange, text: unit.text, kind: "transformed" as const, logicalGroupId: unit.logicalGroupId, timingRefs: [unit.spanId] }));
   return {
     romaji: result.romaji,
-    plan: { lineId: `japanese-package-${times[0]?.StartTime || 0}`, sourceUnits: sourceSpans.map((span) => ({ spanId: span.ownerId!, canonicalRange: { startCp: span.start, endCp: span.end } })), readingUnits, timedReadingUnits, joinedDisplayText: result.romaji, furigana: result.furigana },
+    plan: { lineId: `japanese-package-${times[0]?.StartTime || 0}`, sourceUnits: displaySpans.map((span) => ({ spanId: String(span.index), canonicalRange: { startCp: cp(displayText, span.start), endCp: cp(displayText, span.end) } })), readingUnits, timedReadingUnits, joinedDisplayText: result.romaji, furigana: result.furigana },
   };
 }
 
@@ -106,6 +194,5 @@ export async function processJapanesePackageTextTarget(target: JapaneseReadable 
     timedReadingUnits: [{ spanId: "line", canonicalRange: { startCp: 0, endCp: Array.from(text).length }, text: result.romaji, logicalGroupId: "jp-line" }],
     joinedDisplayText: result.romaji, furigana: result.furigana,
   };
-  target.RomanizedText = result.romaji; target.TransliteratedText = result.romaji;
   return result.romaji;
 }

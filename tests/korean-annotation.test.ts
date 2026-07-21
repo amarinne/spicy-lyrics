@@ -41,3 +41,52 @@ test("mixed English is typed passthrough and remains source ordered", () => {
     ["passthrough", "Probably"], ["passthrough", "delete"], ["passthrough", "it"],
   ]);
 });
+
+test("Korean timing units follow the whitespace-normalized source", () => {
+  const text = "사랑합니다";
+  const parsed: ParsedLine = {
+    id: "normalized-spacing",
+    displayText: text,
+    paragraphProvenance: "unavailable",
+    spans: Array.from(text).map((char, index) => ({
+      id: String(index), rawText: char, cleanText: char, startMs: index, endMs: index + 1,
+      providerPartOfWord: true,
+    })),
+  };
+  const annotation = annotateKoreanLine(new DefaultCanonicalLineBuilder().build(parsed), "rrStandard");
+  assert.equal(joinReadingUnits(annotation), "saranghapnida");
+  assert.deepEqual(annotation.units.map((unit) => unit.text), ["sa", "rang", "hap", "ni", "da"]);
+});
+
+test("Korean readability spacing does not split adverbial 하게", () => {
+  const text = "어색하게 마주 앉아";
+  const parsed: ParsedLine = {
+    id: "adverbial-hage",
+    displayText: text,
+    paragraphProvenance: "unavailable",
+    spans: Array.from(text).map((char, index) => ({
+      id: String(index), rawText: char, cleanText: char, startMs: index, endMs: index + 1,
+      providerPartOfWord: true,
+    })),
+  };
+  const annotation = annotateKoreanLine(new DefaultCanonicalLineBuilder().build(parsed), "rrPronunciation");
+  assert.equal(joinReadingUnits(annotation), "eosaekage maju anja");
+});
+
+test("Korean reading spacing follows authored lyric boundaries", () => {
+  const spans = ["그대 ", "아무런 ", "말", "도 ", "하", "지 ", "마", "요"];
+  const parsed: ParsedLine = {
+    id: "authored-spacing",
+    displayText: spans.join(""),
+    paragraphProvenance: "unavailable",
+    spans: spans.map((text, index) => ({
+      id: String(index), rawText: text, cleanText: text, startMs: index, endMs: index + 1,
+      providerPartOfWord: false,
+    })),
+  };
+  const annotation = annotateKoreanLine(new DefaultCanonicalLineBuilder().build(parsed), "rrPronunciation");
+  assert.equal(joinReadingUnits(annotation), "geudae amureon maldo haji mayo");
+  assert.deepEqual(annotation.units.map((unit) => unit.text), [
+    "geudae", " amureon", " mal", "do", " ha", "ji", " ma", "yo",
+  ]);
+});

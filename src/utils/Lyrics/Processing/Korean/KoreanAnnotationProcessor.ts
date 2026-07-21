@@ -1,4 +1,5 @@
 import {
+  normalizeKoreanDisplaySource,
   romanizeKoreanDisplayPieces,
   romanizeKoreanForDisplay,
   type KoreanDisplayMode,
@@ -36,23 +37,81 @@ function logicalGroupAt(text: string, startCp: number): string {
   return `group-${groups}`;
 }
 
+function sourceToCanonicalIndexMap(canonicalText: string, sourceText: string): number[] {
+  const canonicalChars = Array.from(canonicalText);
+  const sourceChars = Array.from(sourceText);
+  const map = Array.from({ length: sourceChars.length }, () => -1);
+  let canonicalIndex = 0;
+  for (let sourceIndex = 0; sourceIndex < sourceChars.length; sourceIndex += 1) {
+    while (
+      canonicalIndex < canonicalChars.length &&
+      /\s/u.test(canonicalChars[canonicalIndex]) &&
+      canonicalChars[canonicalIndex] !== sourceChars[sourceIndex]
+    ) {
+      canonicalIndex += 1;
+    }
+    if (canonicalChars[canonicalIndex] === sourceChars[sourceIndex]) {
+      map[sourceIndex] = canonicalIndex;
+      canonicalIndex += 1;
+    }
+  }
+  return map;
+}
+
 export function annotateKoreanLine(
   canonical: CanonicalLine,
   mode: KoreanDisplayMode = "rrStandard"
 ): ReadingAnnotation {
+  const source = normalizeKoreanDisplaySource(canonical.text);
   const pieces = romanizeKoreanDisplayPieces(canonical.text, mode);
   const display = romanizeKoreanForDisplay(canonical.text, mode).display;
   const aligned = alignPiecesToDisplay(pieces, display);
-  const units: ReadingUnit[] = canonical.spanMappings.map((mapping, index) => {
-    const previousEnd = index > 0 ? canonical.spanMappings[index - 1].canonicalRange.endCp : 0;
-    return {
-      canonicalRange: mapping.canonicalRange,
-      text: aligned.slice(previousEnd, mapping.canonicalRange.endCp).join(""),
-      kind: kindFor(codePointSlice(canonical.text, mapping.canonicalRange)),
-      logicalGroupId: logicalGroupAt(canonical.text, mapping.canonicalRange.startCp),
-      timingRefs: [mapping.spanId],
-    };
+  const canonicalChars = Array.from(canonical.text);
+  const sourceMap = sourceToCanonicalIndexMap(canonical.text, source);
+  const spanIndexByCp = Array.from({ length: canonicalChars.length }, () => -1);
+  canonical.spanMappings.forEach((mapping, index) => {
+    for (let cp = mapping.canonicalRange.startCp; cp < mapping.canonicalRange.endCp; cp += 1) {
+      spanIndexByCp[cp] = index;
+    }
   });
+
+  const mappingCoversCanonical = canonicalChars.every((char, cp) =>
+    /\s/u.test(char) || sourceMap.includes(cp)
+  );
+  if (pieces.length !== Array.from(source).length || !mappingCoversCanonical) {
+    const units: ReadingUnit[] = canonical.spanMappings.map((mapping, index) => {
+      const previousEnd = index > 0 ? canonical.spanMappings[index - 1].canonicalRange.endCp : 0;
+      return {
+        canonicalRange: mapping.canonicalRange,
+        text: aligned.slice(previousEnd, mapping.canonicalRange.endCp).join(""),
+        kind: kindFor(codePointSlice(canonical.text, mapping.canonicalRange)),
+        logicalGroupId: logicalGroupAt(canonical.text, mapping.canonicalRange.startCp),
+        timingRefs: [mapping.spanId],
+      };
+    });
+    return { processor: "Korean", mode, provenance: "local", units };
+  }
+
+  const unitParts: string[][] = canonical.spanMappings.map(() => []);
+  let pending = "";
+  for (let index = 0; index < aligned.length; index += 1) {
+    const unitIndex = spanIndexByCp[sourceMap[index]] ?? -1;
+    if (unitIndex < 0) {
+      pending += aligned[index];
+      continue;
+    }
+    unitParts[unitIndex].push(`${pending}${aligned[index]}`);
+    pending = "";
+  }
+  if (pending && unitParts.length > 0) unitParts.at(-1)!.push(pending);
+
+  const units: ReadingUnit[] = canonical.spanMappings.map((mapping, index) => ({
+    canonicalRange: mapping.canonicalRange,
+    text: unitParts[index].join(""),
+    kind: kindFor(codePointSlice(canonical.text, mapping.canonicalRange)),
+    logicalGroupId: logicalGroupAt(canonical.text, mapping.canonicalRange.startCp),
+    timingRefs: [mapping.spanId],
+  }));
   return { processor: "Korean", mode, provenance: "local", units };
 }
 

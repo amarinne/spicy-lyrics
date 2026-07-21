@@ -1,6 +1,7 @@
 import { useStore } from "@nanostores/react";
 import React from "react";
 import {
+  $adaptiveSectioning,
   $minimalLyricsMode,
   $simpleLyricsMode,
   $simpleLyricsModeRenderingType,
@@ -77,6 +78,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const simpleLyricsMode = useStore($simpleLyricsMode);
   const simpleLyricsModeRenderingType = useStore($simpleLyricsModeRenderingType);
   const minimalLyricsMode = useStore($minimalLyricsMode);
+  const adaptiveSectioning = useStore($adaptiveSectioning);
   const chineseTranslitMode = useStore($chineseTranslitMode);
   const chineseTones = useStore($chineseTones);
   const japaneseReadingMode = useStore($japaneseReadingMode);
@@ -93,6 +95,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showSimpleLyricsMode = matches(query, "Simple Lyrics Mode", "Remove extra visual effects from lyrics");
   const showSimpleRenderingStyle = matches(query, "Simple Mode: Text Animation Style", "How lyrics text transitions are rendered in Simple Lyrics Mode.");
   const showMinimalLyricsMode = matches(query, "Minimal Lyrics Mode", "Hides sung lyrics lines in Fullscreen and Cinema Mode");
+  const showAdaptiveSectioning = matches(query, "Adaptive Sectioning", "Keep Japanese semantic groups together and improve wrapping for reading and translation rows.");
   const showChineseTransliteration = matches(query, "Chinese Transliteration", "Choose Mandarin pinyin or Cantonese jyutping for Chinese lyrics.");
   const showChineseTones = matches(query, "Chinese Tones", "Show Mandarin tone marks and Cantonese jyutping tone numbers.");
   const showJapaneseReadingDisplay = matches(query, "Japanese Reading Display", "Choose romaji, furigana, or both for Japanese lyrics.");
@@ -108,6 +111,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
     showSimpleLyricsMode ||
     showSimpleRenderingStyle ||
     showMinimalLyricsMode ||
+    showAdaptiveSectioning ||
     showChineseTransliteration ||
     showChineseTones ||
     showJapaneseReadingDisplay ||
@@ -153,6 +157,15 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
           description="Hides sung lyrics lines in Fullscreen and Cinema Mode"
         >
           <Toggle checked={minimalLyricsMode} onChange={(v) => $minimalLyricsMode.set(v)} />
+        </Row>
+      )}
+
+      {showAdaptiveSectioning && (
+        <Row
+          label="Adaptive Sectioning"
+          description="Keep Japanese semantic groups together and improve wrapping for reading and translation rows."
+        >
+          <Toggle checked={adaptiveSectioning} onChange={(v) => $adaptiveSectioning.set(v)} />
         </Row>
       )}
 

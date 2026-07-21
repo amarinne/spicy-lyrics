@@ -31,6 +31,7 @@ import {
 import { ScrollSimplebar } from "../../utils/Scrolling/Simplebar/ScrollSimplebar.ts";
 import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackground.ts";
 import {
+  $adaptiveSectioning,
   $currentLyricsData,
   $lyricsContainerExists,
   $minimalLyricsMode,
@@ -247,6 +248,10 @@ async function OpenPage(
 
   if ($minimalLyricsMode.get()) {
     elem.classList.add("MinimalLyricsMode");
+  }
+
+  if ($adaptiveSectioning.get()) {
+    elem.classList.add("AdaptiveSectioning");
   }
 
   const contentBox = elem.querySelector<HTMLElement>(
@@ -963,6 +968,12 @@ const rerenderCurrentLyrics = async () => {
 };
 
 $japaneseReadingMode.listen(() => {
+  rerenderCurrentLyrics();
+});
+
+$adaptiveSectioning.listen((enabled) => {
+  if (!PageContainer) return;
+  PageContainer.classList.toggle("AdaptiveSectioning", enabled);
   rerenderCurrentLyrics();
 });
 

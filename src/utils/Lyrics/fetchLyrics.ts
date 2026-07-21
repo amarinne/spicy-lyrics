@@ -31,7 +31,7 @@ const lyricsPrefetchLogger = new Logger("Lyrics Prefetch");
 const prefetchInFlight = new Set<string>();
 
 // recently updated key structure - changed name
-export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 1, {
+export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 2, {
   Unit: "Days",
   Duration: 3,
 }, isDev as true);
@@ -192,14 +192,14 @@ async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any
 
   const processingContextKey = currentProcessingContextKey();
 
+  if (!lyrics) return lyrics;
+
+  // A previous session may have cached raw lyrics and exited before background processing finished.
   if (
-    !lyrics
-    || lyrics.ProcessingPending === true
-    || (
-      lyrics.ProcessingVersion === LYRICS_PROCESSING_VERSION
-      && lyrics.ReadingPlanSchemaVersion === READING_PLAN_SCHEMA_VERSION
-      && lyrics.ProcessingContextKey === processingContextKey
-    )
+    lyrics.ProcessingPending !== true
+    && lyrics.ProcessingVersion === LYRICS_PROCESSING_VERSION
+    && lyrics.ReadingPlanSchemaVersion === READING_PLAN_SCHEMA_VERSION
+    && lyrics.ProcessingContextKey === processingContextKey
   ) {
     return lyrics;
   }

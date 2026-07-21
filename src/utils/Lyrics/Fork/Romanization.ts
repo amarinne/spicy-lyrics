@@ -94,7 +94,8 @@ export async function romanizeCantonese(
   for (let index = 0; index < text.length;) {
     const phrase = JYUTPING_PHRASE_KEYS.find((key) => text.startsWith(key, index));
     if (phrase) {
-      parts.push(JYUTPING_PHRASES[phrase]);
+      const reading = JYUTPING_PHRASES[phrase];
+      parts.push(tones ? reading : stripJyutpingTones(reading));
       index += phrase.length;
       continue;
     }
@@ -117,12 +118,12 @@ export async function romanizeCantonese(
 
     const list = getJyutpingList(char);
     const reading = list?.[0]?.[1] || char;
-    if (reading.trim()) parts.push(reading);
+    if (reading.trim()) parts.push(tones ? reading : stripJyutpingTones(reading));
     index += char.length;
   }
 
   const result = parts.join(" ").replace(/\s+/g, " ").trim();
-  return (tones ? result : stripJyutpingTones(result)) || undefined;
+  return result || undefined;
 }
 
 export function stripJyutpingTones(text: string): string {
@@ -268,7 +269,6 @@ const HANGUL_VOWEL = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa",
 const HANGUL_FINAL = ["", "k", "k", "ks", "n", "nj", "nh", "t", "l", "lk", "lm", "lb", "ls", "lt", "lp", "lh", "m", "p", "ps", "t", "t", "ng", "t", "t", "k", "t", "p", "t"];
 const HANGUL_VOWEL_VN = ["a", "ê", "ya", "yê", "o", "ê", "yo", "yê", "ô", "wa", "wê", "wê", "yô", "u", "wo", "wê", "wi", "yu", "ư", "ưi", "i"];
 
-const KOREAN_READABILITY_MIN_RUN_LENGTH = 4;
 const KOREAN_EOJEOL_REJOIN_WORDS = [
   "뒤돌아서", "너를", "없게", "없어", "이상", "기댈", "곳은", "필요",
   "어떻게든", "호기심은", "위험하단", "희미해져", "돌아갈",
@@ -276,16 +276,6 @@ const KOREAN_EOJEOL_REJOIN_WORDS = [
   "말도", "하지", "마요", "미련이", "아냐", "그저", "처음부터", "잘못됐단",
 ] as const;
 const KOREAN_EOJEOL_REJOIN_KEYS = [...KOREAN_EOJEOL_REJOIN_WORDS].sort((a, b) => b.length - a.length);
-const KOREAN_FIXED_PHRASES = [
-  ["안녕하세요", "안녕", "하세요"],
-  ["안녕하십니까", "안녕", "하십니까"],
-  ["감사합니다", "감사", "합니다"],
-] as const;
-const KOREAN_SPLIT_SUFFIXES = [
-  "싶어요", "싶어", "싶다", "싶은", "싶고",
-  "합니다", "하세요", "하십니까", "해요", "해서", "하고", "하면", "하니", "하지", "하죠", "하는", "하게", "하자",
-  "거예요", "거에요", "거야", "거죠",
-] as const;
 const KOREAN_DEPENDENT_NOUNS_AFTER_L = new Set(["수", "것", "곳", "때", "거", "거야", "게", "줄", "지", "데", "리", "만큼", "뻔", "적"]);
 const KOREAN_POST_G2P_EXCEPTIONS: Record<string, string> = {
   앉다: "안따",
@@ -490,6 +480,10 @@ export function buildKoreanLineTextFromSyllables(syllables: KoreanSyllableLike[]
 
   const leading = buildKoreanLineTextWithLeadingBoundaries(syllables);
   const trailing = buildKoreanLineTextWithTrailingBoundaries(syllables);
+  const hasContinuation = syllables.some((syllable) => syllable?.IsPartOfWord === true);
+  const hasBoundary = syllables.some((syllable) => syllable?.IsPartOfWord === false);
+  if (hasContinuation && hasBoundary) return normalizeKoreanMixedScriptSpacing(trailing);
+
   const spaced = normalizeKoreanBuiltLineText(
     syllables.map((syllable) => (syllable?.Text || "").trim()).filter(Boolean).join(" ")
   );
@@ -505,7 +499,7 @@ export function buildKoreanLineTextFromSyllables(syllables: KoreanSyllableLike[]
 
 export function normalizeKoreanDisplaySource(text: string): string {
   const source = buildKoreanLineTextFromSyllables([{ Text: text, IsPartOfWord: false }]);
-  return applyKoreanReadabilitySpacing(normalizeKoreanTokenizerSpacing(source));
+  return normalizeKoreanTokenizerSpacing(source);
 }
 
 export function romanizeKoreanSyllableLine(
@@ -515,58 +509,6 @@ export function romanizeKoreanSyllableLine(
   separators = false
 ): string {
   return romanizeKorean(buildKoreanLineTextFromSyllables(syllables), mode, style, separators);
-}
-
-function splitKoreanReadableRunInto(run: string, out: string[]): void {
-  if (!run) return;
-  for (const phrase of KOREAN_FIXED_PHRASES) {
-    if (run === phrase[0]) {
-      out.push(phrase[1], phrase[2]);
-      return;
-    }
-    if (run.startsWith(phrase[0]) && run.length > phrase[0].length) {
-      out.push(phrase[1], phrase[2]);
-      splitKoreanReadableRunInto(run.slice(phrase[0].length), out);
-      return;
-    }
-  }
-  for (const suffix of KOREAN_SPLIT_SUFFIXES) {
-    if (!run.endsWith(suffix)) continue;
-    const split = run.length - suffix.length;
-    if (split < 2) continue;
-    splitKoreanReadableRunInto(run.slice(0, split), out);
-    out.push(suffix);
-    return;
-  }
-  out.push(run);
-}
-
-function splitKoreanReadableRun(run: string): string[] {
-  if (run.length < KOREAN_READABILITY_MIN_RUN_LENGTH) return [run];
-  const out: string[] = [];
-  splitKoreanReadableRunInto(run, out);
-  return out;
-}
-
-function applyKoreanReadabilitySpacing(text: string): string {
-  let out = "";
-  let run = "";
-  const flush = () => {
-    if (!run) return;
-    out += splitKoreanReadableRun(run).join(" ");
-    run = "";
-  };
-
-  for (const char of text) {
-    if (isHangulSyllable(char)) {
-      run += char;
-    } else {
-      flush();
-      out += char;
-    }
-  }
-  flush();
-  return out;
 }
 
 function koreanVowel(syllable: HangulSyllable, style: KoreanOutputStyle): string {

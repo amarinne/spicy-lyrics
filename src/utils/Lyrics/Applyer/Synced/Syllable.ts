@@ -1,4 +1,4 @@
-import { $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
+import { $adaptiveSectioning, $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
 import { PageContainer } from "../../../../components/Pages/PageView.ts";
 import { isSpicySidebarMode } from "../../../../components/Utils/SidebarLyrics.ts";
 import { applyStyles, removeAllStyles } from "../../../CSS/Styles.ts";
@@ -336,6 +336,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       line.Lead.Syllables.some((s) => isJapaneseEntry(s)) ||
       line.Background?.some((bg) => bg.Syllables.some((s) => isJapaneseEntry(s))) === true
     );
+  const adaptiveSectioning = $adaptiveSectioning.get();
   data.Content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
     lineElem.classList.add("line");
@@ -380,7 +381,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     let currentWordGroup: HTMLSpanElement | null = null;
     let currentSemanticGroupId: string | undefined;
     const leadHasFurigana = shouldRenderFurigana(line.Lead, lineRenderOptions) || line.Lead.Syllables.some((s) => shouldRenderFurigana(s, lineRenderOptions));
-    const leadUsesSemanticGroups = line.Lead.Syllables.some((s) => !!s.JapaneseReading) && !!line.Lead.ReadingRenderPlan;
+    const leadUsesSemanticGroups = adaptiveSectioning && line.Lead.Syllables.some((s) => !!s.JapaneseReading) && !!line.Lead.ReadingRenderPlan;
     const leadRenderOptions = { ...lineRenderOptions, reserveFurigana: leadHasFurigana };
     const leadSourceText = line.Lead.JapaneseReading?.sourceText || joinSyllableDisplayText(line.Lead.Syllables);
     const leadFuriganaCrossesTiming = leadHasFurigana && hasFuriganaCrossingTimedUnits(line.Lead.ReadingRenderPlan);
@@ -447,7 +448,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         let currentBGWordGroup: HTMLSpanElement | null = null;
         let currentBGSemanticGroupId: string | undefined;
         const bgHasFurigana = shouldRenderFurigana(bg, bgRenderOptions) || bg.Syllables.some((s) => shouldRenderFurigana(s, bgRenderOptions));
-        const bgUsesSemanticGroups = bg.Syllables.some((s) => !!s.JapaneseReading) && !!bg.ReadingRenderPlan;
+        const bgUsesSemanticGroups = adaptiveSectioning && bg.Syllables.some((s) => !!s.JapaneseReading) && !!bg.ReadingRenderPlan;
         const bgWordRenderOptions = { ...bgRenderOptions, reserveFurigana: bgHasFurigana };
         const bgSourceText = bg.JapaneseReading?.sourceText || joinSyllableDisplayText(bg.Syllables);
         const bgFuriganaCrossesTiming = bgHasFurigana && hasFuriganaCrossingTimedUnits(bg.ReadingRenderPlan);

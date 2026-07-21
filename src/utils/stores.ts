@@ -53,6 +53,7 @@ export const $simpleLyricsModeRenderingType = persistAtom<string>(
   "calculate"
 );
 export const $minimalLyricsMode = persistAtom<boolean>("minimalLyricsMode", false);
+export const $adaptiveSectioning = persistAtom<boolean>("adaptiveSectioning", true);
 export const $skipSpicyFont = persistAtom<boolean>("skipSpicyFont", false);
 export const $showNpvDynamicBg = persistAtom<boolean>("showNpvDynamicBg", true);
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);

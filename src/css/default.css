@@ -23,6 +23,8 @@
   top: 0;
   width: 100%;
   font-weight: 700;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   user-select: none;
   -webkit-user-drag: none;
   opacity: 1;
@@ -158,7 +160,7 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) .ViewControls 
 }
 
 #SpicyLyricsPage .ViewControls .ViewControl:active {
-  scale: 0.94;
+  scale: 0.96;
 }
 
 #SpicyLyricsPage.FlatViewControls .ViewControls .ViewControl {

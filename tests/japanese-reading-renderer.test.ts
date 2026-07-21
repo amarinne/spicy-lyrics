@@ -37,6 +37,7 @@ class FakeElement {
 }
 
 const storage = new Map<string, string>();
+(globalThis as any).window = globalThis;
 (globalThis as any).Spicetify = {
   LocalStorage: {
     get: (key: string) => storage.get(key) ?? null,
@@ -55,6 +56,10 @@ const storage = new Map<string, string>();
 const { appendSyllableRomanizedBelow, hasFuriganaCrossingTimedUnits } = await import(
   "../src/utils/Lyrics/Applyer/ReadingRenderer.ts"
 );
+const { renderExperimentalReadingPlan } = await import(
+  "../src/utils/Lyrics/Applyer/ExperimentalReadingPlanRenderer.ts"
+);
+const { $adaptiveSectioning } = await import("../src/utils/stores.ts");
 const { $japaneseReadingMode } = await import("../src/utils/uiState.ts");
 
 const plan = {
@@ -71,6 +76,7 @@ const plan = {
 };
 
 function render(mode: "romaji" | "furigana" | "both"): FakeElement {
+  $adaptiveSectioning.set(true);
   $japaneseReadingMode.set(mode);
   const line = new FakeElement();
   appendSyllableRomanizedBelow(
@@ -93,9 +99,46 @@ test("plan romaji follows Japanese reading display mode", () => {
 
   for (const mode of ["romaji", "both"] as const) {
     const line = render(mode);
-    assert.equal(line.children.some((child) => child.className.includes("reading-plan-row")), true, mode);
+    const readingRow = line.children.find((child) => child.className.includes("reading-plan-row"));
+    assert.ok(readingRow, mode);
+    assert.equal(readingRow.children[0]?.className, "reading-plan-group", mode);
     assert.equal(line.children.some((child) => child.className.includes("translated-below")), true, mode);
   }
+});
+
+test("adaptive sectioning off removes layout groups but preserves timed targets", () => {
+  assert.equal($adaptiveSectioning.get(), true);
+  $adaptiveSectioning.set(false);
+  const parent = new FakeElement();
+  const bound: Array<[string, FakeElement]> = [];
+  const row = renderExperimentalReadingPlan(
+    parent as unknown as HTMLElement,
+    {
+      ...plan,
+      timedReadingUnits: [
+        { ...plan.timedReadingUnits[0], text: "watashi", logicalGroupId: "jp-0" },
+        {
+          spanId: "1",
+          canonicalRange: { startCp: 1, endCp: 2 },
+          text: " no",
+          logicalGroupId: "jp-1",
+        },
+      ],
+    },
+    (spanId, element) => bound.push([spanId, element as unknown as FakeElement])
+  ) as unknown as FakeElement;
+
+  assert.deepEqual(row.children.map((child) => child.className), [
+    "romanized-syllable reading-plan-timed-unit",
+    "romanized-syllable reading-plan-timed-unit",
+  ]);
+  assert.equal(row.children[1].textContent, "no");
+  assert.equal(row.children[1].style.marginLeft, "0.25em");
+  assert.deepEqual(bound.map(([spanId, element]) => [spanId, element.dataset.spanId]), [
+    ["0", "0"],
+    ["1", "1"],
+  ]);
+  $adaptiveSectioning.set(true);
 });
 
 test("cross-fragment compound ruby requires whole-line rendering", () => {

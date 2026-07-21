@@ -200,24 +200,50 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .semantic-word-group {
+  display: inline;
+  white-space: normal;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .semantic-word-group {
   display: inline-flex;
   white-space: nowrap;
 }
 
 /* Timed fragments inside one Japanese token are not provider word breaks. */
-#SpicyLyricsPage .LyricsContainer .LyricsContent .semantic-word-group > .word:not(:last-child)::after {
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .semantic-word-group > .word:not(:last-child)::after {
   margin-right: 0;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .reading-plan-row {
+  display: block;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .reading-plan-row {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .reading-plan-group {
+  display: inline;
+  white-space: normal;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .reading-plan-group {
   display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
   white-space: nowrap;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .reading-plan-group > .romanized-syllable {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below {
@@ -232,6 +258,11 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   text-shadow: inherit;
   filter: blur(var(--ExtraLineBlurAmount, 0px));
   background: none;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .romanized-below {
+  text-wrap: pretty;
+  overflow-wrap: break-word;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below.romanization-placeholder {
@@ -289,6 +320,11 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   text-shadow: inherit;
   filter: blur(var(--ExtraLineBlurAmount, 0px));
   background: none;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .translated-below {
+  text-wrap: pretty;
+  overflow-wrap: break-word;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below.translation-placeholder {

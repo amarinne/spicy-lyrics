@@ -18,6 +18,7 @@ import {
   joinReadingUnits,
 } from "../src/utils/Lyrics/Processing/Korean/KoreanAnnotationProcessor.ts";
 import type { ParsedDocument, ParsedLine } from "../src/utils/Lyrics/Processing/Model.ts";
+import { processJapanesePackageLine } from "../src/utils/Lyrics/Processing/Japanese/JapanesePackageProcessor.ts";
 
 test("reading contract uses Unicode code-point coordinates", () => {
   const text = "A😀한국";
@@ -64,7 +65,7 @@ function parsedLine(raw: any): ParsedLine {
 // The cross-platform contract: for every fixture line, this platform's pipeline must
 // reproduce the shared expected values exactly. The Android repo asserts the same
 // fixtures (byte-identical copies) through its own pipeline (ReadingContractTest.java).
-function assertFixtureSemantics(name: string) {
+async function assertFixtureSemantics(name: string) {
   const path = fileURLToPath(new URL(`./fixtures/lyrics-reading/v1/${name}`, import.meta.url));
   const fixture = JSON.parse(readFileSync(path, "utf8"));
   assert.equal(fixture.schemaVersion, 1);
@@ -114,13 +115,23 @@ function assertFixtureSemantics(name: string) {
         assert.equal(joinReadingUnits(annotation), expected.pronunciationDisplays[mode], `${raw.id} ${mode}`);
       }
     }
+    if (expected.japanesePlan) {
+      const syllables = raw.spans.map((span: [string]) => ({ Text: span[0] }));
+      const spans = raw.expected.spanMappings.map((range: [number, number], index: number) => ({
+        index, start: range[0], end: range[1], rawText: raw.spans[index][0],
+      }));
+      const result = await processJapanesePackageLine(expected.canonicalText, syllables, spans, syllables);
+      assert.equal(result.plan.joinedDisplayText, expected.japanesePlan.joinedDisplayText, `${raw.id} Japanese display`);
+      assert.deepEqual(result.plan.timedReadingUnits.map((unit) => unit.spanId),
+        expected.japanesePlan.timedSpanIds, `${raw.id} Japanese owners`);
+    }
   }
 }
 
-test("camouflage fixture semantics match shared expectations", () => {
-  assertFixtureSemantics("camouflage-provider.json");
+test("camouflage fixture semantics match shared expectations", async () => {
+  await assertFixtureSemantics("camouflage-provider.json");
 });
 
-test("script corpus fixture semantics match shared expectations", () => {
-  assertFixtureSemantics("script-corpus.json");
+test("script corpus fixture semantics match shared expectations", async () => {
+  await assertFixtureSemantics("script-corpus.json");
 });

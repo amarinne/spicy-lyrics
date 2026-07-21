@@ -20,6 +20,7 @@ import {
   type ScriptBranchDocContext,
 } from "./Fork/TextDetection.ts";
 import {
+  buildKoreanLineTextFromSyllables,
   pinyinOptionsForToneMode,
   romanizeCantonese,
   romanizeCyrillic,
@@ -37,7 +38,7 @@ import type { ParsedLine } from "./Processing/Model.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 27;
+export const LYRICS_PROCESSING_VERSION = 31;
 export const READING_PLAN_SCHEMA_VERSION = 1;
 
 // Constants
@@ -302,8 +303,10 @@ const postProcessSyllableRomanization = async (
       const syllables = group?.Syllables;
       if (!Array.isArray(syllables) || syllables.length === 0) return;
 
-      const lineText = joinSyllables(syllables, isJapaneseSong);
       const groupHasKorean = syllables.some((s: any) => KoreanTextTest.test(s.Text || ""));
+      const lineText = groupHasKorean
+        ? buildKoreanLineTextFromSyllables(syllables)
+        : joinSyllables(syllables, isJapaneseSong);
       const japaneseMap = isJapaneseSong && !groupHasKorean ? buildJapaneseLineTextMap(syllables) : undefined;
       const effectiveLineText = japaneseMap?.lineText ?? lineText;
       if (groupHasKorean) {
@@ -406,9 +409,9 @@ const romanizeEntry = async (
 
   if (hasTransliteration(target) && !replaceKoreanTransliteration) {
     if (annotateJapanese && lineScripts.includes("Japanese") && ItemJapaneseTest.test(target.Text || "")) {
-      const previousRomanized = target.RomanizedText || target.TransliteratedText;
-      await processJapanesePackageTextTarget(target);
-      return (target.RomanizedText || target.TransliteratedText) !== previousRomanized;
+      const previousPlan = target.ReadingRenderPlan?.joinedDisplayText;
+      const packageRomaji = await processJapanesePackageTextTarget(target);
+      return packageRomaji !== previousPlan;
     }
     return true;
   }
@@ -515,6 +518,7 @@ export const ProcessLyrics = async (
     await postProcessSyllableRomanization(lyrics, docContext, packages, language);
     if (lyrics.Type !== "Syllable") {
       entries.forEach((entry, index) => {
+        if (entry.target.ReadingRenderPlan) return;
         const display = entry.target.RomanizedText || entry.target.TransliteratedText;
         if (!display) return;
         entry.target.ReadingRenderPlan = buildLineFallbackPlan(entry.target.Text || "", display, `line-${index}`);
