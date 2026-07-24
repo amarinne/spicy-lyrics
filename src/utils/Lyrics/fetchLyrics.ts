@@ -193,7 +193,6 @@ async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any
   const processingContextKey = currentProcessingContextKey();
 
   if (!lyrics) return lyrics;
-
   // A previous session may have cached raw lyrics and exited before background processing finished.
   if (
     lyrics.ProcessingPending !== true
@@ -355,7 +354,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         // Return stored lyrics only when they match the current track. Prefer the
         // URI guard; fall back to id only for pre-uri cache entries.
         const isCurrentTrack = lyricsData?.uri === uri || (!lyricsData?.uri && lyricsData?.id === trackId);
-        if (isCurrentTrack && lyricsData?.ProcessingPending !== true) {
+        if (isCurrentTrack) {
           const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData);
           $currentLyricsData.set(JSON.stringify(processedLyrics));
           presentLyrics(processedLyrics);
@@ -427,8 +426,6 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
   try {
     const Token = await Platform.GetSpotifyAccessToken();
 
-    let status = 0;
-
     lyricsLogger.debug("API lyrics query", { trackId });
     const queries = await Query(
       [
@@ -453,8 +450,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
       return ["lyrics-not-found", 404];
     }
 
-    status = lyricsQuery.httpStatus;
-
+    const status = lyricsQuery.httpStatus;
     if (status === 503) {
       // The server accepted the request but hasn't processed it yet — it's
       // queued. Surface the queue loader immediately and hand off to the retry

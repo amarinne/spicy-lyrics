@@ -4,6 +4,8 @@
 * @return {Object} - Lyrics in Static format
 */
 
+import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
+
 // --- Types ---
 export type Syllable = {
   Text: string;
@@ -110,17 +112,8 @@ function convertSyllableToStatic(syllableLyrics: SyllableLyrics): StaticLine[] {
       if (content.Type === "Vocal") {
         // Process lead vocals
         if (content.Lead && content.Lead.Syllables) {
-          // Build line text with proper word spacing
-          let lineText = "";
           const syllables = content.Lead.Syllables;
-
-          for (let i = 0; i < syllables.length; i++) {
-            const syllable = syllables[i];
-            lineText += syllable.Text;
-            if (i < syllables.length - 1 && !syllable.IsPartOfWord) {
-              lineText += " ";
-            }
-          }
+          const lineText = canonicalTextFromSyllables(syllables).canonical.text;
 
           // Add completed line if not empty
           if (lineText.trim()) {
@@ -132,16 +125,8 @@ function convertSyllableToStatic(syllableLyrics: SyllableLyrics): StaticLine[] {
         if (content.Background && Array.isArray(content.Background)) {
           content.Background.forEach((bgVocal) => {
             if (bgVocal.Syllables) {
-              let bgLineText = "";
               const bgSyllables = bgVocal.Syllables;
-
-              for (let i = 0; i < bgSyllables.length; i++) {
-                const syllable = bgSyllables[i];
-                bgLineText += syllable.Text;
-                if (i < bgSyllables.length - 1 && !syllable.IsPartOfWord) {
-                  bgLineText += " ";
-                }
-              }
+              const bgLineText = canonicalTextFromSyllables(bgSyllables).canonical.text;
 
               if (bgLineText.trim() && lines.length > 0) {
                 lines[lines.length - 1].Text += ` (${bgLineText.trim()})`;
@@ -208,16 +193,8 @@ function convertSyllableToLine(syllableLyrics: SyllableLyrics): LineVocalContent
       if (syllableContent.Type === "Vocal") {
         // Process lead vocals
         if (syllableContent.Lead && syllableContent.Lead.Syllables) {
-          let lineText = "";
           const syllables = syllableContent.Lead.Syllables;
-
-          for (let i = 0; i < syllables.length; i++) {
-            const syllable = syllables[i];
-            lineText += syllable.Text;
-            if (i < syllables.length - 1 && !syllable.IsPartOfWord) {
-              lineText += " ";
-            }
-          }
+          const lineText = canonicalTextFromSyllables(syllables).canonical.text;
 
           if (lineText.trim()) {
             content.push({
@@ -234,16 +211,8 @@ function convertSyllableToLine(syllableLyrics: SyllableLyrics): LineVocalContent
         if (syllableContent.Background && Array.isArray(syllableContent.Background)) {
           syllableContent.Background.forEach((bgVocal) => {
             if (bgVocal.Syllables) {
-              let bgLineText = "";
               const bgSyllables = bgVocal.Syllables;
-
-              for (let i = 0; i < bgSyllables.length; i++) {
-                const syllable = bgSyllables[i];
-                bgLineText += syllable.Text;
-                if (i < bgSyllables.length - 1 && !syllable.IsPartOfWord) {
-                  bgLineText += " ";
-                }
-              }
+              const bgLineText = canonicalTextFromSyllables(bgSyllables).canonical.text;
 
               if (bgLineText.trim() && content.length > 0) {
                 content[content.length - 1].Text += ` (${bgLineText.trim()})`;

@@ -26,7 +26,7 @@ export type ReadingRenderOptions = {
 };
 
 type SyllableLike = JapaneseReadable & {
-  IsPartOfWord?: boolean;
+  BoundaryAfter?: boolean;
   RomajiSpaceBefore?: boolean;
 };
 
@@ -258,7 +258,7 @@ export function appendSyllableRomanizedBelow(
           const romajiSpan = document.createElement("span");
           romajiSpan.textContent = romaji;
           romajiSpan.className = "romanized-syllable";
-          if (syl.RomajiSpaceBefore || (!syl.IsPartOfWord && index > 0)) {
+          if (syl.RomajiSpaceBefore || (index > 0 && syllables[index - 1]?.BoundaryAfter === true)) {
             romajiSpan.style.marginLeft = "0.25em";
           }
           romanizedDiv.appendChild(romajiSpan);

@@ -28,3 +28,15 @@ test("Japanese furigana ranges are exported as code-point coordinates", async ()
     assert.ok(segment.canonicalRange.endCp <= 3);
   }
 });
+
+test("inline Japanese parentheticals remain authored lyric text", () => {
+  const text = "天(そら)";
+  const canonical = new DefaultCanonicalLineBuilder().build({
+    id: "inline-parenthetical",
+    displayText: text,
+    paragraphProvenance: "lineBoundary",
+    spans: [{ id: "0", rawText: text, cleanText: text, startMs: 0, endMs: 1000, providerPartOfWord: false }],
+  });
+  assert.equal(canonical.text, text);
+  assert.deepEqual(canonical.spanMappings[0].canonicalRange, { startCp: 0, endCp: Array.from(text).length });
+});

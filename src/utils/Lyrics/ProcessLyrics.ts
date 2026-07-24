@@ -20,7 +20,6 @@ import {
   type ScriptBranchDocContext,
 } from "./Fork/TextDetection.ts";
 import {
-  buildKoreanLineTextFromSyllables,
   pinyinOptionsForToneMode,
   romanizeCantonese,
   romanizeCyrillic,
@@ -35,11 +34,12 @@ import { DefaultRenderPlanBuilder, validateRenderPlan } from "./Processing/Rende
 import { processJapanesePackageLine, processJapanesePackageTextTarget } from "./Processing/Japanese/JapanesePackageProcessor.ts";
 import { buildLineFallbackPlan, buildTimedGenericPlan } from "./Processing/GenericReadingProcessor.ts";
 import type { ParsedLine } from "./Processing/Model.ts";
+import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 31;
-export const READING_PLAN_SCHEMA_VERSION = 1;
+export const LYRICS_PROCESSING_VERSION = 32;
+export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
 const romanizationLogger = new Logger("Lyrics Romanization");
@@ -126,6 +126,27 @@ const normalizeSyllableText = (target: any): string => {
   return target.Text;
 };
 
+const resolveSyllableGroupText = (group: any, lineId: string, fallbackDisplayText = ""): string => {
+  const syllables = Array.isArray(group?.Syllables) ? group.Syllables : [];
+  for (const syllable of syllables) normalizeSyllableText(syllable);
+  const rawDisplayText = typeof group?.Text === "string" ? group.Text : fallbackDisplayText;
+  const displayText = typeof rawDisplayText === "string"
+    ? cleanInvisiblesPreserveEdges(rawDisplayText.normalize("NFKC")) : "";
+  const resolution = canonicalTextFromSyllables(syllables, displayText, lineId);
+  const joins = new Map(resolution.canonical.joins.map((join) => [join.afterSpanId, join]));
+  resolution.canonical.spanMappings.forEach((mapping, index) => {
+    const syllable = syllables[index];
+    if (!syllable) return;
+    const join = joins.get(mapping.spanId);
+    syllable.CanonicalStartCp = mapping.canonicalRange.startCp;
+    syllable.CanonicalEndCp = mapping.canonicalRange.endCp;
+    syllable.BoundaryAfter = join?.relation === "boundary";
+    syllable.BoundaryProvenance = join?.provenance || "lineEnd";
+  });
+  group.Text = resolution.canonical.text;
+  return resolution.canonical.text;
+};
+
 const gatherText = (
   lyrics: any
 ): { francText: string; scriptText: string; entries: RomanizeEntry[] } => {
@@ -153,16 +174,12 @@ const gatherText = (
 
       const syllables = vocalGroup.Lead.Syllables;
       if (syllables.length > 0) {
-        let text = normalizeSyllableText(syllables[0]);
-        const lineEntries: RomanizeEntry[] = [{ target: syllables[0], line: vocalGroup, lineText: "" }];
-        for (let index = 1; index < syllables.length; index += 1) {
-          const syllable = syllables[index];
-          const normalized = normalizeSyllableText(syllable);
-          if (!/\s$/u.test(text) && !/^\s/u.test(normalized) && !syllable.IsPartOfWord) text += " ";
-          text += normalized;
-          lineEntries.push({ target: syllable, line: vocalGroup, lineText: "" });
-        }
-        for (const entry of lineEntries) entry.lineText = text;
+        const text = resolveSyllableGroupText(vocalGroup.Lead,
+          `lead-${vocalGroup.Lead.StartTime ?? 0}-${vocalGroup.Lead.EndTime ?? 0}`,
+          vocalGroup.Text || "");
+        const lineEntries: RomanizeEntry[] = syllables.map((syllable: any) => ({
+          target: syllable, line: vocalGroup, lineText: text,
+        }));
         entries.push(...lineEntries);
         textLines.push(text);
       }
@@ -170,12 +187,12 @@ const gatherText = (
       if (vocalGroup.Background !== undefined) {
         for (const bg of vocalGroup.Background) {
           const bgEntries: RomanizeEntry[] = [];
-          const bgText: string[] = [];
           for (const syllable of bg.Syllables) {
-            bgText.push(normalizeLyricsText(syllable));
+            normalizeSyllableText(syllable);
             bgEntries.push({ target: syllable, line: vocalGroup, lineText: "" });
           }
-          const lineText = bgText.join(" ");
+          const lineText = resolveSyllableGroupText(bg,
+            `background-${bg.StartTime ?? 0}-${bg.EndTime ?? 0}`);
           for (const entry of bgEntries) entry.lineText = lineText;
           entries.push(...bgEntries);
           bgTextLines.push(lineText);
@@ -250,21 +267,6 @@ const lyricsHaveAnyTransliteration = (lyrics: any): boolean => {
   return false;
 };
 
-const LatinWordTextTest = /[A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ]/;
-
-const joinSyllables = (syllables: any[], compact = false): string => {
-  return syllables.reduce((acc, syl, index) => {
-    const text = syl.Text || "";
-    if (index === 0) return text;
-
-    if (!compact) return `${acc}${syl.IsPartOfWord ? "" : " "}${text}`;
-
-    const prevText = syllables[index - 1]?.Text || "";
-    const shouldPreserveWordSpace = !syl.IsPartOfWord && (LatinWordTextTest.test(prevText) || LatinWordTextTest.test(text));
-    return `${acc}${shouldPreserveWordSpace ? " " : ""}${text}`;
-  }, "");
-};
-
 const romanizeLineText = async (
   text: string,
   docContext: ScriptBranchDocContext,
@@ -299,15 +301,15 @@ const postProcessSyllableRomanization = async (
   for (const vocalGroup of lyrics.Content || []) {
     if (vocalGroup.Type !== undefined && vocalGroup.Type !== "Vocal") continue;
 
-    const processGroup = async (group: any) => {
+    const processGroup = async (group: any, fallbackDisplayText = "") => {
       const syllables = group?.Syllables;
       if (!Array.isArray(syllables) || syllables.length === 0) return;
 
       const groupHasKorean = syllables.some((s: any) => KoreanTextTest.test(s.Text || ""));
-      const lineText = groupHasKorean
-        ? buildKoreanLineTextFromSyllables(syllables)
-        : joinSyllables(syllables, isJapaneseSong);
-      const japaneseMap = isJapaneseSong && !groupHasKorean ? buildJapaneseLineTextMap(syllables) : undefined;
+      const lineText = resolveSyllableGroupText(group,
+        `processed-${group.StartTime ?? 0}-${group.EndTime ?? 0}`, fallbackDisplayText);
+      const japaneseMap = isJapaneseSong && !groupHasKorean
+        ? buildJapaneseLineTextMap(syllables, lineText) : undefined;
       const effectiveLineText = japaneseMap?.lineText ?? lineText;
       if (groupHasKorean) {
         const parsed: ParsedLine = {
@@ -320,7 +322,8 @@ const postProcessSyllableRomanization = async (
             cleanText: syllable.Text || "",
             startMs: Number(syllable.StartTime || 0),
             endMs: Number(syllable.EndTime || 0),
-            providerPartOfWord: syllable.IsPartOfWord === true,
+            providerPartOfWord: typeof syllable.IsPartOfWord === "boolean"
+              ? syllable.IsPartOfWord : undefined,
           })),
         };
         const canonical = new DefaultCanonicalLineBuilder().build(parsed);
@@ -382,7 +385,7 @@ const postProcessSyllableRomanization = async (
       }
     };
 
-    await processGroup(vocalGroup.Lead);
+    await processGroup(vocalGroup.Lead, vocalGroup.Text || "");
     for (const bg of vocalGroup.Background || []) {
       await processGroup(bg);
     }

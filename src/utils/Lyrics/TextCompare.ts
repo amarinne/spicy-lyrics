@@ -1,7 +1,7 @@
 export function normalizedDisplayText(text: string | undefined | null): string {
   return (text ?? "")
     .normalize("NFKC")
-    .toLocaleLowerCase()
+    .toLowerCase()
     .replace(/[\s\u00a0]+/g, " ")
     .replace(/[“”]/g, '"')
     .replace(/[‘’]/g, "'")

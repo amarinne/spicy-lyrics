@@ -14,8 +14,9 @@ import type Kuroshiro from "kuroshiro";
 import transliterPkg from "transliter";
 import { getJyutpingList } from "to-jyutping";
 import { G2p } from "korean-pronunciation";
-import { hasUnromanizedKanji, ChineseTextTest } from "./TextDetection.ts";
+import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
+import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
 
 const JYUTPING_PHRASES: Record<string, string> = {
   上堂: "soeng5 tong4",
@@ -269,13 +270,6 @@ const HANGUL_VOWEL = ["a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa",
 const HANGUL_FINAL = ["", "k", "k", "ks", "n", "nj", "nh", "t", "l", "lk", "lm", "lb", "ls", "lt", "lp", "lh", "m", "p", "ps", "t", "t", "ng", "t", "t", "k", "t", "p", "t"];
 const HANGUL_VOWEL_VN = ["a", "ê", "ya", "yê", "o", "ê", "yo", "yê", "ô", "wa", "wê", "wê", "yô", "u", "wo", "wê", "wi", "yu", "ư", "ưi", "i"];
 
-const KOREAN_EOJEOL_REJOIN_WORDS = [
-  "뒤돌아서", "너를", "없게", "없어", "이상", "기댈", "곳은", "필요",
-  "어떻게든", "호기심은", "위험하단", "희미해져", "돌아갈",
-  "모습이", "없을", "없이", "거야", "너는", "주저", "감출", "있게", "날아가", "멀리", "나로", "다시", "점점", "날", "내", "수", "걸",
-  "말도", "하지", "마요", "미련이", "아냐", "그저", "처음부터", "잘못됐단",
-] as const;
-const KOREAN_EOJEOL_REJOIN_KEYS = [...KOREAN_EOJEOL_REJOIN_WORDS].sort((a, b) => b.length - a.length);
 const KOREAN_DEPENDENT_NOUNS_AFTER_L = new Set(["수", "것", "곳", "때", "거", "거야", "게", "줄", "지", "데", "리", "만큼", "뻔", "적"]);
 const KOREAN_POST_G2P_EXCEPTIONS: Record<string, string> = {
   앉다: "안따",
@@ -305,7 +299,6 @@ const CODA_G = 1;
 const CODA_L = 8;
 const ON_R = 5;
 const ON_NULL = 11;
-const LatinWordTextTest = /[A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ]/;
 
 let koreanG2p: G2p | undefined;
 
@@ -328,178 +321,17 @@ function getKoreanG2p(): G2p {
   return koreanG2p;
 }
 
-function appendLineSpaceIfNeeded(lineText: string): string {
-  return lineText && !/\s$/.test(lineText) ? `${lineText} ` : lineText;
-}
-
-function isSingleHangulToken(token: string): boolean {
-  return Array.from(token).length === 1 && isHangulSyllable(token);
-}
-
-function isHangulToken(token: string): boolean {
-  return Array.from(token).every(isHangulSyllable);
-}
-
-function rejoinKnownKoreanWords(text: string): string {
-  let out = text;
-  for (const word of KOREAN_EOJEOL_REJOIN_KEYS) {
-    if (Array.from(word).length < 2) continue;
-    const pattern = new RegExp(Array.from(word).join("\\s+"), "g");
-    out = out.replace(pattern, word);
-  }
-  return out;
-}
-
-function normalizeKoreanTokenizerSpacing(text: string): string {
-  text = rejoinKnownKoreanWords(text);
-  const tokens = text.trim().split(/\s+/);
-  if (tokens.length < 2 || !tokens.some(isSingleHangulToken)) return text;
-
-  const out: string[] = [];
-  for (let index = 0; index < tokens.length;) {
-    if (!isHangulToken(tokens[index])) {
-      out.push(tokens[index]);
-      index += 1;
-      continue;
-    }
-
-    let match = "";
-    let consumed = 0;
-    for (const word of KOREAN_EOJEOL_REJOIN_KEYS) {
-      let combined = "";
-      for (let offset = 0; index + offset < tokens.length; offset += 1) {
-        const token = tokens[index + offset];
-        if (!isHangulToken(token)) break;
-        combined += token;
-        if (!word.startsWith(combined)) break;
-        if (combined === word) {
-          match = word;
-          consumed = offset + 1;
-          break;
-        }
-      }
-      if (match) break;
-    }
-
-    if (match) {
-      out.push(match);
-      index += consumed;
-      continue;
-    }
-
-    out.push(tokens[index]);
-    index += 1;
-  }
-
-  return out.join(" ");
-}
-
-function normalizeKoreanBuiltLineText(text: string): string {
-  return text
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .replace(/([,.;:!?])(?=\S)/g, "$1 ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function buildKoreanLineTextWithLeadingBoundaries(syllables: KoreanSyllableLike[]): string {
-  let lineText = "";
-  for (let index = 0; index < syllables.length; index += 1) {
-    const text = syllables[index]?.Text || "";
-    if (!text) continue;
-    if (lineText && syllables[index]?.IsPartOfWord !== true) lineText += " ";
-    lineText += text.trim();
-  }
-  return normalizeKoreanBuiltLineText(lineText);
-}
-
-function buildKoreanLineTextWithTrailingBoundaries(syllables: KoreanSyllableLike[]): string {
-  let lineText = "";
-  for (let index = 0; index < syllables.length; index += 1) {
-    const text = syllables[index]?.Text || "";
-    if (!text) continue;
-    lineText += text.trim();
-    if (index < syllables.length - 1 && syllables[index]?.IsPartOfWord !== true) lineText += " ";
-  }
-  return normalizeKoreanBuiltLineText(lineText);
-}
-
-function buildKoreanLineTextWithSmartBoundaries(syllables: KoreanSyllableLike[]): string {
-  const suffixLike = /^(?:이|가|은|는|을|를|도|에|의|로|와|과|만|뿐|요|죠|지|네|군|까|고|게|면서)$/;
-  let lineText = "";
-  let previous = "";
-
-  for (const syllable of syllables) {
-    const text = (syllable?.Text || "").trim();
-    if (!text) continue;
-
-    const previousIsLatin = LatinWordTextTest.test(previous);
-    const currentIsLatin = LatinWordTextTest.test(text);
-    const attachToPrevious =
-      !lineText ||
-      /^[,.;:!?]$/.test(text) ||
-      (isHangulToken(previous) && isHangulToken(text) && suffixLike.test(text));
-
-    if (!attachToPrevious || previousIsLatin || currentIsLatin) lineText = appendLineSpaceIfNeeded(lineText);
-    lineText += text;
-    previous = text;
-  }
-
-  return normalizeKoreanBuiltLineText(normalizeKoreanMixedScriptSpacing(lineText));
-}
-
-function scoreKoreanLineSpacing(text: string): number {
-  const suffixLike = /^(?:이|가|은|는|을|를|도|에|의|로|와|과|만|뿐|요|죠|지|네|군|까|고|게|면서)$/;
-  let score = 0;
-  for (const token of text.split(/\s+/)) {
-    if (!token) continue;
-    if (!isHangulToken(token)) continue;
-    const chars = Array.from(token);
-    if (chars.length === 1) score += 20;
-    if (suffixLike.test(token)) score += 12;
-  }
-  return score;
-}
-
-function normalizeKoreanMixedScriptSpacing(text: string): string {
-  return text
-    .replace(/([가-힯])([A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ])/g, "$1 $2")
-    .replace(/([A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ])([가-힯])/g, "$1 $2")
-    .replace(/([,.;:!?])(?=\S)/g, "$1 ");
-}
-
-export function buildKoreanLineTextFromSyllables(syllables: KoreanSyllableLike[]): string {
-  if (syllables.some((syllable) => /\s/.test(syllable?.Text || ""))) {
-    const rawJoined = normalizeKoreanBuiltLineText(normalizeKoreanMixedScriptSpacing(syllables.map((syllable) => syllable?.Text || "").join("")));
-    const spanSpaced = normalizeKoreanBuiltLineText(
-      syllables.map((syllable) => (syllable?.Text || "").trim()).filter(Boolean).join(" ")
-    );
-    const tokenizerSpaced = normalizeKoreanBuiltLineText(normalizeKoreanTokenizerSpacing(spanSpaced));
-    return scoreKoreanLineSpacing(tokenizerSpaced) <= scoreKoreanLineSpacing(rawJoined) ? tokenizerSpaced : rawJoined;
-  }
-
-  const leading = buildKoreanLineTextWithLeadingBoundaries(syllables);
-  const trailing = buildKoreanLineTextWithTrailingBoundaries(syllables);
-  const hasContinuation = syllables.some((syllable) => syllable?.IsPartOfWord === true);
-  const hasBoundary = syllables.some((syllable) => syllable?.IsPartOfWord === false);
-  if (hasContinuation && hasBoundary) return normalizeKoreanMixedScriptSpacing(trailing);
-
-  const spaced = normalizeKoreanBuiltLineText(
-    syllables.map((syllable) => (syllable?.Text || "").trim()).filter(Boolean).join(" ")
-  );
-  const tokenizerSpaced = normalizeKoreanBuiltLineText(normalizeKoreanTokenizerSpacing(spaced));
-  const smart = buildKoreanLineTextWithSmartBoundaries(syllables);
-  const compactBest = scoreKoreanLineSpacing(trailing) < scoreKoreanLineSpacing(leading) ? trailing : leading;
-  const spanTexts = syllables.map((syllable) => (syllable?.Text || "").trim()).filter(Boolean);
-  const looksWordLevel = spanTexts.some((text) => LatinWordTextTest.test(text) || Array.from(text).length > 1);
-  if (tokenizerSpaced !== spaced && scoreKoreanLineSpacing(tokenizerSpaced) < scoreKoreanLineSpacing(compactBest)) return tokenizerSpaced;
-  if (looksWordLevel && /\s/.test(smart)) return smart;
-  return scoreKoreanLineSpacing(spaced) + 8 < scoreKoreanLineSpacing(compactBest) ? spaced : normalizeKoreanMixedScriptSpacing(compactBest);
+export function buildKoreanLineTextFromSyllables(
+  syllables: KoreanSyllableLike[],
+  displayText = ""
+): string {
+  return canonicalTextFromSyllables(syllables, displayText).canonical.text;
 }
 
 export function normalizeKoreanDisplaySource(text: string): string {
-  const source = buildKoreanLineTextFromSyllables([{ Text: text, IsPartOfWord: false }]);
-  return normalizeKoreanTokenizerSpacing(source);
+  return cleanInvisiblesPreserveEdges((text || "").normalize("NFKC"))
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 export function romanizeKoreanSyllableLine(

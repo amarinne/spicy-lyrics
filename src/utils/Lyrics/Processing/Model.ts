@@ -5,6 +5,7 @@ export type TextRange = {
 
 export type ParagraphProvenance = "provider" | "lineBoundary" | "unavailable";
 export type BoundaryKind = "explicitWhitespace" | "paragraph" | "script" | "inferred";
+export type JoinRelation = "attached" | "boundary" | "unknown";
 export type ReadingUnitKind = "transformed" | "passthrough" | "punctuation";
 export type ReadingProvenance = "provider" | "local" | "remoteFallback";
 
@@ -45,11 +46,19 @@ export type Boundary = {
   readonly provenance: string;
 };
 
+export type SpanJoinEvidence = {
+  readonly afterSpanId: string;
+  readonly relation: JoinRelation;
+  readonly confidence: number;
+  readonly provenance: string;
+};
+
 export type CanonicalLine = {
   readonly lineId: string;
   readonly text: string;
   readonly spanMappings: readonly CanonicalSpanMapping[];
   readonly boundaries: readonly Boundary[];
+  readonly joins: readonly SpanJoinEvidence[];
 };
 
 export type ScriptRun = {

@@ -12,6 +12,7 @@ import { franc } from "franc-all";
 import langs from "langs";
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
 import { romanizeCyrillic, romanizeKorean } from "./Romanization.ts";
+import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
 import {
   BengaliTextTest,
   DevanagariTextTest,
@@ -118,7 +119,7 @@ export function normalizeCompare(value: string | undefined | null): string {
     .normalize("NFKC")
     .normalize("NFKD")
     .replace(/\p{M}+/gu, "")
-    .toLocaleLowerCase()
+    .toLowerCase()
     .replace(/ң/g, "n")
     .replace(/ŋ/g, "n")
     .replace(/[‘’]/g, "'")
@@ -338,16 +339,7 @@ export function shouldTranslateLine(text: string, sourceLang: string, targetLang
 
 function joinSyllableText(syllables: any[] | undefined): string {
   if (!Array.isArray(syllables) || syllables.length === 0) return "";
-  let lineText = "";
-  let previousWasWordEnd = false;
-  for (const syl of syllables) {
-    const text = syl?.Text || "";
-    if (!text) continue;
-    if (previousWasWordEnd && lineText && !lineText.endsWith(" ")) lineText += " ";
-    lineText += text;
-    previousWasWordEnd = syl?.IsPartOfWord === false;
-  }
-  return lineText.trim();
+  return canonicalTextFromSyllables(syllables).canonical.text;
 }
 
 // ─── Batch Translation ────────────────────────────────────────────────────────

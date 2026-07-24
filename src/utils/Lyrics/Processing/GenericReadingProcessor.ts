@@ -26,7 +26,8 @@ export function buildTimedGenericPlan(group: any, display: string, processor: st
   const parsed: ParsedLine = { id: `${processor}-${group.StartTime ?? 0}-${group.EndTime ?? 0}`,
     displayText: syllables.map((s: any) => s.Text || "").join(""), paragraphProvenance: "unavailable",
     spans: syllables.map((s: any, i: number) => ({ id: String(i), rawText: s.Text || "", cleanText: s.Text || "",
-      startMs: Number(s.StartTime || 0), endMs: Number(s.EndTime || 0), providerPartOfWord: s.IsPartOfWord === true })) };
+      startMs: Number(s.StartTime || 0), endMs: Number(s.EndTime || 0),
+      providerPartOfWord: typeof s.IsPartOfWord === "boolean" ? s.IsPartOfWord : undefined })) };
   const canonical = new DefaultCanonicalLineBuilder().build(parsed);
   const chunks = align(syllables.map((s: any) => (s.RomanizedText || s.TransliteratedText || s.Text || "").trim()), display);
   const annotation: ReadingAnnotation = { processor, mode: "local", provenance: "local",

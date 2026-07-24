@@ -15,6 +15,8 @@ import {
 } from "../Fork/JukujikunMerge.ts";
 import { cleanInvisiblesPreserveEdges } from "../Fork/TextDetection.ts";
 import type { RenderPlan } from "../Processing/Model.ts";
+import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
+import { codePointOffsetToUtf16Index } from "../Processing/CodePoint.ts";
 
 export type FuriganaSegment = {
   start: number;
@@ -53,6 +55,10 @@ export type TimedSyllableEntry = JapaneseReadable & {
   StartTime: number;
   EndTime: number;
   IsPartOfWord?: boolean;
+  BoundaryAfter?: boolean;
+  BoundaryProvenance?: string;
+  CanonicalStartCp?: number;
+  CanonicalEndCp?: number;
 };
 
 export type TimedSyllableGroup = JapaneseReadable & {
@@ -81,7 +87,6 @@ export const KanjiTextTest = /[一-鿿々]/;
 const KanjiLikeCharTest = /[一-鿿々]/;
 const KanjiLikeSequenceTest = /^[一-鿿々]+$/;
 const KanaCharTest = /[ぁ-んァ-ンー]/;
-const LatinWordTextTest = /[A-Za-zÀ-ÖØ-öø-ÿĀ-žƀ-ɏ]/;
 
 const HIRAGANA_VOWEL: Record<string, string> = {
   あ: "あ", か: "あ", が: "あ", さ: "あ", ざ: "あ", た: "あ", だ: "あ", な: "あ", は: "あ", ば: "あ", ぱ: "あ", ま: "あ", や: "あ", ら: "あ", わ: "あ", ぁ: "あ", ゃ: "あ",
@@ -117,43 +122,23 @@ function normalizeJapaneseTimedText(text: string): string {
   return cleanInvisiblesPreserveEdges((text || "").normalize("NFKC"));
 }
 
-function appendLineSpaceIfNeeded(lineText: string): string {
-  return lineText && !/\s$/.test(lineText) ? `${lineText} ` : lineText;
-}
-
-export function buildJapaneseLineTextMap(syllables: JapaneseReadable[]): JapaneseLineTextMap {
-  let lineText = "";
-  const spans: JapaneseTimedTextSpan[] = [];
-
-  for (let index = 0; index < syllables.length; index += 1) {
+export function buildJapaneseLineTextMap(syllables: JapaneseReadable[], displayText = ""): JapaneseLineTextMap {
+  const normalized = syllables.map((syllable) => ({
+    Text: normalizeJapaneseTimedText(syllable?.Text || ""),
+    IsPartOfWord: (syllable as TimedSyllableEntry)?.IsPartOfWord,
+  }));
+  const canonical = canonicalTextFromSyllables(normalized, displayText).canonical;
+  const spans = canonical.spanMappings.map((mapping, index) => {
     const rawText = syllables[index]?.Text || "";
-    const normalizedRaw = normalizeJapaneseTimedText(rawText);
-    const normalizedText = normalizedRaw.trim();
-    if (!normalizedRaw && !normalizedText) continue;
-
-    const leading = normalizedRaw.match(/^\s+/)?.[0] || "";
-    const trailing = normalizedRaw.match(/\s+$/)?.[0] || "";
-    if (leading) lineText = appendLineSpaceIfNeeded(lineText);
-
-    const previousRaw = syllables[index - 1]?.Text || "";
-    const nextNeedsLatinSpace =
-      !leading &&
-      lineText &&
-      (syllables[index] as any)?.IsPartOfWord !== true &&
-      (LatinWordTextTest.test(previousRaw) || LatinWordTextTest.test(normalizedText));
-    if (nextNeedsLatinSpace) lineText = appendLineSpaceIfNeeded(lineText);
-
-    const start = lineText.length;
-    lineText += normalizedText;
-    const end = lineText.length;
-    if (normalizedText) {
-      spans.push({ index, rawText, normalizedText, start, end });
-    }
-
-    if (trailing) lineText = appendLineSpaceIfNeeded(lineText);
-  }
-
-  return { lineText: lineText.replace(/\s+$/g, ""), spans };
+    return {
+      index,
+      rawText,
+      normalizedText: normalizeJapaneseTimedText(rawText).trim(),
+      start: codePointOffsetToUtf16Index(canonical.text, mapping.canonicalRange.startCp),
+      end: codePointOffsetToUtf16Index(canonical.text, mapping.canonicalRange.endCp),
+    };
+  });
+  return { lineText: canonical.text, spans };
 }
 
 function rangesOverlap(startA: number, endA: number, startB: number, endB: number): boolean {

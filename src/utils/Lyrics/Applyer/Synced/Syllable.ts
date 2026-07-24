@@ -65,7 +65,7 @@ const joinSyllableDisplayText = (syllables: SyllableData[]): string => {
   return syllables.reduce((acc, syl, index) => {
     const text = syl.Text || "";
     if (index === 0) return text;
-    return `${acc}${syl.IsPartOfWord ? "" : " "}${text}`;
+    return `${acc}${syllables[index - 1]?.BoundaryAfter === true ? " " : ""}${text}`;
   }, "").trim();
 };
 
@@ -77,7 +77,7 @@ const applyWordPositionClasses = (
 ): void => {
   if (index === all.length - 1) {
     element.classList.add("LastWordInLine");
-  } else if (syllable.IsPartOfWord) {
+  } else if (syllable.BoundaryAfter !== true) {
     element.classList.add("PartOfWord");
   }
 };
@@ -182,18 +182,18 @@ const appendGroupedWord = (
   lineElement: HTMLElement,
   word: HTMLElement,
   syllable: SyllableData,
-  previous: SyllableData | undefined,
   currentGroup: HTMLSpanElement | null
 ): HTMLSpanElement | null => {
-  if (syllable.IsPartOfWord || (previous?.IsPartOfWord && currentGroup)) {
-    const group = currentGroup ?? document.createElement("span");
-    if (!currentGroup) {
-      group.classList.add("word-group");
-      lineElement.appendChild(group);
-    }
-
+  if (currentGroup) {
+    currentGroup.appendChild(word);
+    return syllable.BoundaryAfter === true ? null : currentGroup;
+  }
+  if (syllable.BoundaryAfter !== true) {
+    const group = document.createElement("span");
+    group.classList.add("word-group");
+    lineElement.appendChild(group);
     group.appendChild(word);
-    return !syllable.IsPartOfWord && previous?.IsPartOfWord ? null : group;
+    return group;
   }
 
   lineElement.appendChild(word);
@@ -405,7 +405,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         }
         currentWordGroup.appendChild(word);
       } else {
-        currentWordGroup = appendGroupedWord(lineElem, word, lead, aL[iL - 1], currentWordGroup);
+        currentWordGroup = appendGroupedWord(lineElem, word, lead, currentWordGroup);
       }
     });
 
@@ -472,7 +472,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
             }
             currentBGWordGroup.appendChild(word);
           } else {
-            currentBGWordGroup = appendGroupedWord(lineE, word, bw, bA[bI - 1], currentBGWordGroup);
+            currentBGWordGroup = appendGroupedWord(lineE, word, bw, currentBGWordGroup);
           }
         });
 

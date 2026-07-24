@@ -1,12 +1,12 @@
 import {
-  buildKoreanLineTextFromSyllables,
   normalizeKoreanDisplaySource,
   romanizeKoreanDisplayPieces,
   romanizeKoreanForDisplay,
   type KoreanDisplayMode,
   type KoreanSyllableLike,
 } from "../../Fork/Romanization.ts";
-import { cleanInvisibles } from "../../Fork/TextDetection.ts";
+import { cleanInvisiblesPreserveEdges } from "../../Fork/TextDetection.ts";
+import { canonicalTextFromSyllables } from "../ProviderBoundary.ts";
 import type {
   NormalizedBoundary,
   NormalizedLine,
@@ -18,55 +18,33 @@ import type {
 } from "../Model.ts";
 
 function normalizeSpanText(text: string): string {
-  return cleanInvisibles((text || "").normalize("NFKC")).replace(/\s+/g, " ");
-}
-
-function findCodePointSequence(source: string[], target: string[], from: number): number {
-  if (target.length === 0 || target.length > source.length) return -1;
-  for (let start = Math.max(0, from); start <= source.length - target.length; start += 1) {
-    let matches = true;
-    for (let offset = 0; offset < target.length; offset += 1) {
-      if (source[start + offset] !== target[offset]) {
-        matches = false;
-        break;
-      }
-    }
-    if (matches) return start;
-  }
-  return -1;
+  return cleanInvisiblesPreserveEdges((text || "").normalize("NFKC")).replace(/[ \t]{2,}/g, " ");
 }
 
 function rangesOverlap(left: TextRange, right: TextRange): boolean {
   return left.startCp < right.endCp && right.startCp < left.endCp;
 }
 
-export function buildKoreanNormalizedLine(syllables: KoreanSyllableLike[]): NormalizedLine {
+export function buildKoreanNormalizedLine(
+  syllables: KoreanSyllableLike[],
+  displayText = ""
+): NormalizedLine {
   const normalizedSyllables = syllables.map((syllable) => ({
     Text: normalizeSpanText(syllable?.Text || ""),
     IsPartOfWord: syllable?.IsPartOfWord,
   }));
-  const text = normalizeKoreanDisplaySource(buildKoreanLineTextFromSyllables(normalizedSyllables));
-  const sourceCodePoints = Array.from(text);
-  const spans: NormalizedSpanRef[] = [];
-  let searchFrom = 0;
-
-  normalizedSyllables.forEach((syllable, spanId) => {
-    const spanCodePoints = Array.from((syllable.Text || "").trim());
-    if (spanCodePoints.length === 0) return;
-
-    let startCp = findCodePointSequence(sourceCodePoints, spanCodePoints, searchFrom);
-    if (startCp < 0) startCp = findCodePointSequence(sourceCodePoints, spanCodePoints, 0);
-    if (startCp < 0) return;
-
-    const endCp = startCp + spanCodePoints.length;
-    spans.push({ spanId, source: { startCp, endCp } });
-    searchFrom = endCp;
-  });
-
-  const boundaries: NormalizedBoundary[] = [];
-  sourceCodePoints.forEach((char, offsetCp) => {
-    if (/\s/.test(char)) boundaries.push({ offsetCp, kind: "whitespace" });
-  });
+  const canonical = canonicalTextFromSyllables(normalizedSyllables, displayText).canonical;
+  const text = normalizeKoreanDisplaySource(canonical.text);
+  const spans: NormalizedSpanRef[] = canonical.spanMappings.map((mapping, spanId) => ({
+    spanId,
+    source: mapping.canonicalRange,
+  }));
+  const boundaries: NormalizedBoundary[] = canonical.boundaries.map((boundary) => ({
+    offsetCp: boundary.offsetCp,
+    kind: boundary.kind === "paragraph" ? "paragraph"
+      : boundary.kind === "script" ? "script"
+        : boundary.kind === "inferred" ? "inferred" : "whitespace",
+  }));
 
   return { text, spans, boundaries };
 }
@@ -111,9 +89,10 @@ function buildReadingGroups(
 
 export function buildKoreanReadingPlan(
   syllables: KoreanSyllableLike[],
-  mode: KoreanDisplayMode = "rrStandard"
+  mode: KoreanDisplayMode = "rrStandard",
+  displayText = ""
 ): ReadingPlan {
-  const normalized = buildKoreanNormalizedLine(syllables);
+  const normalized = buildKoreanNormalizedLine(syllables, displayText);
   const pieces = romanizeKoreanDisplayPieces(normalized.text, mode);
   const sourceCodePoints = Array.from(normalized.text);
   const spanReadings: SpanReading[] = normalized.spans.map((span) => ({
