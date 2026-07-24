@@ -178,7 +178,7 @@ src/components/cli-sync
 
 CHANGELOG.md
 
-# Local agent/editor notes
+# Local-only docs, agent, and editor material — never publish
 .pi/
 .codex/
 .agents/
