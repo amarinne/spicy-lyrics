@@ -58,6 +58,12 @@ export const $minimalLyricsMode = persistAtom<boolean>("minimalLyricsMode", fals
 export const $adaptiveSectioning = persistAtom<boolean>("adaptiveSectioning", true);
 export const $skipSpicyFont = persistAtom<boolean>("skipSpicyFont", false);
 export const $showNpvDynamicBg = persistAtom<boolean>("showNpvDynamicBg", true);
+// Pull the whole NPV lyrics card out of the sidebar while the current track has
+// no lyrics, instead of leaving it up showing the "no lyrics" notice.
+export const $hideNpvLyricsWhenUnavailable = persistAtom<boolean>(
+  "hideNpvLyricsWhenUnavailable",
+  true
+);
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {
