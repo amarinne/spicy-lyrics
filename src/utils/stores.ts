@@ -36,7 +36,8 @@ function migrateSettingsKeys(blob: Record<string, any>): Record<string, any> {
 
 const _settings: Record<string, any> = migrateSettingsKeys(readSettingsBlob());
 
-function persistAtom<T>(key: string, defaultValue: T) {
+/** Persist an atom inside the shared settings blob. */
+export function persistAtom<T>(key: string, defaultValue: T) {
   const store = atom<T>(_settings[key] !== undefined ? _settings[key] : defaultValue);
   store.listen((v) => {
     _settings[key] = v;
@@ -56,8 +57,12 @@ export const $simpleLyricsModeRenderingType = persistAtom<string>(
 );
 export const $minimalLyricsMode = persistAtom<boolean>("minimalLyricsMode", false);
 export const $adaptiveSectioning = persistAtom<boolean>("adaptiveSectioning", true);
+// Tinted box drawn behind a lyrics line while the pointer is over it.
+export const $lineHoverBackground = persistAtom<boolean>("lineHoverBackground", true);
 export const $skipSpicyFont = persistAtom<boolean>("skipSpicyFont", false);
 export const $showNpvDynamicBg = persistAtom<boolean>("showNpvDynamicBg", true);
+// Never inject the lyrics card into the Now Playing sidebar at all.
+export const $disableNpvLyrics = persistAtom<boolean>("disableNpvLyrics", false);
 // Pull the whole NPV lyrics card out of the sidebar while the current track has
 // no lyrics, instead of leaving it up showing the "no lyrics" notice.
 export const $hideNpvLyricsWhenUnavailable = persistAtom<boolean>(
@@ -65,6 +70,7 @@ export const $hideNpvLyricsWhenUnavailable = persistAtom<boolean>(
   true
 );
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
+export const $allowScrollUp = persistAtom<boolean>("allowScrollUp", true);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {
   const initial: boolean =
@@ -83,6 +89,8 @@ export const $timelineOutsideMediaContent = persistAtom<boolean>(
   "timelineOutsideMediaContent",
   true
 );
+// Volume band below the playback controls in Fullscreen / Cinema View / Popup Lyrics.
+export const $showVolumeSlider = persistAtom<boolean>("showVolumeSlider", true);
 // Playback timing offset in milliseconds (bipolar: negative = earlier, positive = later)
 export const $playbackOffset = persistAtom<number>("playbackOffset", 0);
 

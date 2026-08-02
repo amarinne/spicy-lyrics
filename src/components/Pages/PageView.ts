@@ -32,8 +32,10 @@ import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackgroun
 import {
   $adaptiveSectioning,
   $currentLyricsData,
+  $lineHoverBackground,
   $lyricsContainerExists,
   $minimalLyricsMode,
+  $showVolumeSlider,
   $simpleLyricsMode,
   $skipSpicyFont,
   $ttmlMakerMode,
@@ -67,6 +69,7 @@ import { CleanUpIsByCommunity } from "../../utils/Lyrics/Applyer/Credits/ApplyIs
 import { OpenLyricsDBPanel } from "../../utils/openLyricsDBPanel.tsx";
 import { openSettingsPanel } from "../../utils/settings.ts";
 import Logger from "../../utils/Logger.ts";
+import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experiments.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
 
@@ -255,6 +258,17 @@ async function OpenPage(
   if ($adaptiveSectioning.get()) {
     elem.classList.add("AdaptiveSectioning");
   }
+
+  if (!$lineHoverBackground.get()) {
+    elem.classList.add("NoLineHoverBackground");
+  }
+
+  // Gates layout offsets that reserve room for the fullscreen volume band.
+  if ($showVolumeSlider.get()) {
+    elem.classList.add("ShowVolumeSlider");
+  }
+
+  ApplyExperimentClasses(elem);
 
   const contentBox = elem.querySelector<HTMLElement>(
     ".ContentBox"
@@ -856,6 +870,22 @@ $minimalLyricsMode.listen((v) => {
   const uri = SpotifyPlayer.GetUri();
   $currentLyricsData.set("");
   if (uri) fetchLyrics(uri).then(ApplyLyrics);
+});
+
+// Pure CSS toggles; no lyrics reprocessing required.
+$lineHoverBackground.listen((v) => {
+  if (!PageContainer) return;
+  PageContainer.classList.toggle("NoLineHoverBackground", !v);
+});
+
+$showVolumeSlider.listen((v) => {
+  if (!PageContainer) return;
+  PageContainer.classList.toggle("ShowVolumeSlider", v);
+});
+
+onExperimentChange(() => {
+  if (!PageContainer) return;
+  ApplyExperimentClasses(PageContainer);
 });
 
 $skipSpicyFont.listen((v) => {

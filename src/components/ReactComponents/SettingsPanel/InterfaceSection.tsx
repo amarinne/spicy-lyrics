@@ -1,8 +1,10 @@
 import { useStore } from "@nanostores/react";
 import {
+  $disableNpvLyrics,
   $hideNpvLyricsWhenUnavailable,
   $lockedMediaBox,
   $popupLyricsAllowed,
+  $showVolumeSlider,
   $timelineOutsideMediaContent,
   $viewControlsPosition,
 } from "../../../utils/stores.ts";
@@ -26,6 +28,8 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const flatViewControls = useStore($flatViewControls);
   const prefetchNextLyrics = useStore($prefetchNextLyrics);
   const hideNpvLyricsWhenUnavailable = useStore($hideNpvLyricsWhenUnavailable);
+  const disableNpvLyrics = useStore($disableNpvLyrics);
+  const showVolumeSlider = useStore($showVolumeSlider);
 
   if (sectionFilter !== "All" && sectionFilter !== SECTION_NAME) return null;
 
@@ -36,8 +40,10 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const r6 = matches(query, "Flat Controls (No Liquid Glass)", "Use flat lyrics control buttons instead of liquid-glass buttons.");
   const r7 = matches(query, "Prefetch Next Lyrics", "Fetch and process upcoming track lyrics before the song changes.");
   const r8 = matches(query, "Hide NPV Lyrics When No Lyrics Are Available", "Remove the lyrics card from the Now Playing sidebar while the current song has no lyrics, instead of showing a notice. It comes back on the next song that has them.");
+  const r9 = matches(query, "Disable NPV Lyrics", "Never show the lyrics card in the Now Playing sidebar.");
+  const r10 = matches(query, "Volume Slider", "Show a volume control on the album artwork in Fullscreen, Cinema View and Popup Lyrics.");
 
-  if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7 && !r8) return null;
+  if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7 && !r8 && !r9 && !r10) return null;
 
   return (
     <>
@@ -100,10 +106,30 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
         </Row>
       )}
 
+      {r10 && (
+        <Row
+          label="Volume Slider"
+          description="Show a volume control on the album artwork in Fullscreen, Cinema View and Popup Lyrics."
+        >
+          <Toggle checked={showVolumeSlider} onChange={(v) => $showVolumeSlider.set(v)} />
+        </Row>
+      )}
+
+      {r9 && (
+        <Row
+          label="Disable NPV Lyrics"
+          description="Never show the lyrics card in the Now Playing sidebar."
+        >
+          <Toggle checked={disableNpvLyrics} onChange={(v) => $disableNpvLyrics.set(v)} />
+        </Row>
+      )}
+
       {r8 && (
         <Row
           label="Hide NPV Lyrics When No Lyrics Are Available"
           description="Remove the lyrics card from the Now Playing sidebar while the current song has no lyrics, instead of showing a notice. It comes back on the next song that has them."
+          disabled={disableNpvLyrics}
+          disabledReason="The NPV lyrics card is disabled"
         >
           <Toggle
             checked={hideNpvLyricsWhenUnavailable}

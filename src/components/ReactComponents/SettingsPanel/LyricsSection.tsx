@@ -2,6 +2,8 @@ import { useStore } from "@nanostores/react";
 import React from "react";
 import {
   $adaptiveSectioning,
+  $allowScrollUp,
+  $lineHoverBackground,
   $minimalLyricsMode,
   $simpleLyricsMode,
   $simpleLyricsModeRenderingType,
@@ -79,6 +81,8 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const simpleLyricsModeRenderingType = useStore($simpleLyricsModeRenderingType);
   const minimalLyricsMode = useStore($minimalLyricsMode);
   const adaptiveSectioning = useStore($adaptiveSectioning);
+  const allowScrollUp = useStore($allowScrollUp);
+  const lineHoverBackground = useStore($lineHoverBackground);
   const chineseTranslitMode = useStore($chineseTranslitMode);
   const chineseTones = useStore($chineseTones);
   const japaneseReadingMode = useStore($japaneseReadingMode);
@@ -96,6 +100,8 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showSimpleRenderingStyle = matches(query, "Simple Mode: Text Animation Style", "How lyrics text transitions are rendered in Simple Lyrics Mode.");
   const showMinimalLyricsMode = matches(query, "Minimal Lyrics Mode", "Hides sung lyrics lines in Fullscreen and Cinema Mode");
   const showAdaptiveSectioning = matches(query, "Adaptive Sectioning", "Keep Japanese semantic groups together and improve wrapping for reading and translation rows.");
+  const showAllowScrollUp = matches(query, "Allow Scrolling Up", "Allow lyrics to scroll back up when the active line is above the last one.");
+  const showLineHoverBackground = matches(query, "Line Hover Background", "Show a highlight box behind a lyrics line when you hover over it.");
   const showChineseTransliteration = matches(query, "Chinese Transliteration", "Choose Mandarin pinyin or Cantonese jyutping for Chinese lyrics.");
   const showChineseTones = matches(query, "Chinese Tones", "Show Mandarin tone marks and Cantonese jyutping tone numbers.");
   const showJapaneseReadingDisplay = matches(query, "Japanese Reading Display", "Choose romaji, furigana, or both for Japanese lyrics.");
@@ -112,6 +118,8 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
     showSimpleRenderingStyle ||
     showMinimalLyricsMode ||
     showAdaptiveSectioning ||
+    showAllowScrollUp ||
+    showLineHoverBackground ||
     showChineseTransliteration ||
     showChineseTones ||
     showJapaneseReadingDisplay ||
@@ -166,6 +174,27 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
           description="Keep Japanese semantic groups together and improve wrapping for reading and translation rows."
         >
           <Toggle checked={adaptiveSectioning} onChange={(v) => $adaptiveSectioning.set(v)} />
+        </Row>
+      )}
+
+      {showAllowScrollUp && (
+        <Row
+          label="Allow Scrolling Up"
+          description="Allow lyrics to scroll back up when the active line is above the last one."
+        >
+          <Toggle checked={allowScrollUp} onChange={(v) => $allowScrollUp.set(v)} />
+        </Row>
+      )}
+
+      {showLineHoverBackground && (
+        <Row
+          label="Line Hover Background"
+          description="Show a highlight box behind a lyrics line when you hover over it."
+        >
+          <Toggle
+            checked={lineHoverBackground}
+            onChange={(v) => $lineHoverBackground.set(v)}
+          />
         </Row>
       )}
 
