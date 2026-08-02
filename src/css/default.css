@@ -45,6 +45,45 @@
   font-family: SpicyLyrics, "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
 }
 
+#SpicyLyricsPage:not(.UseSpicyFont),
+#SpicyLyricsPage:not(.UseSpicyFont) *:not(.musical-line, .musical-line *) {
+  font-family: var(--spicy-system-font, var(--encore-body-font-stack, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"] * {
+  font-family: var(--spicy-system-font-ja, var(--spicy-system-font, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"] *,
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"] * {
+  font-family: var(--spicy-system-font-zh, var(--spicy-system-font, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"] * {
+  font-family: var(--spicy-system-font-zh-hant, var(--spicy-system-font, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"] * {
+  font-family: SpicyLyrics, "Noto Sans JP", "Noto Sans SC", "Noto Sans TC", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"] *,
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"] * {
+  font-family: SpicyLyrics, "Noto Sans SC", "Noto Sans TC", "Noto Sans JP", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"] * {
+  font-family: SpicyLyrics, "Noto Sans TC", "Noto Sans SC", "Noto Sans JP", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
 .Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child,
 .Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child-spacer,
 .Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child,

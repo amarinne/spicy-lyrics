@@ -2,7 +2,9 @@ import { franc } from "franc-all";
 import langs from "langs";
 import { RetrievePackage } from "../ImportPackage.ts";
 import Logger from "../Logger.ts";
-import { chineseTones, chineseTranslitMode, cyrillicKeepSigns, cyrillicRomanizationMode, koreanDisplayMode } from "./lyrics.ts";
+import { convertChineseLyricsText } from "./ChineseCharacterConversion.ts";
+import { $chineseCharacterForm } from "../uiState.ts";
+import { chineseTones, chineseTranslitMode, cyrillicKeepSigns, cyrillicRomanizationMode, joinMandarinWords, koreanDisplayMode } from "./lyrics.ts";
 import {
   ChineseTextTest,
   JapaneseTextTest,
@@ -14,16 +16,21 @@ import {
 } from "./Fork/index.ts";
 import {
   romanizationBranchFromLanguage,
+  resolveCjkDocumentBranch,
+  resolveCjkLineRoute,
   scriptBranchForLine,
   SCRIPT_PRIORITY,
+  type CjkReadingBranch,
   type RomanizationBranch,
   type ScriptBranchDocContext,
 } from "./Fork/TextDetection.ts";
 import {
-  pinyinOptionsForToneMode,
+  buildMandarinWordLayout,
+  joinMandarinReadingWords,
   romanizeCantonese,
   romanizeCyrillic,
   romanizeKoreanForDisplay,
+  romanizeMandarin,
 } from "./Fork/Romanization.ts";
 import { acceptRomanization } from "./Fork/RomanizationAcceptance.ts";
 import { buildJapaneseLineTextMap } from "./Reading/JapaneseReading.ts";
@@ -33,12 +40,13 @@ import { annotateKoreanLine } from "./Processing/Korean/KoreanAnnotationProcesso
 import { DefaultRenderPlanBuilder, validateRenderPlan } from "./Processing/RenderPlan.ts";
 import { processJapanesePackageLine, processJapanesePackageTextTarget } from "./Processing/Japanese/JapanesePackageProcessor.ts";
 import { buildLineFallbackPlan, buildTimedGenericPlan } from "./Processing/GenericReadingProcessor.ts";
+import { romanizeChineseDominantCjkText } from "./Processing/CjkLanguageRouting.ts";
 import type { ParsedLine } from "./Processing/Model.ts";
 import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 32;
+export const LYRICS_PROCESSING_VERSION = 33;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -66,11 +74,9 @@ const ScriptResidualTests: Record<RomanizationBranch, RegExp> = {
 const ResidualScriptTest = /[぀-ヿ一-鿿가-힯ᄀ-ᇿ㄰-㆏Ѐ-ԯͰ-Ͽἀ-῿]/;
 
 // Load Packages
-RetrievePackage("pinyin", "4.0.0", "mjs").catch(() => {});
 RetrievePackage("GreekRomanization", "1.0.0", "js").catch(() => {});
 
 type RomanizationPackages = {
-  pinyin?: any;
   greekRomanization?: any;
 };
 
@@ -79,9 +85,7 @@ const loadPackagesForScripts = async (
 ): Promise<RomanizationPackages> => {
   const packages: RomanizationPackages = {};
   for (const script of scripts) {
-    if (script === "Chinese" && chineseTranslitMode !== "jyutping") {
-      packages.pinyin = await RetrievePackage("pinyin", "4.0.0", "mjs");
-    } else if (script === "Greek") {
+    if (script === "Greek") {
       packages.greekRomanization = await RetrievePackage("GreekRomanization", "1.0.0", "js");
     }
   }
@@ -90,15 +94,12 @@ const loadPackagesForScripts = async (
 
 const romanizeChineseText = async (
   text: string,
-  pinyin: any,
   primaryLanguage: string
 ): Promise<string> => {
   if (chineseTranslitMode === "jyutping") {
     return (await romanizeCantonese(text, primaryLanguage, true, chineseTones)) ?? text;
   }
-  if (!pinyin) return text;
-  const result = pinyin.pinyin(text, pinyinOptionsForToneMode(pinyin, chineseTones));
-  return result.join(" ");
+  return romanizeMandarin(text, chineseTones);
 };
 
 const romanizeKoreanText = (text: string): string => romanizeKoreanForDisplay(text, koreanDisplayMode).display;
@@ -209,15 +210,13 @@ const gatherText = (
 const detectPresentScripts = (
   scriptText: string,
   language: string,
-  iso2Language: string | undefined
+  iso2Language: string | undefined,
+  cjkDominantBranch: CjkReadingBranch | undefined
 ): RomanizationBranch[] => {
   const present = new Set<RomanizationBranch>();
 
-  if (JapaneseTextTest.test(scriptText)) {
-    present.add("Japanese");
-  } else if (ChineseTextTest.test(scriptText)) {
-    present.add("Chinese");
-  }
+  if (JapaneseTextTest.test(scriptText)) present.add("Japanese");
+  if (ChineseTextTest.test(scriptText)) present.add(cjkDominantBranch || "Chinese");
   if (KoreanTextTest.test(scriptText)) present.add("Korean");
   if (CyrillicTextTest.test(scriptText)) present.add("Cyrillic");
   if (GreekTextTest.test(scriptText)) present.add("Greek");
@@ -286,18 +285,6 @@ const postProcessSyllableRomanization = async (
 ) => {
   if (lyrics.Type !== "Syllable") return;
 
-  const isJapaneseSong =
-    language === "jpn" ||
-    lyrics.Content?.some((group: any) =>
-      group.Lead?.Syllables?.some((s: any) => JapaneseTextTest.test(s.Text || ""))
-    );
-  const isChineseSong =
-    language === "cmn" ||
-    language === "yue" ||
-    lyrics.Content?.some((group: any) =>
-      group.Lead?.Syllables?.some((s: any) => ChineseTextTest.test(s.Text || ""))
-    );
-
   for (const vocalGroup of lyrics.Content || []) {
     if (vocalGroup.Type !== undefined && vocalGroup.Type !== "Vocal") continue;
 
@@ -308,7 +295,10 @@ const postProcessSyllableRomanization = async (
       const groupHasKorean = syllables.some((s: any) => KoreanTextTest.test(s.Text || ""));
       const lineText = resolveSyllableGroupText(group,
         `processed-${group.StartTime ?? 0}-${group.EndTime ?? 0}`, fallbackDisplayText);
-      const japaneseMap = isJapaneseSong && !groupHasKorean
+      const cjkLineRoute = resolveCjkLineRoute(lineText, docContext);
+      const isJapaneseLine = cjkLineRoute === "Japanese";
+      const isChineseLine = cjkLineRoute === "Chinese" || cjkLineRoute === "MixedChinese";
+      const japaneseMap = isJapaneseLine && !groupHasKorean
         ? buildJapaneseLineTextMap(syllables, lineText) : undefined;
       const effectiveLineText = japaneseMap?.lineText ?? lineText;
       if (groupHasKorean) {
@@ -342,7 +332,7 @@ const postProcessSyllableRomanization = async (
           return;
         }
       }
-      if (isJapaneseSong && !groupHasKorean && japaneseMap) {
+      if (isJapaneseLine && !groupHasKorean && japaneseMap) {
         const packageResult = await processJapanesePackageLine(effectiveLineText, syllables, japaneseMap.spans, syllables);
         for (const syllable of syllables) {
           delete syllable.RomanizedText;
@@ -367,11 +357,20 @@ const postProcessSyllableRomanization = async (
           if (syllable.TransliteratedText && !syllable.RomanizedText) {
             syllable.RomanizedText = syllable.TransliteratedText;
           }
-          if (isChineseSong && index > 0 && syllable.RomanizedText) {
+          if (isChineseLine && index > 0 && syllable.RomanizedText) {
             syllable.RomajiSpaceBefore = true;
           }
         }
-        const plan = buildTimedGenericPlan(group, fullRomaji, isChineseSong ? "Chinese" : "Generic");
+        const mandarinWordLayout =
+          cjkLineRoute === "Chinese" && chineseTranslitMode === "pinyin" && joinMandarinWords
+            ? buildMandarinWordLayout(effectiveLineText)
+            : undefined;
+        const plan = buildTimedGenericPlan(
+          group,
+          fullRomaji,
+          isChineseLine ? "Chinese" : "Generic",
+          { mandarinWordLayout },
+        );
         if (plan) {
           group.ReadingRenderPlan = plan;
           delete group.RomanizedText;
@@ -407,11 +406,15 @@ const romanizeEntry = async (
       ? cleanInvisibles(normalized)
       : cleanInvisiblesPreserveEdges(normalized);
   }
-  const lineScripts = scriptBranchForLine(entry.lineText || target.Text || "", docContext);
+  const cjkLineRoute = resolveCjkLineRoute(entry.lineText || target.Text || "", docContext);
+  const targetDocContext = cjkLineRoute === "Japanese"
+    ? { ...docContext, cjkDominantBranch: "Japanese" as const }
+    : docContext;
+  const lineScripts = scriptBranchForLine(target.Text || "", targetDocContext);
   const replaceKoreanTransliteration = shouldReplaceKoreanTransliteration(entry, docContext);
 
   if (hasTransliteration(target) && !replaceKoreanTransliteration) {
-    if (annotateJapanese && lineScripts.includes("Japanese") && ItemJapaneseTest.test(target.Text || "")) {
+    if (annotateJapanese && cjkLineRoute === "Japanese" && lineScripts.includes("Japanese") && ItemJapaneseTest.test(target.Text || "")) {
       const previousPlan = target.ReadingRenderPlan?.joinedDisplayText;
       const packageRomaji = await processJapanesePackageTextTarget(target);
       return packageRomaji !== previousPlan;
@@ -422,7 +425,7 @@ const romanizeEntry = async (
   let text: string = target.Text;
   let changed = false;
 
-  if (annotateJapanese && lineScripts.includes("Japanese") && ItemJapaneseTest.test(target.Text || "")) {
+  if (annotateJapanese && cjkLineRoute === "Japanese" && lineScripts.includes("Japanese") && ItemJapaneseTest.test(target.Text || "")) {
     const packageRomaji = await processJapanesePackageTextTarget(target);
     if (packageRomaji && acceptRomanization(target.Text || "", packageRomaji, [ScriptResidualTests.Japanese])) {
       line.HasTransliterations = true;
@@ -430,12 +433,29 @@ const romanizeEntry = async (
     }
   }
 
+  const chineseDominantCjk =
+    docContext.cjkDominantBranch === "Chinese" &&
+    cjkLineRoute !== "Japanese" &&
+    (ItemChineseTest.test(text) || JapaneseTextTest.test(text));
+  if (chineseDominantCjk) {
+    text = await romanizeChineseDominantCjkText(text, {
+      romanizeHan: (run) => romanizeChineseText(run, primaryLanguage),
+      romanizeKana: async (run) => {
+        const target = { Text: run };
+        return processJapanesePackageTextTarget(target);
+      },
+    });
+    changed = text !== target.Text;
+  }
+
   for (const script of lineScripts) {
-    if (script === "Japanese") {
+    if (chineseDominantCjk && (script === "Japanese" || script === "Chinese")) {
+      continue;
+    } else if (script === "Japanese") {
       continue;
     } else if (script === "Chinese") {
       if (ItemChineseTest.test(text)) {
-        text = await romanizeChineseText(text, packages.pinyin, primaryLanguage);
+        text = await romanizeChineseText(text, primaryLanguage);
         changed = true;
       }
     } else if (script === "Korean") {
@@ -483,19 +503,46 @@ export const ProcessLyrics = async (
   const updatePageClasses = options.updatePageClasses !== false;
   const awaitTranslation = options.awaitTranslation !== false;
   const hadApiTransliterations = lyrics.HasTransliterations === true;
-  const { francText, scriptText, entries } = gatherText(lyrics);
-
-  const language = franc(francText);
+  let gathered = gatherText(lyrics);
+  const detectedLanguage = franc(gathered.francText);
+  const detectedLanguageISO2 = langs.where("3", detectedLanguage)?.["1"];
+  const cjkDominantBranch = resolveCjkDocumentBranch(
+    gathered.scriptText,
+    detectedLanguage,
+    detectedLanguageISO2,
+  );
+  const language = cjkDominantBranch === "Japanese"
+    ? "jpn"
+    : cjkDominantBranch === "Chinese"
+      ? detectedLanguage === "yue" ? "yue" : "cmn"
+      : detectedLanguage;
   const languageISO2 = langs.where("3", language)?.["1"];
   lyrics.Language = language;
   lyrics.LanguageISO2 = languageISO2;
 
-  const presentScripts = detectPresentScripts(scriptText, language, languageISO2);
+  const presentScripts = detectPresentScripts(
+    gathered.scriptText,
+    language,
+    languageISO2,
+    cjkDominantBranch,
+  );
   const docContext: ScriptBranchDocContext = {
     presentScripts,
     primaryLanguage: language,
     iso2Language: languageISO2,
+    cjkDominantBranch,
   };
+  const chineseCharacterForm = $chineseCharacterForm.get();
+  lyrics.ChineseCharacterForm = chineseCharacterForm;
+  if (chineseCharacterForm !== "original" && presentScripts.includes("Chinese")) {
+    convertChineseLyricsText(
+      lyrics,
+      chineseCharacterForm,
+      (text) => ItemChineseTest.test(text) && scriptBranchForLine(text, docContext).includes("Chinese"),
+    );
+    gathered = gatherText(lyrics);
+  }
+  const entries = gathered.entries;
 
   let appliedRomanization = false;
   let packages: RomanizationPackages = {};
@@ -522,8 +569,12 @@ export const ProcessLyrics = async (
     if (lyrics.Type !== "Syllable") {
       entries.forEach((entry, index) => {
         if (entry.target.ReadingRenderPlan) return;
-        const display = entry.target.RomanizedText || entry.target.TransliteratedText;
+        let display = entry.target.RomanizedText || entry.target.TransliteratedText;
         if (!display) return;
+        const cjkLineRoute = resolveCjkLineRoute(entry.lineText || entry.target.Text || "", docContext);
+        if (joinMandarinWords && chineseTranslitMode === "pinyin" && cjkLineRoute === "Chinese") {
+          display = joinMandarinReadingWords(entry.target.Text || "", display);
+        }
         entry.target.ReadingRenderPlan = buildLineFallbackPlan(entry.target.Text || "", display, `line-${index}`);
         delete entry.target.RomanizedText;
         delete entry.target.TransliteratedText;
@@ -534,6 +585,7 @@ export const ProcessLyrics = async (
   const hasAnyTransliteration = lyricsHaveAnyTransliteration(lyrics);
   lyrics.IncludesRomanization = hadApiTransliterations || appliedRomanization || hasAnyTransliteration;
   lyrics.HasTransliterations = hadApiTransliterations || appliedRomanization || hasAnyTransliteration;
+  lyrics.DetectedChinese = presentScripts.includes("Chinese");
 
   if (updatePageClasses) {
     const pageContainer = getLyricsPageContainer();
@@ -543,9 +595,7 @@ export const ProcessLyrics = async (
       pageContainer?.classList.remove("Lyrics_RomanizationAvailable");
     }
 
-    const detectedChinese = presentScripts.includes("Chinese");
-    lyrics.DetectedChinese = detectedChinese;
-    if (detectedChinese) {
+    if (lyrics.DetectedChinese) {
       pageContainer?.classList.add("Lyrics_ChineseDetected");
     } else {
       pageContainer?.classList.remove("Lyrics_ChineseDetected");
@@ -553,9 +603,7 @@ export const ProcessLyrics = async (
   }
 
   if (awaitTranslation) {
-    lyrics.DetectedChinese = presentScripts.includes("Chinese");
-
-  await translateLyrics(lyrics);
+    await translateLyrics(lyrics);
     if (updatePageClasses) {
       const pageContainer = getLyricsPageContainer();
       if (lyrics.IncludesTranslation === true) {

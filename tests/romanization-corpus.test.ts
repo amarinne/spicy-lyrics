@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   buildKoreanLineTextFromSyllables,
+  buildMandarinWordLayout,
+  joinMandarinReadingWords,
   normalizeKoreanDisplaySource,
   pinyinOptionsForToneMode,
   pronounceKoreanHangul,
@@ -10,11 +12,18 @@ import {
   romanizeKoreanForDisplay,
   romanizeKoreanSyllableLine,
   romanizeKoreanSyllablePieces,
+  romanizeMandarin,
   romanizeCantonese,
   romanizeCyrillic,
   stripJyutpingTones,
 } from "../src/utils/Lyrics/Fork/Romanization.ts";
-import { cleanInvisibles, cleanInvisiblesPreserveEdges, scriptBranchForLine } from "../src/utils/Lyrics/Fork/TextDetection.ts";
+import {
+  cleanInvisibles,
+  cleanInvisiblesPreserveEdges,
+  resolveCjkDocumentBranch,
+  resolveCjkLineRoute,
+  scriptBranchForLine,
+} from "../src/utils/Lyrics/Fork/TextDetection.ts";
 import {
   buildKoreanNormalizedLine,
   buildKoreanReadingPlan,
@@ -117,6 +126,32 @@ test("Chinese tone toggle selects pinyin style when the package exposes constant
   assert.deepEqual(pinyinOptionsForToneMode(pinyin, true), { segment: true, group: false, style: 1 });
   assert.deepEqual(pinyinOptionsForToneMode(pinyin, false), { segment: true, group: false, style: 0 });
   assert.deepEqual(pinyinOptionsForToneMode({}, true), { segment: true, group: false });
+});
+
+test("complete Mandarin dictionary resolves contextual readings", () => {
+  assert.equal(romanizeMandarin("音乐银行诗行", true), "yīn yuè yín háng shī háng");
+  assert.equal(romanizeMandarin("音乐银行", false), "yin yue yin hang");
+});
+
+test("Mandarin word grouping removes only intra-word spaces", () => {
+  const layout = buildMandarinWordLayout("音乐 银行");
+  assert.equal(layout.tokenCount, 4);
+  assert.deepEqual([...layout.continuationTokenIndices], [1, 3]);
+  assert.equal(joinMandarinReadingWords("音乐 银行", "yīn yuè yín háng"), "yīnyuè yínháng");
+});
+
+test("mixed CJK documents route Han-only and Kana lines independently", () => {
+  const text = "风吹过城市\n梦见未来\nかなだけ";
+  assert.equal(resolveCjkDocumentBranch(text, "cmn", "zh"), "Chinese");
+  const context = {
+    presentScripts: ["Japanese", "Chinese"] as const,
+    primaryLanguage: "cmn",
+    iso2Language: "zh",
+    cjkDominantBranch: "Chinese" as const,
+  };
+  assert.equal(resolveCjkLineRoute("风吹过城市", context), "Chinese");
+  assert.equal(resolveCjkLineRoute("かなだけ", context), "Japanese");
+  assert.equal(resolveCjkLineRoute("风吹起かな", context), "MixedChinese");
 });
 
 test("Korean spelling-mode corpus", () => {

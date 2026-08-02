@@ -1,4 +1,4 @@
-import { $adaptiveSectioning, $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
+import { $adaptiveSectioning, $fixHanGlyphVariants, $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
 import { PageContainer } from "../../../../components/Pages/PageView.ts";
 import { applyStyles, removeAllStyles } from "../../../CSS/Styles.ts";
 import {
@@ -38,6 +38,11 @@ import {
 import type { ReadingRenderOptions } from "../ReadingRenderer.ts";
 import type { TimedSyllableEntry, TimedSyllableGroup } from "../../Reading/JapaneseReading.ts";
 import { timedLogicalGroupIds } from "../../Processing/Japanese/TimedGroupIds.ts";
+import {
+  applyHanLanguageTag,
+  createHanLanguageContext,
+  resolveHanLanguageTagForContext,
+} from "../../HanLanguage.ts";
 
 // Define the data structure for syllable lyrics
 type SyllableData = TimedSyllableEntry;
@@ -119,9 +124,12 @@ const createSyllableWord = (
   // display mode. Letter emphasis returns before timing registration.
   const letterCapable = IsLetterCapable(letterLength, totalDuration) && !isRtl(syllable.Text) && !reservesFuriganaRow && !syllable.JapaneseReading;
   const sizeVar = isBackground ? "var(--font-size)" : "var(--DefaultLyricsSize)";
+  const wordLanguage = resolveHanLanguageTagForContext(syllable.Text, renderOptions.hanLanguageContext);
+  if (wordLanguage) word.lang = wordLanguage;
 
   if (letterCapable) {
     word = document.createElement("div");
+    if (wordLanguage) word.lang = wordLanguage;
     Emphasize(syllable.Text.split(""), word, syllable, isBackground);
     applyWordPositionClasses(word, syllable, index, all);
 
@@ -336,15 +344,30 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       line.Background?.some((bg) => bg.Syllables.some((s) => isJapaneseEntry(s))) === true
     );
   const adaptiveSectioning = $adaptiveSectioning.get();
+  const fixHanGlyphVariants = $fixHanGlyphVariants.get();
   data.Content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
     lineElem.classList.add("line");
+    const leadSourceText = line.Lead.JapaneseReading?.sourceText || joinSyllableDisplayText(line.Lead.Syllables);
+    const primaryScript = line.Lead.JapaneseReading ||
+      line.Lead.Syllables.some((syllable) => isJapaneseEntry(syllable)) ||
+      (data as any).Language === "jpn"
+      ? "Japanese" as const
+      : (data as any).DetectedChinese ? "Chinese" as const : undefined;
+    const hanLanguageContext = createHanLanguageContext(
+      data,
+      leadSourceText,
+      fixHanGlyphVariants,
+      primaryScript,
+    );
+    applyHanLanguageTag(lineElem, hanLanguageContext);
     const lineRenderOptions = {
       useRomanized: UseRomanized,
       romanizationPending,
       translationPending,
       isJapaneseLyrics,
       oppositeAligned: line.OppositeAligned,
+      hanLanguageContext,
     };
 
     const nextLineStartTime = arr[index + 1]?.Lead.StartTime ?? 0;
@@ -382,7 +405,6 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     const leadHasFurigana = shouldRenderFurigana(line.Lead, lineRenderOptions) || line.Lead.Syllables.some((s) => shouldRenderFurigana(s, lineRenderOptions));
     const leadUsesSemanticGroups = adaptiveSectioning && line.Lead.Syllables.some((s) => !!s.JapaneseReading) && !!line.Lead.ReadingRenderPlan;
     const leadRenderOptions = { ...lineRenderOptions, reserveFurigana: leadHasFurigana };
-    const leadSourceText = line.Lead.JapaneseReading?.sourceText || joinSyllableDisplayText(line.Lead.Syllables);
     const leadFuriganaCrossesTiming = leadHasFurigana && hasFuriganaCrossingTimedUnits(line.Lead.ReadingRenderPlan);
     const leadLogicalGroupIds = timedLogicalGroupIds(line.Lead.ReadingRenderPlan);
 
@@ -425,9 +447,23 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       line.Background.forEach((bg) => {
         const lineE = document.createElement("div");
         lineE.classList.add("line", "bg-line");
+        const bgSourceText = bg.JapaneseReading?.sourceText || joinSyllableDisplayText(bg.Syllables);
+        const bgPrimaryScript = bg.JapaneseReading ||
+          bg.Syllables.some((syllable) => isJapaneseEntry(syllable)) ||
+          (data as any).Language === "jpn"
+          ? "Japanese" as const
+          : (data as any).DetectedChinese ? "Chinese" as const : undefined;
+        const bgHanLanguageContext = createHanLanguageContext(
+          data,
+          bgSourceText,
+          fixHanGlyphVariants,
+          bgPrimaryScript,
+        );
+        applyHanLanguageTag(lineE, bgHanLanguageContext);
         const bgRenderOptions = {
           ...lineRenderOptions,
           oppositeAligned: line.OppositeAligned,
+          hanLanguageContext: bgHanLanguageContext,
         };
 
         LyricsObject.Types.Syllable.Lines.push({
@@ -449,7 +485,6 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         const bgHasFurigana = shouldRenderFurigana(bg, bgRenderOptions) || bg.Syllables.some((s) => shouldRenderFurigana(s, bgRenderOptions));
         const bgUsesSemanticGroups = adaptiveSectioning && bg.Syllables.some((s) => !!s.JapaneseReading) && !!bg.ReadingRenderPlan;
         const bgWordRenderOptions = { ...bgRenderOptions, reserveFurigana: bgHasFurigana };
-        const bgSourceText = bg.JapaneseReading?.sourceText || joinSyllableDisplayText(bg.Syllables);
         const bgFuriganaCrossesTiming = bgHasFurigana && hasFuriganaCrossingTimedUnits(bg.ReadingRenderPlan);
         const bgLogicalGroupIds = timedLogicalGroupIds(bg.ReadingRenderPlan);
 

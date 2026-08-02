@@ -59,6 +59,8 @@ export function cleanInvisiblesPreserveEdges(text: string): string {
 export type ScriptType = "japanese" | "chinese" | "korean" | "cyrillic" | "greek" | "latin" | "unknown";
 
 export type RomanizationBranch = "Japanese" | "Chinese" | "Korean" | "Cyrillic" | "Greek";
+export type CjkReadingBranch = Extract<RomanizationBranch, "Japanese" | "Chinese">;
+export type CjkLineRoute = CjkReadingBranch | "MixedChinese";
 
 export const SCRIPT_PRIORITY: RomanizationBranch[] = [
   "Japanese",
@@ -151,13 +153,40 @@ export function romanizationBranchFromLanguage(
   return undefined;
 }
 
+export function resolveCjkDocumentBranch(
+  text: string,
+  primaryLanguage: string,
+  iso2Language?: string
+): CjkReadingBranch | undefined {
+  const lines = cleanInvisibles(text.normalize("NFKC")).split(/\r?\n/u);
+  let kanaLines = 0;
+  let hanOnlyLines = 0;
+
+  for (const line of lines) {
+    const hasKana = JapaneseTextTest.test(line);
+    const hasHan = ChineseTextTest.test(line);
+    if (hasKana) kanaLines += 1;
+    else if (hasHan) hanOnlyLines += 1;
+  }
+
+  if (kanaLines === 0 && hanOnlyLines === 0) return undefined;
+  if (hanOnlyLines >= 2 && hanOnlyLines >= kanaLines * 2) return "Chinese";
+  if (kanaLines >= 2 && kanaLines >= hanOnlyLines) return "Japanese";
+
+  const languageBranch = romanizationBranchFromLanguage(primaryLanguage, iso2Language);
+  if (languageBranch === "Japanese" || languageBranch === "Chinese") return languageBranch;
+  return kanaLines > hanOnlyLines ? "Japanese" : "Chinese";
+}
+
 export type ScriptBranchDocContext = {
   presentScripts: readonly RomanizationBranch[];
   primaryLanguage: string;
   iso2Language?: string;
+  cjkDominantBranch?: CjkReadingBranch;
 };
 
 const hanBranchForLine = (docContext: ScriptBranchDocContext): RomanizationBranch => {
+  if (docContext.cjkDominantBranch) return docContext.cjkDominantBranch;
   const hasDocJapanese = docContext.presentScripts.includes("Japanese");
   const hasDocChinese = docContext.presentScripts.includes("Chinese");
 
@@ -170,6 +199,43 @@ const hanBranchForLine = (docContext: ScriptBranchDocContext): RomanizationBranc
   return hasDocJapanese ? "Japanese" : "Chinese";
 };
 
+export function resolveCjkLineRoute(
+  lineText: string,
+  docContext: ScriptBranchDocContext
+): CjkLineRoute | undefined {
+  const text = cleanInvisibles(lineText.normalize("NFKC"));
+  const hasKana = JapaneseTextTest.test(text);
+  const hasHan = ChineseTextTest.test(text);
+  if (!hasKana) return hasHan ? hanBranchForLine(docContext) as CjkReadingBranch : undefined;
+  if (!hasHan || docContext.cjkDominantBranch !== "Chinese") return "Japanese";
+
+  let kanaCount = 0;
+  let hanCount = 0;
+  let kanaRuns = 0;
+  let inKanaRun = false;
+  let firstCjk: CjkReadingBranch | undefined;
+  let lastCjk: CjkReadingBranch | undefined;
+
+  for (const char of Array.from(text)) {
+    if (JapaneseTextTest.test(char)) {
+      kanaCount += 1;
+      if (!inKanaRun) kanaRuns += 1;
+      inKanaRun = true;
+      firstCjk ||= "Japanese";
+      lastCjk = "Japanese";
+    } else if (ChineseTextTest.test(char)) {
+      hanCount += 1;
+      inKanaRun = false;
+      firstCjk ||= "Chinese";
+      lastCjk = "Chinese";
+    }
+  }
+
+  const kanaIsInternal = firstCjk === "Chinese" && lastCjk === "Chinese";
+  if (kanaRuns >= 2 || kanaIsInternal || kanaCount >= hanCount) return "Japanese";
+  return "MixedChinese";
+}
+
 export function scriptBranchForLine(
   lineText: string,
   docContext: ScriptBranchDocContext
@@ -177,10 +243,12 @@ export function scriptBranchForLine(
   const text = cleanInvisibles(lineText.normalize("NFKC"));
   const present = new Set<RomanizationBranch>();
 
-  if (JapaneseTextTest.test(text)) {
+  const cjkRoute = resolveCjkLineRoute(text, docContext);
+  if (cjkRoute === "Japanese") present.add("Japanese");
+  else if (cjkRoute === "Chinese") present.add("Chinese");
+  else if (cjkRoute === "MixedChinese") {
     present.add("Japanese");
-  } else if (ChineseTextTest.test(text)) {
-    present.add(hanBranchForLine(docContext));
+    present.add("Chinese");
   }
   if (KoreanTextTest.test(text)) present.add("Korean");
   if (CyrillicTextTest.test(text)) present.add("Cyrillic");

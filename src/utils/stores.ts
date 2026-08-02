@@ -60,6 +60,8 @@ export const $adaptiveSectioning = persistAtom<boolean>("adaptiveSectioning", tr
 // Tinted box drawn behind a lyrics line while the pointer is over it.
 export const $lineHoverBackground = persistAtom<boolean>("lineHoverBackground", true);
 export const $skipSpicyFont = persistAtom<boolean>("skipSpicyFont", false);
+export const $systemFontStack = persistAtom<string>("systemFontStack", "");
+export const $fixHanGlyphVariants = persistAtom<boolean>("fixHanGlyphVariants", false);
 export const $showNpvDynamicBg = persistAtom<boolean>("showNpvDynamicBg", true);
 // Never inject the lyrics card into the Now Playing sidebar at all.
 export const $disableNpvLyrics = persistAtom<boolean>("disableNpvLyrics", false);

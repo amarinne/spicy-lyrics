@@ -1,6 +1,7 @@
 import { $lyricsContainerExists, $minimalLyricsMode } from "../stores.ts";
 import {
   $chineseTones,
+  $joinMandarinWords,
   $chineseTranslitMode,
   $cyrillicKeepSigns,
   $cyrillicRomanizationMode,
@@ -366,6 +367,11 @@ export const setChineseTranslitMode = (val: ChineseTranslitMode) => {
 export let chineseTones = $chineseTones.get();
 $chineseTones.listen((val) => {
   chineseTones = val;
+});
+
+export let joinMandarinWords = $joinMandarinWords.get();
+$joinMandarinWords.listen((val) => {
+  joinMandarinWords = val;
 });
 
 export let koreanDisplayMode: KoreanDisplayMode = $koreanDisplayMode.get();

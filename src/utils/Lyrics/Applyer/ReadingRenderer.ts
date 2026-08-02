@@ -15,6 +15,12 @@ import {
 } from "../Reading/JapaneseReading.ts";
 import type { RenderPlan } from "../Processing/Model.ts";
 import { renderExperimentalReadingPlan } from "./ExperimentalReadingPlanRenderer.ts";
+import {
+  resolveHanLanguageTag,
+  resolveHanLanguageTagForContext,
+  splitHanLanguageRuns,
+  type HanLanguageContext,
+} from "../HanLanguage.ts";
 
 export type ReadingRenderOptions = {
   useRomanized: boolean;
@@ -23,6 +29,7 @@ export type ReadingRenderOptions = {
   isJapaneseLyrics?: boolean;
   oppositeAligned?: boolean;
   reserveFurigana?: boolean;
+  hanLanguageContext?: HanLanguageContext;
 };
 
 type SyllableLike = JapaneseReadable & {
@@ -70,7 +77,17 @@ export function shouldRenderRomanization(entry: JapaneseReadable | undefined, op
   return !isJapanese || $japaneseReadingMode.get() !== "furigana";
 }
 
-function appendPlainText(parent: HTMLElement, text: string): void {
+function appendBaseText(parent: HTMLElement, text: string, context?: HanLanguageContext): void {
+  for (const run of splitHanLanguageRuns(text, context)) {
+    const element = document.createElement("span");
+    element.className = "lyric-base-run";
+    if (run.language) element.lang = run.language;
+    element.textContent = run.text;
+    parent.appendChild(element);
+  }
+}
+
+function appendPlainText(parent: HTMLElement, text: string, context?: HanLanguageContext): void {
   if (!text) return;
 
   const cluster = document.createElement("span");
@@ -82,13 +99,18 @@ function appendPlainText(parent: HTMLElement, text: string): void {
 
   const base = document.createElement("span");
   base.className = "furigana-base";
-  base.textContent = text;
+  appendBaseText(base, text, context);
 
   cluster.append(reading, base);
   parent.appendChild(cluster);
 }
 
-export function appendFuriganaText(parent: HTMLElement, text: string, rawSegments: FuriganaSegment[]): void {
+export function appendFuriganaText(
+  parent: HTMLElement,
+  text: string,
+  rawSegments: FuriganaSegment[],
+  context?: HanLanguageContext,
+): void {
   parent.textContent = "";
 
   const segments = [...rawSegments]
@@ -103,7 +125,7 @@ export function appendFuriganaText(parent: HTMLElement, text: string, rawSegment
   let cursor = 0;
   for (const segment of segments) {
     if (segment.start < cursor) continue;
-    appendPlainText(parent, text.slice(cursor, segment.start));
+    appendPlainText(parent, text.slice(cursor, segment.start), context);
 
     const cluster = document.createElement("span");
     cluster.className = "furigana-cluster";
@@ -114,14 +136,17 @@ export function appendFuriganaText(parent: HTMLElement, text: string, rawSegment
 
     const base = document.createElement("span");
     base.className = "furigana-base";
-    base.textContent = text.slice(segment.start, segment.end);
+    const baseText = text.slice(segment.start, segment.end);
+    const language = resolveHanLanguageTagForContext(baseText, context);
+    if (language) base.lang = language;
+    base.textContent = baseText;
 
     cluster.append(reading, base);
     parent.appendChild(cluster);
     cursor = segment.end;
   }
 
-  appendPlainText(parent, text.slice(cursor));
+  appendPlainText(parent, text.slice(cursor), context);
 }
 
 export function renderBaseTextWithReadings(
@@ -134,7 +159,7 @@ export function renderBaseTextWithReadings(
 
   if (shouldRenderFurigana(entry, options) && reading) {
     element.classList.add("has-furigana");
-    appendFuriganaText(element, text, reading.furigana);
+    appendFuriganaText(element, text, reading.furigana, options.hanLanguageContext);
     return true;
   }
 
@@ -145,7 +170,7 @@ export function renderBaseTextWithReadings(
     isJapaneseEntry(entry, options.isJapaneseLyrics)
   ) {
     element.classList.add("has-furigana");
-    appendPlainText(element, text);
+    appendPlainText(element, text, options.hanLanguageContext);
     return true;
   }
 
@@ -158,7 +183,8 @@ export function renderBaseTextWithReadings(
     element.classList.add("furigana-pending");
   }
 
-  element.textContent = text;
+  element.textContent = "";
+  appendBaseText(element, text, options.hanLanguageContext);
   return false;
 }
 
@@ -205,6 +231,10 @@ export function appendTranslatedBelow(
   const translatedElem = document.createElement("div");
   translatedElem.className = `translated-below${options.translationPending && !hasDistinctTranslation ? " translation-placeholder" : ""}`;
   translatedElem.textContent = hasDistinctTranslation ? translatedText! : "";
+  if (hasDistinctTranslation) {
+    const language = resolveHanLanguageTag(translatedText!);
+    if (language) translatedElem.lang = language;
+  }
   lineElem.appendChild(translatedElem);
   return true;
 }

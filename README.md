@@ -9,7 +9,8 @@ Personal fork of [Spikerko/spicy-lyrics](https://github.com/Spikerko/spicy-lyric
 
 Lyrics:
 - JP furigana / romaji
-- CN pinyin / jyutping
+- CN pinyin / jyutping with contextual dictionary readings
+- Simplified / Traditional Chinese conversion and optional word-grouped pinyin
 - KR / Cyrillic / Greek romanization
 - Google Translate line
 - mixed-language translate
@@ -19,6 +20,7 @@ Lyrics:
 UI:
 - flat controls by default, no liquid glass buttons
 - force dark background toggle
+- custom system font stacks with Japanese / Simplified Chinese / Traditional Chinese fallbacks
 - copy lyrics button, multiple formats
 - romanization / translation quick toggles
 - Chinese translit quick toggle

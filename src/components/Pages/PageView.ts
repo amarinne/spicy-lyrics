@@ -1,10 +1,14 @@
 import fetchLyrics, { LyricsStore, ShowQueueLoader } from "../../utils/Lyrics/fetchLyrics.ts";
 import { LyricsQueueRetry } from "../../utils/Lyrics/LyricsQueueRetry.ts";
 import {
+  $chineseCharacterForm,
+  $chineseTones,
+  $chineseTranslitMode,
   $flatViewControls,
   $forceCompactMode,
   $forceDarkBackground,
   $japaneseReadingMode,
+  $joinMandarinWords,
   $showChineseTranslitButton,
 } from "../../utils/uiState.ts";
 import "../../css/Loaders/DotLoader.css";
@@ -32,15 +36,18 @@ import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackgroun
 import {
   $adaptiveSectioning,
   $currentLyricsData,
+  $fixHanGlyphVariants,
   $lineHoverBackground,
   $lyricsContainerExists,
   $minimalLyricsMode,
   $showVolumeSlider,
   $simpleLyricsMode,
   $skipSpicyFont,
+  $systemFontStack,
   $ttmlMakerMode,
   $viewControlsPosition,
 } from "../../utils/stores.ts";
+import { toCssFontFamilyStack, toHanLanguageFontStack } from "../../utils/cssFontFamily.ts";
 import Global from "../Global/Global.ts";
 import Session from "../Global/Session.ts";
 import { SpotifyPlayer } from "../Global/SpotifyPlayer.ts";
@@ -130,6 +137,28 @@ export const GetPageRoot = () =>
 let PageResizeListener: ResizeObserver | null = null;
 export let PageContainer: HTMLElement | null = null;
 export let IsCardMode = false;
+
+function applySystemFontStack(targetDocument: Document = PageContainer?.ownerDocument ?? document): void {
+  const configuredStack = $systemFontStack.get();
+  const stack = toCssFontFamilyStack(configuredStack);
+  if ($skipSpicyFont.get() && stack) {
+    targetDocument.documentElement.style.setProperty("--spicy-system-font", stack);
+    if ($fixHanGlyphVariants.get()) {
+      targetDocument.documentElement.style.setProperty("--spicy-system-font-ja", toHanLanguageFontStack(configuredStack, "ja"));
+      targetDocument.documentElement.style.setProperty("--spicy-system-font-zh", toHanLanguageFontStack(configuredStack, "zh-Hans"));
+      targetDocument.documentElement.style.setProperty("--spicy-system-font-zh-hant", toHanLanguageFontStack(configuredStack, "zh-Hant"));
+    } else {
+      targetDocument.documentElement.style.removeProperty("--spicy-system-font-ja");
+      targetDocument.documentElement.style.removeProperty("--spicy-system-font-zh");
+      targetDocument.documentElement.style.removeProperty("--spicy-system-font-zh-hant");
+    }
+  } else {
+    targetDocument.documentElement.style.removeProperty("--spicy-system-font");
+    targetDocument.documentElement.style.removeProperty("--spicy-system-font-ja");
+    targetDocument.documentElement.style.removeProperty("--spicy-system-font-zh");
+    targetDocument.documentElement.style.removeProperty("--spicy-system-font-zh-hant");
+  }
+}
 
 async function OpenPage(
   AppendTo: HTMLElement | undefined = undefined,
@@ -246,6 +275,8 @@ async function OpenPage(
   if (!$skipSpicyFont.get()) {
     elem.classList.add("UseSpicyFont");
   }
+  elem.classList.toggle("FixHanGlyphVariants", $fixHanGlyphVariants.get());
+  applySystemFontStack(targetDocument);
 
   if ($simpleLyricsMode.get()) {
     elem.classList.add("SimpleLyricsMode");
@@ -683,9 +714,8 @@ function AppendViewControls(ReAppend: boolean = false) {
             content: chineseTranslitMode === "jyutping" ? "Switch to Mandarin (Pinyin)" : "Switch to Cantonese (Jyutping)",
           });
         }
-        chineseTranslitToggle.addEventListener("click", async () => {
+        chineseTranslitToggle.addEventListener("click", () => {
           setChineseTranslitMode(chineseTranslitMode === "jyutping" ? "pinyin" : "jyutping");
-          await reprocessCurrentLyrics();
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Chinese transliteration tooltip", err);
@@ -856,6 +886,55 @@ function AppendViewControls(ReAppend: boolean = false) {
 
 // --- Reactive setting subscriptions ---
 
+let processingSettingsRevision = 0;
+let appliedProcessingSettingsRevision = 0;
+let processingSettingsRefreshRunning = false;
+
+const reprocessCurrentLyricsFromSource = async (): Promise<void> => {
+  if (!PageContainer || !PageView.IsOpened) return;
+  const uri = SpotifyPlayer.GetUri();
+  const trackId = SpotifyPlayer.GetId();
+  if (!uri) return;
+  const lyricsContent = PageContainer.querySelector(".LyricsContainer .LyricsContent");
+  lyricsContent?.classList.add("HiddenTransitioned");
+  $currentLyricsData.set("");
+  if (trackId) await LyricsStore.RemoveItem(trackId).catch(() => {});
+  const lyrics = await fetchLyrics(uri);
+  await ApplyLyrics(lyrics);
+};
+
+const runQueuedProcessingSettingsRefresh = async (): Promise<void> => {
+  if (processingSettingsRefreshRunning) return;
+  processingSettingsRefreshRunning = true;
+  try {
+    while (appliedProcessingSettingsRevision < processingSettingsRevision) {
+      const targetRevision = processingSettingsRevision;
+      await reprocessCurrentLyricsFromSource();
+      appliedProcessingSettingsRevision = targetRevision;
+    }
+  } catch (error) {
+    pageLogger.warn("Failed to reprocess lyrics after a Chinese setting changed", error);
+    appliedProcessingSettingsRevision = processingSettingsRevision;
+  } finally {
+    processingSettingsRefreshRunning = false;
+    if (appliedProcessingSettingsRevision < processingSettingsRevision) {
+      void runQueuedProcessingSettingsRefresh();
+    } else {
+      setTimeout(() => {
+        AppendViewControls(true);
+        triggerRemeasureLV();
+        PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.remove("HiddenTransitioned");
+      }, 60);
+    }
+  }
+};
+
+const queueProcessingSettingsRefresh = (): void => {
+  if (!PageContainer || !PageView.IsOpened) return;
+  processingSettingsRevision += 1;
+  void runQueuedProcessingSettingsRefresh();
+};
+
 $simpleLyricsMode.listen((v) => {
   if (!PageContainer) return;
   PageContainer.classList.toggle("SimpleLyricsMode", v);
@@ -891,7 +970,10 @@ onExperimentChange(() => {
 $skipSpicyFont.listen((v) => {
   if (!PageContainer) return;
   PageContainer.classList.toggle("UseSpicyFont", !v);
+  applySystemFontStack();
 });
+
+$systemFontStack.listen(() => applySystemFontStack());
 
 $viewControlsPosition.listen((v) => {
   if (!PageContainer) return;
@@ -909,6 +991,11 @@ $showChineseTranslitButton.listen(() => {
   if (!PageContainer) return;
   AppendViewControls(true);
 });
+
+$chineseCharacterForm.listen(queueProcessingSettingsRefresh);
+$chineseTranslitMode.listen(queueProcessingSettingsRefresh);
+$chineseTones.listen(queueProcessingSettingsRefresh);
+$joinMandarinWords.listen(queueProcessingSettingsRefresh);
 
 const rerenderCurrentLyrics = async () => {
   if (!PageContainer) return;
@@ -931,6 +1018,13 @@ const rerenderCurrentLyrics = async () => {
 };
 
 $japaneseReadingMode.listen(() => {
+  rerenderCurrentLyrics();
+});
+
+$fixHanGlyphVariants.listen((enabled) => {
+  if (!PageContainer) return;
+  PageContainer.classList.toggle("FixHanGlyphVariants", enabled);
+  applySystemFontStack();
   rerenderCurrentLyrics();
 });
 

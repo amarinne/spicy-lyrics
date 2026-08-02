@@ -13,6 +13,7 @@ import {
   cyrillicKeepSigns,
   cyrillicRomanizationMode,
   koreanDisplayMode,
+  joinMandarinWords,
   translationEnabled,
   translationTargetLang,
 } from "./lyrics.ts";
@@ -22,7 +23,7 @@ import { LyricsQueueRetry } from "./LyricsQueueRetry.ts";
 import { GetExpireStore } from "../../modules/Store.ts";
 import { SLObjPack } from "../objpack.ts";
 import { translateLyrics } from "./Fork/Translation.ts";
-import { $japaneseReadingMode } from "../uiState.ts";
+import { $chineseCharacterForm, $japaneseReadingMode } from "../uiState.ts";
 import { buildProcessingContextKey } from "./ProcessingContext.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
@@ -44,6 +45,8 @@ function currentProcessingContextKey(): string {
     translationTargetLang,
     chineseTranslitMode,
     chineseTones,
+    joinMandarinWords,
+    chineseCharacterForm: $chineseCharacterForm.get(),
     koreanDisplayMode,
     cyrillicRomanizationMode,
     cyrillicKeepSigns,

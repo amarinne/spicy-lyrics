@@ -5,6 +5,8 @@ import { fileURLToPath } from "node:url";
 import { DefaultCanonicalLineBuilder } from "../src/utils/Lyrics/Processing/Canonical.ts";
 import { annotateKoreanLine } from "../src/utils/Lyrics/Processing/Korean/KoreanAnnotationProcessor.ts";
 import { DefaultRenderPlanBuilder, validateRenderPlan } from "../src/utils/Lyrics/Processing/RenderPlan.ts";
+import { buildTimedGenericPlan } from "../src/utils/Lyrics/Processing/GenericReadingProcessor.ts";
+import { buildMandarinWordLayout } from "../src/utils/Lyrics/Fork/Romanization.ts";
 import type { ParsedLine } from "../src/utils/Lyrics/Processing/Model.ts";
 
 const fixture = JSON.parse(readFileSync(fileURLToPath(new URL(
@@ -26,4 +28,22 @@ test("render plan gives every provider span one unique timing owner", () => {
   assert.equal(plan.timedReadingUnits.length, line.spans.length);
   assert.equal(new Set(plan.timedReadingUnits.map((unit) => unit.spanId)).size, line.spans.length);
   assert.equal(validateRenderPlan(plan).valid, true);
+});
+
+test("timed Mandarin plan groups syllables by segmented words", () => {
+  const group = {
+    StartTime: 0,
+    EndTime: 4,
+    Syllables: [
+      { Text: "音", RomanizedText: "yīn", StartTime: 0, EndTime: 1, IsPartOfWord: true },
+      { Text: "乐", RomanizedText: "yuè", StartTime: 1, EndTime: 2, IsPartOfWord: true },
+      { Text: "银", RomanizedText: "yín", StartTime: 2, EndTime: 3, IsPartOfWord: true },
+      { Text: "行", RomanizedText: "háng", StartTime: 3, EndTime: 4, IsPartOfWord: true },
+    ],
+  };
+  const plan = buildTimedGenericPlan(group, "yīn yuè yín háng", "Chinese", {
+    mandarinWordLayout: buildMandarinWordLayout("音乐银行"),
+  });
+  assert.equal(plan?.joinedDisplayText, "yīnyuè yínháng");
+  assert.deepEqual(plan?.timedReadingUnits.map((unit) => unit.text), ["yīn", "yuè", " yín", "háng"]);
 });
