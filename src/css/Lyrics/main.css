@@ -123,8 +123,13 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   overflow: visible;
 }
 
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line {
+  /* Derived rows are roughly 46% of the main lyric size. Scale defocus by the
+     same ratio so ruby, romaji, and translations keep the owning line's depth. */
+  --DerivedTextBlurAmount: clamp(0px, calc(var(--BlurAmount, 0px) * 0.46), 3.25px);
+}
+
 #SpicyLyricsPage .LyricsContainer .LyricsContent .line.HasExtras {
-  --ExtraLineBlurAmount: clamp(0px, calc(var(--BlurAmount, 0px) * 0.14), 1.25px);
   display: block;
 }
 
@@ -178,7 +183,14 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   -webkit-text-fill-color: rgba(255, 255, 255, 0.72);
   color: rgba(255, 255, 255, 0.72);
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+  --FuriganaBlurAmount: var(--DerivedTextBlurAmount, 0px);
+  filter: blur(var(--FuriganaBlurAmount));
+}
+
+#SpicyLyricsPage
+  .SpicyLyricsScrollContainer[data-lyrics-type="Line"]
+  .furigana-reading {
+  transition: filter 0.3s cubic-bezier(0.37, 0, 0.63, 1);
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-reading.furigana-placeholder {
@@ -251,7 +263,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   color: rgba(255, 255, 255, 0.55);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+  --RomanizedSidecarBlurAmount: var(--DerivedTextBlurAmount, 0px);
+  filter: blur(var(--RomanizedSidecarBlurAmount));
   background: none;
 }
 
@@ -286,7 +299,6 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   --gradient-degrees: 90deg;
   --gradient-alpha-end: 0.35;
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
 }
 
 #SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below,
@@ -313,7 +325,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
   font-style: italic;
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+  --TranslatedSidecarBlurAmount: var(--DerivedTextBlurAmount, 0px);
+  filter: blur(var(--TranslatedSidecarBlurAmount));
   background: none;
 }
 
