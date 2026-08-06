@@ -38,7 +38,7 @@ import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
 import { DefaultCanonicalLineBuilder } from "./Processing/Canonical.ts";
 import { annotateKoreanLine } from "./Processing/Korean/KoreanAnnotationProcessor.ts";
 import { DefaultRenderPlanBuilder, validateRenderPlan } from "./Processing/RenderPlan.ts";
-import { processJapanesePackageLine, processJapanesePackageTextTarget } from "./Processing/Japanese/JapanesePackageProcessor.ts";
+import { japaneseDictionariesReady, processJapanesePackageLine, processJapanesePackageTextTarget } from "./Processing/Japanese/JapanesePackageProcessor.ts";
 import { buildLineFallbackPlan, buildTimedGenericPlan } from "./Processing/GenericReadingProcessor.ts";
 import { romanizeChineseDominantCjkText } from "./Processing/CjkLanguageRouting.ts";
 import type { ParsedLine } from "./Processing/Model.ts";
@@ -332,7 +332,10 @@ const postProcessSyllableRomanization = async (
           return;
         }
       }
-      if (isJapaneseLine && !groupHasKorean && japaneseMap) {
+      // Dictionaries are fetched at runtime, so they can be unavailable. Falling
+      // through to generic romanization keeps the line rendering without furigana
+      // rather than failing the whole lyric render.
+      if (isJapaneseLine && !groupHasKorean && japaneseMap && (await japaneseDictionariesReady())) {
         const packageResult = await processJapanesePackageLine(effectiveLineText, syllables, japaneseMap.spans, syllables);
         for (const syllable of syllables) {
           delete syllable.RomanizedText;

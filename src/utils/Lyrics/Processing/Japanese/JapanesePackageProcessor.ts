@@ -45,6 +45,33 @@ const loadDependencies = () => dependencies ??= assetSources()
     loadBrowserJmdictPreferredReadings(jmdict),
   ]))
   .then(([tokenizer, jmdict, preferredReadings]) => ({ tokenizer, jmdict, preferredReadings }));
+
+let dictionaryFailureLogged = false;
+
+/**
+ * Whether the dictionaries are usable, without throwing.
+ *
+ * The assets are fetched at runtime, so they can fail in ways embedded data
+ * never did — offline, blocked, or a bad asset URL. Callers use this to skip the
+ * package path and fall back to generic romanization, so a Japanese line still
+ * renders without furigana instead of failing the whole lyric render.
+ */
+export async function japaneseDictionariesReady(): Promise<boolean> {
+  try {
+    await loadDependencies();
+    return true;
+  } catch (error) {
+    if (!dictionaryFailureLogged) {
+      dictionaryFailureLogged = true;
+      console.warn(
+        "[spicy-lyrics] Japanese dictionaries unavailable; falling back to generic romanization.",
+        error
+      );
+    }
+    return false;
+  }
+}
+
 const cp = (text: string, utf16: number): number => Array.from(text.slice(0, utf16)).length;
 const utf16 = (text: string, codePoints: number): number => Array.from(text).slice(0, codePoints).join("").length;
 
@@ -218,6 +245,7 @@ export async function processJapanesePackageLine(
 export async function processJapanesePackageTextTarget(target: JapaneseReadable & { Text?: string }): Promise<string | undefined> {
   const text = target.Text || "";
   if (!text) return undefined;
+  if (!(await japaneseDictionariesReady())) return undefined;
   const { tokenizer, jmdict, preferredReadings } = await loadDependencies();
   const provider = (target.JapaneseReading?.furigana || []).map((ruby) => ({ start: cp(text, ruby.start), end: cp(text, ruby.end), reading: ruby.reading, source: "provider" as const }));
   const result = await processJapaneseLine({ displayText: text, providerFurigana: provider }, { tokenizer, jmdict, preferredReadings });
