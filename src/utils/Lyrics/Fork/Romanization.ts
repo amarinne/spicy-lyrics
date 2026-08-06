@@ -14,8 +14,7 @@ import type Kuroshiro from "kuroshiro";
 import transliterPkg from "transliter";
 import { getJyutpingList } from "to-jyutping";
 import { G2p } from "korean-pronunciation";
-import CompletePinyinDict from "@pinyin-pro/data/complete";
-import { addDict, OutputFormat, pinyin, segment } from "pinyin-pro";
+import { OutputFormat, pinyin, segment } from "pinyin-pro";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
 import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
@@ -72,8 +71,6 @@ const JYUTPING_PHRASES: Record<string, string> = {
 
 const JYUTPING_PHRASE_KEYS = Object.keys(JYUTPING_PHRASES).sort((a, b) => b.length - a.length);
 const LatinTextTest = /[A-Za-z]/;
-
-addDict(CompletePinyinDict, { name: "spicy-lyrics-complete", dict1: "replace" });
 
 // ─── Cantonese (Jyutping) ─────────────────────────────────────────────────────
 
