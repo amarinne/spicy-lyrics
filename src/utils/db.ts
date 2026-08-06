@@ -1,18 +1,25 @@
 import { openDB } from "idb";
-import Logger from "./Logger";
+import Logger from "./Logger.ts";
 
 const dbLogger = new Logger("Database");
 
 export const ObjectStores = {
   LyricsStore: "lyricsStore",
+  // Gzipped UniDic/JMdict bytes, fetched once instead of bundled. See
+  // Lyrics/Processing/Japanese/AssetCache.ts.
+  JapaneseAssets: "japaneseAssets",
 }
 
-export const dbPromise = openDB("spicylyrics", 1, {
+export const dbPromise = openDB("spicylyrics", 2, {
   upgrade(db) {
     dbLogger.debug("Upgrade invoked");
     if (!db.objectStoreNames.contains(ObjectStores.LyricsStore)) {
       db.createObjectStore(ObjectStores.LyricsStore);
       dbLogger.debug("Created '", ObjectStores.LyricsStore, "' store");
+    }
+    if (!db.objectStoreNames.contains(ObjectStores.JapaneseAssets)) {
+      db.createObjectStore(ObjectStores.JapaneseAssets);
+      dbLogger.debug("Created '", ObjectStores.JapaneseAssets, "' store");
     }
   },
 });

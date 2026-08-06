@@ -17,11 +17,34 @@ let dependencies: Promise<{
   jmdict: Awaited<ReturnType<typeof loadBrowserJmdictFurigana>>;
   preferredReadings: Awaited<ReturnType<typeof loadBrowserJmdictPreferredReadings>>;
 }> | undefined;
-const loadDependencies = () => dependencies ??= Promise.all([
-  loadBrowserUniDicTokenizer(),
-  loadBrowserJmdictFurigana(),
-  loadBrowserJmdictPreferredReadings(),
-]).then(([tokenizer, jmdict, preferredReadings]) => ({ tokenizer, jmdict, preferredReadings }));
+/**
+ * In Spotify the dictionaries are fetched once and cached in IndexedDB rather
+ * than bundled, because embedding them costs ~66MB in a build with no code
+ * splitting (see AssetCache.ts, and the stub wired up in spice.config.ts).
+ *
+ * Under Node's test runner there is no IndexedDB, so the loaders fall back to
+ * japanese-lyrics-processor's embedded assets — those are stubbed out of the
+ * esbuild bundle only, so tests keep exercising the real dictionaries offline.
+ *
+ * AssetCache is imported lazily because it opens IndexedDB at module scope,
+ * which would break importing this module outside a browser.
+ */
+const assetSources = async (): Promise<{ unidic: object; jmdict: object }> => {
+  if (typeof indexedDB === "undefined") return { unidic: {}, jmdict: {} };
+  const { japaneseAssetLoader } = await import("./AssetCache.ts");
+  return {
+    unidic: { loadAsset: japaneseAssetLoader("unidic") },
+    jmdict: { loadAsset: japaneseAssetLoader() },
+  };
+};
+
+const loadDependencies = () => dependencies ??= assetSources()
+  .then(({ unidic, jmdict }) => Promise.all([
+    loadBrowserUniDicTokenizer(unidic),
+    loadBrowserJmdictFurigana(jmdict),
+    loadBrowserJmdictPreferredReadings(jmdict),
+  ]))
+  .then(([tokenizer, jmdict, preferredReadings]) => ({ tokenizer, jmdict, preferredReadings }));
 const cp = (text: string, utf16: number): number => Array.from(text.slice(0, utf16)).length;
 const utf16 = (text: string, codePoints: number): number => Array.from(text).slice(0, codePoints).join("").length;
 
