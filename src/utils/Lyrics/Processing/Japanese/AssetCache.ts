@@ -103,9 +103,13 @@ async function loadAsset(path: string): Promise<Uint8Array> {
 /**
  * Builds the `loadAsset` hook japanese-lyrics-processor calls with a bare
  * filename, mapping it into the published asset layout.
+ *
+ * The names are flat rather than nested because GitHub release assets have no
+ * directories — `unidic/base.dat.gz` would 404 — so a namespace becomes a
+ * filename prefix instead: `unidic` + `base.dat.gz` -> `unidic-base.dat.gz`.
  */
-export function japaneseAssetLoader(directory = ""): (name: string) => Promise<Uint8Array> {
-  const prefix = directory ? directory.replace(/\/?$/u, "/") : "";
+export function japaneseAssetLoader(namespace = ""): (name: string) => Promise<Uint8Array> {
+  const prefix = namespace ? `${namespace}-` : "";
   return (name: string) => loadAsset(`${prefix}${name}`);
 }
 
