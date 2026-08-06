@@ -276,7 +276,7 @@ async function OpenPage(
     elem.classList.add("UseSpicyFont");
   }
   elem.classList.toggle("FixHanGlyphVariants", $fixHanGlyphVariants.get());
-  applySystemFontStack(targetDocument);
+  applySystemFontStack(elem.ownerDocument ?? document);
 
   if ($simpleLyricsMode.get()) {
     elem.classList.add("SimpleLyricsMode");
