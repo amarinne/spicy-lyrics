@@ -1,5 +1,6 @@
 import {
   loadBrowserJmdictFurigana,
+  loadBrowserJmdictPreferredReadings,
   loadBrowserUniDicTokenizer,
   processJapaneseLine,
   type BoundaryEvidence,
@@ -9,8 +10,18 @@ import {
 import type { JapaneseReadable, JapaneseTimedTextSpan } from "../../Reading/JapaneseReading.ts";
 import type { RenderPlan } from "../Model.ts";
 
-let dependencies: Promise<{ tokenizer: Awaited<ReturnType<typeof loadBrowserUniDicTokenizer>>; jmdict: Awaited<ReturnType<typeof loadBrowserJmdictFurigana>> }> | undefined;
-const loadDependencies = () => dependencies ??= Promise.all([loadBrowserUniDicTokenizer(), loadBrowserJmdictFurigana()]).then(([tokenizer, jmdict]) => ({ tokenizer, jmdict }));
+// preferredReadings is required for ja.reading.policy.preferred-lexical-reading. Without it the
+// rule silently never fires and 玩具 stays がんぐ instead of the reviewed おもちゃ.
+let dependencies: Promise<{
+  tokenizer: Awaited<ReturnType<typeof loadBrowserUniDicTokenizer>>;
+  jmdict: Awaited<ReturnType<typeof loadBrowserJmdictFurigana>>;
+  preferredReadings: Awaited<ReturnType<typeof loadBrowserJmdictPreferredReadings>>;
+}> | undefined;
+const loadDependencies = () => dependencies ??= Promise.all([
+  loadBrowserUniDicTokenizer(),
+  loadBrowserJmdictFurigana(),
+  loadBrowserJmdictPreferredReadings(),
+]).then(([tokenizer, jmdict, preferredReadings]) => ({ tokenizer, jmdict, preferredReadings }));
 const cp = (text: string, utf16: number): number => Array.from(text.slice(0, utf16)).length;
 const utf16 = (text: string, codePoints: number): number => Array.from(text).slice(0, codePoints).join("").length;
 
@@ -125,7 +136,7 @@ export async function processJapanesePackageLine(
   spans: JapaneseTimedTextSpan[],
   times: Array<{ StartTime?: number; EndTime?: number }>
 ): Promise<{ plan: RenderPlan; romaji: string }> {
-  const { tokenizer, jmdict } = await loadDependencies();
+  const { tokenizer, jmdict, preferredReadings } = await loadDependencies();
   const sourceSpans: PackageSourceSpan[] = spans.map((span) => ({
     start: cp(displayText, span.start), end: cp(displayText, span.end), text: span.rawText, ownerId: String(span.index),
     beginMs: Number(times[span.index]?.StartTime || 0), endMs: Number(times[span.index]?.EndTime || 0),
@@ -135,7 +146,7 @@ export async function processJapanesePackageLine(
     spans: sourceSpans,
     providerFurigana: providerFurigana(displayText, syllables, spans),
     boundaries: authoredBoundaries(displayText, sourceSpans),
-  }, { tokenizer, jmdict });
+  }, { tokenizer, jmdict, preferredReadings });
   if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
   const displaySpans = coalesceTimedWords(displayText, syllables, spans, times, result.furigana);
   const spanRanges = displaySpans.map((span) => ({
@@ -184,9 +195,9 @@ export async function processJapanesePackageLine(
 export async function processJapanesePackageTextTarget(target: JapaneseReadable & { Text?: string }): Promise<string | undefined> {
   const text = target.Text || "";
   if (!text) return undefined;
-  const { tokenizer, jmdict } = await loadDependencies();
+  const { tokenizer, jmdict, preferredReadings } = await loadDependencies();
   const provider = (target.JapaneseReading?.furigana || []).map((ruby) => ({ start: cp(text, ruby.start), end: cp(text, ruby.end), reading: ruby.reading, source: "provider" as const }));
-  const result = await processJapaneseLine({ displayText: text, providerFurigana: provider }, { tokenizer, jmdict });
+  const result = await processJapaneseLine({ displayText: text, providerFurigana: provider }, { tokenizer, jmdict, preferredReadings });
   target.JapaneseReading = { sourceText: text, romaji: result.romaji, furigana: result.furigana.map((ruby) => ({ start: utf16(text, ruby.start), end: utf16(text, ruby.end), reading: ruby.reading })) };
   target.ReadingRenderPlan = {
     lineId: "japanese-package-line", sourceUnits: [{ spanId: "line", canonicalRange: { startCp: 0, endCp: Array.from(text).length } }],
