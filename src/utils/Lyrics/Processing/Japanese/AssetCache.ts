@@ -22,8 +22,17 @@ const assetLogger = new Logger("JapaneseAssets");
  */
 export const JAPANESE_ASSET_VERSION = "unidic-3.1.0-jmdict-2026-07";
 
+/**
+ * Pinned to a commit rather than a branch so a future dictionary update cannot
+ * change what an already-installed client fetches; bump this and
+ * JAPANESE_ASSET_VERSION together.
+ *
+ * raw.githubusercontent.com rather than a GitHub release: release assets send no
+ * Access-Control-Allow-Origin header, so fetching them from the Spotify renderer
+ * fails CORS. raw sends `*`.
+ */
 const DEFAULT_ASSET_BASE_URL =
-  "https://github.com/amarinne/spicy-lyrics/releases/download/japanese-assets-v1/";
+  "https://raw.githubusercontent.com/amarinne/japanese-lyrics-assets/0f81b1fa5717a41112905df08c58e0617075e54c/";
 
 /**
  * Overridable so a local static server can be used while developing:
@@ -102,14 +111,11 @@ async function loadAsset(path: string): Promise<Uint8Array> {
 
 /**
  * Builds the `loadAsset` hook japanese-lyrics-processor calls with a bare
- * filename, mapping it into the published asset layout.
- *
- * The names are flat rather than nested because GitHub release assets have no
- * directories — `unidic/base.dat.gz` would 404 — so a namespace becomes a
- * filename prefix instead: `unidic` + `base.dat.gz` -> `unidic-base.dat.gz`.
+ * filename, mapping it into the published asset layout — `unidic` +
+ * `base.dat.gz` -> `unidic/base.dat.gz`.
  */
-export function japaneseAssetLoader(namespace = ""): (name: string) => Promise<Uint8Array> {
-  const prefix = namespace ? `${namespace}-` : "";
+export function japaneseAssetLoader(directory = ""): (name: string) => Promise<Uint8Array> {
+  const prefix = directory ? `${directory.replace(/\/?$/u, "/")}` : "";
   return (name: string) => loadAsset(`${prefix}${name}`);
 }
 
