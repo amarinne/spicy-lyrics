@@ -1,8 +1,10 @@
 import type { ChineseCharacterForm } from "./ChineseCharacterConversion.ts";
+import type { MeaningBackend } from "../stores.ts";
 
 export type ProcessingContext = {
   translationEnabled: boolean;
   translationTargetLang: string;
+  meaningBackend?: MeaningBackend;
   chineseTranslitMode: "pinyin" | "jyutping";
   chineseTones: boolean;
   joinMandarinWords: boolean;
@@ -15,7 +17,7 @@ export type ProcessingContext = {
 
 export function buildProcessingContextKey(context: ProcessingContext): string {
   return JSON.stringify({
-    translation: context.translationEnabled ? context.translationTargetLang || "" : false,
+    translation: context.translationEnabled ? `${context.meaningBackend ?? "google"}:${context.translationTargetLang || ""}` : false,
     chineseTranslitMode: context.chineseTranslitMode,
     chineseTones: context.chineseTones,
     joinMandarinWords: context.joinMandarinWords,

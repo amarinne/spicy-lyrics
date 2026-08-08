@@ -1,6 +1,7 @@
 export const AI_REFINEMENT_SCHEMA = 1;
 export const AI_ORIGINAL_SNAPSHOT_SCHEMA = 1;
-export const AI_PROMPT_VERSION = 1;
+export const AI_PROMPT_VERSION = 2;
+export const AI_MAX_STEERING_BYTES = 2 * 1024;
 export const AI_CHUNK_PLAN_VERSION = 1;
 export const AI_TOKEN_BUDGET = 12_000;
 export const AI_MAX_DOCUMENT_ROWS = 512;
@@ -44,6 +45,7 @@ export type ProviderConfig = {
   providerVersion: string;
   model: ModelDescriptor;
   targetLang: string;
+  instructions?: string;
   promptVersion: number;
   temperature: 0;
   contextMode: "document_or_v1_chunks";

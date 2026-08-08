@@ -6,6 +6,8 @@ import {
   $minimalLyricsMode,
   $simpleLyricsMode,
   $simpleLyricsModeRenderingType,
+  $meaningBackend,
+  type MeaningBackend,
 } from "../../../utils/stores.ts";
 import {
   $chineseCharacterForm,
@@ -93,6 +95,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const cyrillicKeepSigns = useStore($cyrillicKeepSigns);
   const translationEnabled = useStore($translationEnabled);
   const translationTargetLang = useStore($translationTargetLang);
+  const meaningBackend = useStore($meaningBackend);
   const lyricsCopyFormat = useStore($lyricsCopyFormat);
   const showChineseTranslitButton = useStore($showChineseTranslitButton);
 
@@ -112,6 +115,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showCyrillicRomanization = matches(query, "Cyrillic Language", "Choose Russian or Ukrainian Cyrillic romanization rules.");
   const showCyrillicKeepSigns = matches(query, "Keep Cyrillic Signs", "Preserve Cyrillic hard and soft sign marks.");
   const showLyricsTranslation = matches(query, "Lyrics Translation", "Show translated lyrics under each line.");
+  const showMeaningBackend = matches(query, "Translation Backend", "Choose Google, automatic AI, or on-demand AI translation.");
   const showTranslationTarget = matches(query, "Translation Target Language", "Language used for lyrics translation.");
   const showChineseQuickButton = matches(query, "Chinese Transliteration Quick Button", "Show the pinyin/jyutping toggle in lyrics controls when Chinese lyrics are detected.");
   const showCopyFormat = matches(query, "Copy Lyrics Format", "Choose what the lyrics copy button writes to clipboard.");
@@ -131,6 +135,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
     showCyrillicRomanization ||
     showCyrillicKeepSigns ||
     showLyricsTranslation ||
+    showMeaningBackend ||
     showTranslationTarget ||
     showChineseQuickButton ||
     showCopyFormat;
@@ -279,6 +284,12 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
       {showLyricsTranslation && (
         <Row label="Lyrics Translation" description="Show translated lyrics under each line.">
           <Toggle checked={translationEnabled} onChange={(v) => $translationEnabled.set(v)} />
+        </Row>
+      )}
+
+      {showMeaningBackend && (
+        <Row label="Translation Backend" description="Choose how the Meaning layer is produced from original lyrics.">
+          <Select value={meaningBackend} options={["google", "ai_auto", "ai_on_demand"]} labels={["Google Translate", "AI Translate", "AI Translate on demand"]} onChange={(value) => $meaningBackend.set(value as MeaningBackend)} />
         </Row>
       )}
 

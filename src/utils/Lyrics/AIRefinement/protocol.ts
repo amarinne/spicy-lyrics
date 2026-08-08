@@ -1,25 +1,32 @@
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
 import { sha256Hex, utf8Bytes } from "./identity.ts";
-import { AI_CHUNK_PLAN_VERSION, AI_MAX_DOCUMENT_ROWS, AI_MAX_DOCUMENT_SOURCE_BYTES, AI_MAX_REQUEST_BYTES, AI_MAX_SOURCE_ITEM_BYTES, AI_MAX_TRANSLATED_ITEM_BYTES, type ChunkPlan, type EnumeratedLine, type ModelLimits, type PlannedChunk } from "./types.ts";
+import { AI_CHUNK_PLAN_VERSION, AI_MAX_DOCUMENT_ROWS, AI_MAX_DOCUMENT_SOURCE_BYTES, AI_MAX_REQUEST_BYTES, AI_MAX_SOURCE_ITEM_BYTES, AI_MAX_STEERING_BYTES, AI_MAX_TRANSLATED_ITEM_BYTES, type ChunkPlan, type EnumeratedLine, type ModelLimits, type PlannedChunk } from "./types.ts";
 
 export const AI_SYSTEM_PROMPT = "Return JSON only with shape {\"items\":[{\"id\":string,\"t\":string}]}. Return every requested id exactly once. Translate rather than romanize. Respect ordinary/adlib class. Preserve the exact ' / ' delimiter count and ordered segment count. Do not add ids, omit ids, merge rows, split rows, number output, or use Markdown. If refusing one item, return its source unchanged.";
 export const AI_REPAIR_PROMPT = "The prior response violated the JSON or item contract. Return the complete chunk again, satisfying it exactly.";
+export function normalizeSteeringInstructions(value?: string): string { return (value ?? "").normalize("NFC").trim().replace(/\s+/g, " "); }
+export function buildSystemPrompt(instructions?: string, repair = false): string {
+  const steering = normalizeSteeringInstructions(instructions);
+  if (utf8Bytes(steering) > AI_MAX_STEERING_BYTES) throw new RangeError("steering_oversized");
+  return `${steering ? `Additional instructions: ${steering} ` : ""}${repair ? `${AI_REPAIR_PROMPT} ` : ""}${AI_SYSTEM_PROMPT}`;
+}
 
 export async function buildDocumentDigest(rows: ReadonlyArray<EnumeratedLine>): Promise<string> {
   return sha256Hex(rows.map(({ id, class: lineClass, sendDisposition, sourceText }) => ({ id, class: lineClass, sendDisposition, sourceText })));
 }
-export async function buildConfigId(value: { provider: string; providerVersion: string; endpoint?: string | null; modelName: string; targetLang: string; promptVersion: number; temperature: 0; contextMode: "document_or_v1_chunks" }): Promise<string> { return sha256Hex({ ...value, endpoint: value.endpoint ?? null }); }
+export async function buildConfigId(value: { provider: string; providerVersion: string; endpoint?: string | null; modelName: string; targetLang: string; instructions?: string; promptVersion: number; temperature: 0; contextMode: "document_or_v1_chunks" }): Promise<string> { return sha256Hex({ ...value, endpoint: value.endpoint ?? null, instructions: normalizeSteeringInstructions(value.instructions) }); }
 function requestJson(target: string, items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }>): string { return JSON.stringify({ target, items: items.map(({ id, c, s }) => ({ id, c, s })) }); }
-function createChunk(id: string, target: string, items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }>, model: ModelLimits): PlannedChunk {
+function createChunk(id: string, target: string, items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }>, model: ModelLimits, instructions?: string): PlannedChunk {
   const json = requestJson(target, items);
+  const systemPrompt = buildSystemPrompt(instructions);
   const sourceUtf8Bytes = items.reduce((sum, item) => sum + utf8Bytes(item.s), 0);
   const estimatedOutputTokens = Math.ceil(sourceUtf8Bytes / 2);
-  const estimatedInputTokens = Math.ceil(utf8Bytes(AI_SYSTEM_PROMPT + json) / 2);
-  if (utf8Bytes(AI_SYSTEM_PROMPT + json) > AI_MAX_REQUEST_BYTES || estimatedInputTokens > model.inputTokenLimit || estimatedOutputTokens > model.outputTokenLimit) throw new RangeError("oversized");
+  const estimatedInputTokens = Math.ceil(utf8Bytes(systemPrompt + json) / 2);
+  if (utf8Bytes(systemPrompt + json) > AI_MAX_REQUEST_BYTES || estimatedInputTokens > model.inputTokenLimit || estimatedOutputTokens > model.outputTokenLimit) throw new RangeError("oversized");
   return { id, items, requestJson: json, sourceUtf8Bytes, estimatedInputTokens, estimatedOutputTokens };
 }
 
-export function planChunks(rows: ReadonlyArray<EnumeratedLine>, target: string, model: ModelLimits): ChunkPlan {
+export function planChunks(rows: ReadonlyArray<EnumeratedLine>, target: string, model: ModelLimits, instructions?: string): ChunkPlan {
   if (rows.length > AI_MAX_DOCUMENT_ROWS) throw new RangeError("oversized");
   const canonicalSourceUtf8Bytes = rows.reduce((sum, item) => sum + utf8Bytes(item.sourceText), 0);
   if (canonicalSourceUtf8Bytes > AI_MAX_DOCUMENT_SOURCE_BYTES) throw new RangeError("oversized");
@@ -30,20 +37,20 @@ export function planChunks(rows: ReadonlyArray<EnumeratedLine>, target: string, 
   if (!sent.length) return { version: AI_CHUNK_PLAN_VERSION, chunks: [], enumerableRows: rows.length, canonicalSourceUtf8Bytes };
   const sentBytes = sent.reduce((sum, item) => sum + utf8Bytes(item.s), 0);
   if (sent.length <= 128 && sentBytes <= 16 * 1024 && Math.ceil(sentBytes / 2) <= 6_144) {
-    try { return { version: AI_CHUNK_PLAN_VERSION, chunks: [createChunk("C0", target, sent, model)], enumerableRows: rows.length, canonicalSourceUtf8Bytes }; } catch (error) { if (!(error instanceof RangeError)) throw error; }
+    try { return { version: AI_CHUNK_PLAN_VERSION, chunks: [createChunk("C0", target, sent, model, instructions)], enumerableRows: rows.length, canonicalSourceUtf8Bytes }; } catch (error) { if (!(error instanceof RangeError)) throw error; }
   }
   const chunks: PlannedChunk[] = [];
   let current: typeof sent = [];
   let currentBytes = 0;
-  const close = () => { if (!current.length) return; chunks.push(createChunk(`C${chunks.length}`, target, current, model)); current = []; currentBytes = 0; };
+  const close = () => { if (!current.length) return; chunks.push(createChunk(`C${chunks.length}`, target, current, model, instructions)); current = []; currentBytes = 0; };
   for (const item of sent) {
     const itemBytes = utf8Bytes(item.s);
     const candidate = [...current, item];
     let fits = candidate.length <= 64 && currentBytes + itemBytes <= 8 * 1024;
-    if (fits) { try { createChunk("probe", target, candidate, model); } catch { fits = false; } }
+    if (fits) { try { createChunk("probe", target, candidate, model, instructions); } catch { fits = false; } }
     if (!fits) close();
     current.push(item); currentBytes += itemBytes;
-    try { createChunk("probe", target, current, model); } catch { throw new RangeError("oversized"); }
+    try { createChunk("probe", target, current, model, instructions); } catch { throw new RangeError("oversized"); }
   }
   close();
   return { version: AI_CHUNK_PLAN_VERSION, chunks, enumerableRows: rows.length, canonicalSourceUtf8Bytes };

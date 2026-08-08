@@ -1,5 +1,5 @@
 import { getJson, postJson } from "./ProviderTransport.ts";
-import { AI_SYSTEM_PROMPT, validateProviderItems } from "./protocol.ts";
+import { buildSystemPrompt, validateProviderItems } from "./protocol.ts";
 import { AI_MAX_RESPONSE_BYTES, type ModelDescriptor, type ModelListResult, type ProviderConfig, type ProviderCredential, type ProviderFailure, type ProviderResult, type RefinementProvider } from "./types.ts";
 import { captureProviderExchange, getActiveProviderCaptureId } from "./DebugCapture.ts";
 
@@ -136,7 +136,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
       const providerRequest = {
         model: config.model.name,
         messages: [
-          { role: "system", content: config.repair ? `${AI_SYSTEM_PROMPT} Return the complete corrected chunk.` : AI_SYSTEM_PROMPT },
+          { role: "system", content: buildSystemPrompt(config.instructions, config.repair) },
           { role: "user", content: JSON.stringify({ target: request.target, items: request.items }) },
         ],
         response_format: { type: "json_object" },

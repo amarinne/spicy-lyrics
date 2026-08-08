@@ -269,7 +269,7 @@ test("cancellation during persistence preparation finishes automatic request cap
   clearProviderCapture();
 });
 
-test("cache auto-apply requires a settled eligible translated baseline", async () => {
+test("cache auto-apply does not require a machine-translation baseline", async () => {
   const cache = new MemoryRefinementCache();
   const paid = harness(new FakeRefinementProvider(), cache);
   const value = baseline();
@@ -281,8 +281,54 @@ test("cache auto-apply requires a settled eligible translated baseline", async (
   const document = { ...value.document, IncludesTranslation: false, Lines: [{ Text: "愛" }] };
   unready.coordinator.acceptBaseline("spotify:track:test", document, "final", value.snapshot);
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.equal(unready.publications.at(-1).origin, "baseline");
+  assert.equal(unready.publications.at(-1).origin, "overlay");
+  assert.equal(unready.publications.at(-1).document.Lines[0].TranslatedText, "AI 愛");
   assert.equal(unready.provider.calls.length, 0);
+});
+
+test("AI meaning can translate canonical source without Google output", async () => {
+  const { coordinator, provider, publications } = harness();
+  const value = baseline();
+  const document = { ...value.document, IncludesTranslation: false, Lines: [{ Text: "愛" }] };
+  coordinator.acceptBaseline("spotify:track:test", document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(provider.calls.length, 1);
+  assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "AI 愛");
+});
+
+test("automatic AI Meaning runs after final source document while on-demand mode waits", async () => {
+  const automatic = harness();
+  automatic.coordinator.setMode("auto");
+  const value = baseline();
+  automatic.coordinator.acceptBaseline("spotify:track:test", { ...value.document, IncludesTranslation: false, Lines: [{ Text: "愛" }] }, "final", value.snapshot);
+  await waitFor(() => automatic.coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(automatic.provider.calls.length, 1);
+
+  const manual = harness();
+  manual.coordinator.setMode("on_demand");
+  manual.coordinator.acceptBaseline("spotify:track:test", { ...value.document, IncludesTranslation: false, Lines: [{ Text: "愛" }] }, "final", value.snapshot);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(manual.provider.calls.length, 0);
+});
+
+test("automatic AI config changes dispatch only for the current track", async () => {
+  const provider = new FakeRefinementProvider();
+  const cache = new MemoryRefinementCache();
+  const publications: any[] = [];
+  const coordinator = new AIRefinementCoordinator({ cache, provider, getConfig: async () => config, publish: (...args) => publications.push(args) });
+  coordinator.setEnabled(true);
+  coordinator.setMode("on_demand");
+  const old = baseline("旧", "old");
+  coordinator.onTrackChanged("spotify:track:old");
+  coordinator.acceptBaseline("spotify:track:old", old.document, "final", old.snapshot);
+  const current = baseline("今", "now");
+  coordinator.onTrackChanged("spotify:track:test");
+  coordinator.acceptBaseline("spotify:track:test", current.document, "final", current.snapshot);
+  coordinator.setMode("auto");
+  coordinator.notifyConfigChanged();
+  await waitFor(() => provider.calls.length === 1, "current-track automatic call");
+  assert.equal(provider.calls[0].request.items[0].s, "今");
 });
 
 test("config change and global clear visibly restore the baseline", async () => {

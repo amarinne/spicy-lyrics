@@ -6,7 +6,8 @@ import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCa
 import { listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
 import { aiRefinementCoordinator, geminiRefinementProvider, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
-import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider } from "../../../utils/stores.ts";
+import { AI_MAX_STEERING_BYTES } from "../../../utils/Lyrics/AIRefinement/types.ts";
+import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $aiSteeringInstructions } from "../../../utils/stores.ts";
 import { Row, Select, Toggle } from "./components.tsx";
 
 const encoder = new TextEncoder();
@@ -46,6 +47,7 @@ export default function AIRefinementSettings() {
   const selectedDescriptorsJson = useStore($aiSelectedModelDescriptorsByProvider);
   const discoveredModelsJson = useStore($aiDiscoveredModelsByProvider);
   const openAIBaseUrl = useStore($aiOpenAIBaseUrl);
+  const steeringInstructions = useStore($aiSteeringInstructions);
   const providerId: ProviderId = selectedProviderValue === "openai" ? "openai" : "gemini";
   const providerName = providerId === "gemini" ? "Gemini" : "OpenAI-compatible";
   const selectedModels = useMemo(() => stringMap(selectedModelsJson), [selectedModelsJson]);
@@ -58,6 +60,7 @@ export default function AIRefinementSettings() {
   const [testing, setTesting] = useState(false);
   const [probing, setProbing] = useState(false);
   const [probeFailures, setProbeFailures] = useState<string[]>([]);
+  const [steeringDraft, setSteeringDraft] = useState(steeringInstructions);
   const [captureState, setCaptureState] = useState(getProviderCaptureState);
   const [captureInventory, setCaptureInventory] = useState<ProviderCaptureSummary[]>([]);
   const [showComparison, setShowComparison] = useState(false);
@@ -67,6 +70,7 @@ export default function AIRefinementSettings() {
   const probeGenerationRef = useRef(0);
   const consented = consentVersion === AI_CONSENT_VERSION;
   const byteCount = encoder.encode(draft).byteLength;
+  const steeringByteCount = encoder.encode(steeringDraft).byteLength;
   const cancelModelProbe = useCallback((updateState = true) => {
     probeGenerationRef.current++;
     probeControllerRef.current?.abort("configuration_changed");
@@ -83,6 +87,7 @@ export default function AIRefinementSettings() {
     void loadProviderCredential(providerId).then((secret) => { if (current && secret) setSavedMask(maskKey(secret)); });
     return () => { current = false; };
   }, [providerId]);
+  useEffect(() => setSteeringDraft(steeringInstructions), [steeringInstructions]);
   useEffect(() => subscribeProviderCapture((state) => { setCaptureState(state); void refreshCaptures(); }), [refreshCaptures]);
   useEffect(() => {
     void loadLatestProviderCapture().then(refreshCaptures);
@@ -249,6 +254,13 @@ export default function AIRefinementSettings() {
           const descriptor = discoveredModels.find((model) => model.name === value); descriptors[providerId] = descriptor ? JSON.stringify(descriptor) : ""; $aiSelectedModelDescriptorsByProvider.set(JSON.stringify(descriptors));
           aiRefinementCoordinator.notifyConfigChanged();
         }} disabled={!discoveredModels.length} />
+      </Row>
+      <Row label="AI instructions" description="Optional guidance for mixed languages, dialect, tone, names, slang, or cultural nuance." stacked>
+        <div className="sl-ai-secret-controls">
+          <textarea className="sl-sp-text-input sl-ai-instructions" value={steeringDraft} onChange={(event) => setSteeringDraft(event.currentTarget.value)} placeholder="Example: Preserve Vietnamese honorifics; translate the Korean verse informally." />
+          <span className="sl-ai-note">{steeringByteCount}/{AI_MAX_STEERING_BYTES} UTF-8 bytes</span>
+          <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={steeringByteCount > AI_MAX_STEERING_BYTES || steeringDraft === steeringInstructions} onClick={() => { $aiSteeringInstructions.set(steeringDraft); aiRefinementCoordinator.notifyConfigChanged(); }}>Apply instructions</button></div>
+        </div>
       </Row>
       {providerId === "openai" && <Row label="Request history" description="Every paid refinement is saved locally, including lyric text, until explicitly deleted." stacked>
         {!!captureInventory.length && <div className="sl-ai-capture-picker">

@@ -47,13 +47,18 @@ test("document digest includes class, disposition, id and NFC source", async () 
   assert.notEqual(await buildDocumentDigest(rows), await buildDocumentDigest(rows.map((row) => row.id === "S1" ? { ...row, sendDisposition: "skipped" } : row)));
 });
 
-test("provider and custom endpoint are part of config identity", async () => {
+test("provider, custom endpoint, and normalized steering are part of config identity", async () => {
   const base = { providerVersion: "1", modelName: "model", targetLang: "en", promptVersion: 1, temperature: 0 as const, contextMode: "document_or_v1_chunks" as const };
   const direct = await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1" });
   const proxy = await buildConfigId({ ...base, provider: "openai", endpoint: "https://proxy.example.test/v1" });
   const gemini = await buildConfigId({ ...base, provider: "gemini", endpoint: null });
   assert.notEqual(direct, proxy);
   assert.notEqual(direct, gemini);
+  const steered = await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "Preserve honorifics." });
+  const normalized = await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "  Preserve   honorifics.  " });
+  assert.notEqual(direct, steered);
+  assert.equal(steered, normalized);
+  assert.equal(await buildConfigId({ ...base, provider: "openai", instructions: "e\u0301" }), await buildConfigId({ ...base, provider: "openai", instructions: "é" }));
 });
 
 test("canonical original snapshot is deeply immutable and source-only", () => {

@@ -56,6 +56,16 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /including lyric text/);
   assert.match(ui, /until explicitly deleted/);
   assert.match(ui, /System prompt/);
+  assert.match(ui, /AI instructions/);
+  assert.match(ui, /mixed languages, dialect, tone, names, slang, or cultural nuance/);
+  const page = read("src/components/Pages/PageView.ts");
+  assert.match(page, /contextmenu/);
+  assert.match(page, /openAISteeringEditor/);
+  const lyricsUi = read("src/components/ReactComponents/SettingsPanel/LyricsSection.tsx");
+  assert.match(lyricsUi, /Translation Backend/);
+  assert.match(lyricsUi, /Google Translate/);
+  assert.match(lyricsUi, /AI Translate on demand/);
+  assert.match(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) !== "google"/);
   assert.match(ui, /Saved AI results/);
   assert.match(ui, /probeControllerRef/);
   assert.match(ui, /configuration_changed/);

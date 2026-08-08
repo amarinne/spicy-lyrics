@@ -42,6 +42,7 @@ import {
   $lineHoverBackground,
   $lyricsContainerExists,
   $minimalLyricsMode,
+  $meaningBackend,
   $showVolumeSlider,
   $simpleLyricsMode,
   $skipSpicyFont,
@@ -82,6 +83,7 @@ import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experime
 import { aiRefinementCoordinator } from "../../utils/Lyrics/AIRefinement/singleton.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
+import { openAISteeringEditor } from "../../utils/openAISteeringEditor.tsx";
 
 const pageLogger = new Logger("Page View");
 const controlsLogger = new Logger("View Controls");
@@ -777,6 +779,10 @@ function AppendViewControls(ReAppend: boolean = false) {
         if (state.status === "refined") aiRefinementCoordinator.restoreBaseline(trackUri);
         else aiRefinementCoordinator.refine(trackUri);
       });
+      refinementToggle.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openAISteeringEditor();
+      });
     }
 
     if (!Fullscreen.IsOpen && !Fullscreen.CinemaViewOpen) {
@@ -1009,7 +1015,17 @@ onExperimentChange(() => {
 });
 
 $aiRefinementEnabled.listen((enabled) => {
-  aiRefinementCoordinator.setEnabled(enabled);
+  aiRefinementCoordinator.setEnabled(enabled && $meaningBackend.get() !== "google");
+  if (PageContainer) AppendViewControls(true);
+});
+
+$meaningBackend.listen((backend) => {
+  const aiEnabled = backend !== "google";
+  $aiRefinementEnabled.set(aiEnabled);
+  aiRefinementCoordinator.setMode(backend === "ai_auto" ? "auto" : "on_demand");
+  aiRefinementCoordinator.setEnabled(aiEnabled);
+  aiRefinementCoordinator.notifyConfigChanged();
+  queueProcessingSettingsRefresh();
   if (PageContainer) AppendViewControls(true);
 });
 

@@ -1,7 +1,7 @@
 import { franc } from "franc-all";
 import langs from "langs";
 import { isDev } from "../../components/Global/Defaults.ts";
-import { $currentLyricsData, $currentLyricsType, $currentlyFetching } from "../stores.ts";
+import { $currentLyricsData, $currentLyricsType, $currentlyFetching, $meaningBackend } from "../stores.ts";
 import Platform from "../../components/Global/Platform.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import PageView, { PageContainer } from "../../components/Pages/PageView.ts";
@@ -45,6 +45,7 @@ function currentProcessingContextKey(): string {
   return buildProcessingContextKey({
     translationEnabled,
     translationTargetLang,
+    meaningBackend: $meaningBackend.get(),
     chineseTranslitMode,
     chineseTones,
     joinMandarinWords,

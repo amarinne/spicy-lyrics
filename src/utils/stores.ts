@@ -84,6 +84,9 @@ export const $aiSelectedModelsByProvider = persistAtom<string>("aiSelectedModels
 export const $aiSelectedModelDescriptorsByProvider = persistAtom<string>("aiSelectedModelDescriptorsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelDescriptor ?? "", openai: "" }));
 export const $aiDiscoveredModelsByProvider = persistAtom<string>("aiDiscoveredModelsByProvider", JSON.stringify({ gemini: _settings.aiDiscoveredModels ?? "[]", openai: "[]" }));
 export const $aiOpenAIBaseUrl = persistAtom<string>("aiOpenAIBaseUrl", "https://api.openai.com/v1");
+export const $aiSteeringInstructions = persistAtom<string>("aiSteeringInstructions", "");
+export type MeaningBackend = "google" | "ai_auto" | "ai_on_demand";
+export const $meaningBackend = persistAtom<MeaningBackend>("meaningBackend", _settings.aiRefinementEnabled ? "ai_on_demand" : "google");
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {

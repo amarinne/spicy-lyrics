@@ -1,4 +1,4 @@
-import { $currentLyricsData, $aiConsentVersion, $aiRefinementEnabled, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedProvider } from "../../stores.ts";
+import { $currentLyricsData, $aiConsentVersion, $aiRefinementEnabled, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedProvider, $aiSteeringInstructions, $meaningBackend } from "../../stores.ts";
 import { SpotifyPlayer } from "../../../components/Global/SpotifyPlayer.ts";
 import { AI_CONSENT_VERSION, loadProviderCredential } from "./Credentials.ts";
 import { AIRefinementCoordinator } from "./Coordinator.ts";
@@ -43,7 +43,7 @@ export const aiRefinementCoordinator = new AIRefinementCoordinator({
       try { endpoint = normalizeOpenAIBaseUrl($aiOpenAIBaseUrl.get()); } catch { return null; }
       openAIRefinementProvider.setBaseUrl(endpoint);
     }
-    return { providerId, providerVersion: providerId === "gemini" ? "v1beta" : "openai-compatible-v1", endpoint, model, targetLang: (await import("../lyrics.ts")).translationTargetLang, credential: secret ? { secret } : null };
+    return { providerId, providerVersion: providerId === "gemini" ? "v1beta" : "openai-compatible-v1", endpoint, model, targetLang: (await import("../lyrics.ts")).translationTargetLang, instructions: $aiSteeringInstructions.get(), credential: secret ? { secret } : null };
   },
   publish: (trackUri, document, origin) => {
     if (SpotifyPlayer.GetUri() !== trackUri) return;
@@ -53,4 +53,5 @@ export const aiRefinementCoordinator = new AIRefinementCoordinator({
   ensurePersistence,
 });
 
-aiRefinementCoordinator.setEnabled($aiRefinementEnabled.get());
+aiRefinementCoordinator.setMode($meaningBackend.get() === "ai_auto" ? "auto" : "on_demand");
+aiRefinementCoordinator.setEnabled($meaningBackend.get() !== "google" && $aiRefinementEnabled.get());
