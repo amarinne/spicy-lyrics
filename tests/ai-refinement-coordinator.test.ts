@@ -8,6 +8,7 @@ import {
   type CoordinatorConfig,
   type ProviderResult,
 } from "../src/utils/Lyrics/AIRefinement/index.ts";
+import { clearProviderCapture, getProviderCaptureState } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 
 const model = { name: "fake-model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 1_000, supportedGenerationMethods: ["generateContent"] };
 const config: CoordinatorConfig = { providerVersion: "1", model, targetLang: "en", credential: { secret: "private" } };
@@ -244,6 +245,28 @@ test("baseline change during pre-dispatch config await cancels before billing", 
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(provider.calls.length, 0);
   assert.equal(coordinator.getState("spotify:track:test").reason, "baseline_superseded");
+});
+
+test("cancellation during persistence preparation finishes automatic request capture", async () => {
+  clearProviderCapture();
+  let releasePersistence: (value: boolean) => void;
+  const provider = new FakeRefinementProvider();
+  const cache = new MemoryRefinementCache();
+  const coordinator = new AIRefinementCoordinator({
+    cache, provider, getConfig: async () => config, publish: () => undefined,
+    ensurePersistence: () => new Promise<boolean>((resolve) => { releasePersistence = resolve; }),
+  });
+  coordinator.setEnabled(true);
+  coordinator.onTrackChanged("spotify:track:test");
+  const value = baseline();
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => !!getProviderCaptureState().activeCaptureId, "active request capture");
+  coordinator.onTrackChanged("spotify:track:other");
+  releasePersistence!(true);
+  await waitFor(() => getProviderCaptureState().activeCaptureId === null, "finished request capture");
+  assert.equal(provider.calls.length, 0);
+  clearProviderCapture();
 });
 
 test("cache auto-apply requires a settled eligible translated baseline", async () => {

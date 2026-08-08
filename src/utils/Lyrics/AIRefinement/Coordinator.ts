@@ -4,7 +4,7 @@ import { refinementRecordKey, sumBudgetConsumed } from "./cache.ts";
 import { buildConfigId, buildDocumentDigest, planChunks } from "./protocol.ts";
 import { executeChunk } from "./runtime.ts";
 import { AI_CHUNK_PLAN_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord } from "./types.ts";
-import { captureProviderBaseline } from "./DebugCapture.ts";
+import { captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
 
 export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; credential: ProviderCredential | null };
 export type RefinementState = {
@@ -187,15 +187,16 @@ export class AIRefinementCoordinator {
     const key = refinementRecordKey(trackUri, session.configId, session.docDigest);
     this.deps.cache.pin(key);
     let record = await this.deps.cache.get(key) ?? this.newRecord(key, trackUri, session, config, provider, plan.chunks);
-    captureProviderBaseline(trackUri, this.deps.getTrackLabel?.(trackUri) ?? null, session.rows!);
+    const needsProviderRequest = plan.chunks.some((chunk) => record.chunks[chunk.id]?.status !== "complete");
+    const providerCaptureId = needsProviderRequest ? captureProviderBaseline(trackUri, this.deps.getTrackLabel?.(trackUri) ?? null, session.rows!) : null;
     let cacheWarning: "write_failed" | undefined;
     let persistenceWarning: "denied" | undefined;
     const ledgerKey = `${trackUri}|${session.configId}`;
     const runTokens = { input: 0, output: 0 };
-    if (plan.chunks.some((chunk) => record.chunks[chunk.id]?.status !== "complete") && this.deps.ensurePersistence) {
+    if (needsProviderRequest && this.deps.ensurePersistence) {
       if (!await this.deps.ensurePersistence()) persistenceWarning = "denied";
     }
-    if (!this.identityCurrent(identity)) { this.deps.cache.unpin(key); return; }
+    if (!this.identityCurrent(identity)) { finishProviderCapture(providerCaptureId); this.deps.cache.unpin(key); return; }
     try {
       for (const chunk of plan.chunks) {
         if (!this.identityCurrent(identity)) return;
@@ -227,6 +228,7 @@ export class AIRefinementCoordinator {
     } catch {
       if (!identity.controller.signal.aborted) this.setState(trackUri, { status: "failed", reason: "delivery_unknown", cacheWarning });
     } finally {
+      finishProviderCapture(providerCaptureId);
       if (this.active?.runId === identity.runId) this.active = null;
       this.deps.cache.unpin(key);
     }

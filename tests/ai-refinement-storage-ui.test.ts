@@ -35,8 +35,11 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(credentials, /ObjectStores\.AICredentials, providerId/);
   assert.match(ui, /OpenAI-compatible/);
   assert.match(ui, /API base URL/);
-  assert.match(ui, /Start capture/);
+  assert.doesNotMatch(ui, /Start capture|Stop capture/);
+  assert.match(ui, /Every paid refinement is saved locally, including lyric text/);
   assert.match(ui, /Save capture/);
+  assert.match(ui, /Save all/);
+  assert.match(ui, /downloadAllProviderCaptures/);
   assert.match(ui, /Choose where to save/);
   assert.match(read("src/utils/Lyrics/AIRefinement/DebugCapture.ts"), /showSaveFilePicker/);
   assert.match(ui, /View comparison/);
@@ -50,8 +53,8 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /item\.attempts/);
   assert.match(ui, /Google baseline/);
   assert.match(ui, /AI candidate/);
-  assert.match(ui, /Contains lyric text/);
-  assert.match(ui, /Saved locally until explicitly deleted/);
+  assert.match(ui, /including lyric text/);
+  assert.match(ui, /until explicitly deleted/);
   assert.match(ui, /System prompt/);
   assert.match(ui, /Saved AI results/);
   assert.match(ui, /probeControllerRef/);

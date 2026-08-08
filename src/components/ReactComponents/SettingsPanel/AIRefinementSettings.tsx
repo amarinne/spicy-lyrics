@@ -2,7 +2,7 @@ import { useStore } from "@nanostores/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AI_CONSENT_VERSION, deleteProviderCredential, loadProviderCredential, saveProviderCredential } from "../../../utils/Lyrics/AIRefinement/Credentials.ts";
 import { normalizeOpenAIBaseUrl } from "../../../utils/Lyrics/AIRefinement/OpenAIProvider.ts";
-import { deleteAllProviderCaptures, deleteProviderCapture, downloadProviderCapture, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, listProviderCaptures, loadLatestProviderCapture, selectProviderCapture, startProviderCapture, stopProviderCapture, subscribeProviderCapture, type ProviderCaptureSummary } from "../../../utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCaptures, downloadProviderCapture, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, listProviderCaptures, loadLatestProviderCapture, selectProviderCapture, subscribeProviderCapture, type ProviderCaptureSummary } from "../../../utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
 import { aiRefinementCoordinator, geminiRefinementProvider, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
@@ -250,7 +250,7 @@ export default function AIRefinementSettings() {
           aiRefinementCoordinator.notifyConfigChanged();
         }} disabled={!discoveredModels.length} />
       </Row>
-      {providerId === "openai" && <Row label="Request capture" description="Contains lyric text. Saved locally until explicitly deleted." stacked>
+      {providerId === "openai" && <Row label="Request history" description="Every paid refinement is saved locally, including lyric text, until explicitly deleted." stacked>
         {!!captureInventory.length && <div className="sl-ai-capture-picker">
           <span>Saved comparisons</span>
           <Select value={captureState.captureId ?? ""} options={captureOptions} labels={captureLabels} onChange={(id) => {
@@ -261,7 +261,6 @@ export default function AIRefinementSettings() {
           }} />
         </div>}
         <div className="sl-ai-actions">
-          <button className="sl-sp-btn" type="button" onClick={captureState.enabled ? stopProviderCapture : startProviderCapture}>{captureState.enabled ? "Stop capture" : "Start capture"}</button>
           <button className="sl-sp-btn" type="button" onClick={async () => {
             setStatus("Choose where to save the capture…");
             try {
@@ -269,9 +268,16 @@ export default function AIRefinementSettings() {
               setStatus(filename ? `Saved ${filename}` : "Save cancelled");
             } catch { setStatus("Capture could not be saved"); }
           }} disabled={!captureState.exchanges.length}>Save capture ({captureState.exchanges.length})</button>
+          <button className="sl-sp-btn" type="button" onClick={async () => {
+            setStatus("Choose where to save all captures…");
+            try {
+              const saved = await downloadAllProviderCaptures();
+              setStatus(saved ? `Saved ${saved.count} captures to ${saved.filename}` : "Save cancelled");
+            } catch { setStatus("Capture history could not be saved"); }
+          }} disabled={!captureInventory.length}>Save all ({captureInventory.length})</button>
           <button className="sl-sp-btn" type="button" onClick={() => setShowComparison((shown) => !shown)} disabled={!captureState.exchanges.length}>{showComparison ? "Hide comparison" : "View comparison"}</button>
-          <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete the selected saved request/response capture?")) { void deleteProviderCapture().then(refreshCaptures); setShowComparison(false); } }} disabled={!captureState.durable}>Delete selected</button>
-          <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete all saved request/response captures? This cannot be undone.")) { void deleteAllProviderCaptures().then(refreshCaptures); setShowComparison(false); } }} disabled={!captureInventory.length}>Delete all</button>
+          <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete the selected saved request/response capture?")) { void deleteProviderCapture().then((deleted) => { if (deleted) { void refreshCaptures(); setShowComparison(false); } else setStatus("Active request history cannot be deleted"); }); } }} disabled={!captureState.durable || captureState.captureId === captureState.activeCaptureId}>Delete selected</button>
+          <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete all saved request/response captures? This cannot be undone.")) { void deleteAllProviderCaptures().then((deleted) => { if (deleted) { void refreshCaptures(); setShowComparison(false); } else setStatus("Wait for the active request to finish"); }); } }} disabled={!captureInventory.length || !!captureState.activeCaptureId}>Delete all</button>
         </div>
         {showComparison && <div className="sl-ai-comparison">
           {captureMetadata && <div className="sl-ai-capture-meta">
