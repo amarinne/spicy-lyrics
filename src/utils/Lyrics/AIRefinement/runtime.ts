@@ -72,7 +72,7 @@ export async function executeChunk(args: {
       return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     }
     try {
-      const items = validateProviderItems(result.items, args.chunk.items);
+      const items = validateProviderItems(result.items, args.chunk.items, args.config.layer ?? "meaning", args.config.targetLang);
       record.status = "complete"; delete record.failure;
       return { ok: true, items, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     } catch (error) {

@@ -56,8 +56,10 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /including lyric text/);
   assert.match(ui, /until explicitly deleted/);
   assert.match(ui, /System prompt/);
-  assert.match(ui, /AI instructions/);
-  assert.match(ui, /mixed languages, dialect, tone, names, slang, or cultural nuance/);
+  assert.match(ui, /Meaning Instructions/);
+  assert.match(ui, /Sound Instructions/);
+  assert.match(ui, /Egyptian Arabic pronunciation/);
+  assert.match(ui, /Vietnamese honorifics/);
   const page = read("src/components/Pages/PageView.ts");
   assert.match(page, /contextmenu/);
   assert.match(page, /openAISteeringEditor/);
@@ -65,11 +67,14 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(lyricsUi, /Translation Backend/);
   assert.match(lyricsUi, /Google Translate/);
   assert.match(lyricsUi, /AI Translate on demand/);
+  assert.match(lyricsUi, /Sound Backend/);
+  assert.match(lyricsUi, /Target Orthography/);
+  assert.match(lyricsUi, /AI automatic/);
   assert.match(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
   assert.match(ui, /Saved AI results/);
   assert.match(ui, /probeControllerRef/);
   assert.match(ui, /configuration_changed/);
-  assert.match(ui, /notifyCredentialChanged/);
+  assert.match(ui, /notifyAIRefinementCredentialChanged/);
   assert.match(ui, /HTTPS required/);
   assert.match(ui, /loadProviderCredential\(providerId\)/);
   const changeHandler = ui.match(/onChange=\{\(event\) => setDraft\(event\.currentTarget\.value\)\}/g) ?? [];
@@ -77,14 +82,14 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.doesNotMatch(ui, /onChange=.*saveProviderCredential/);
 });
 
-test("AI translation is a first-class settings section, not hidden in Experiments", () => {
+test("AI providers are a first-class settings section, not hidden in Experiments", () => {
   const panel = read("src/components/ReactComponents/SettingsPanel/ExperimentsPanel.tsx");
   const settings = read("src/components/ReactComponents/SettingsPanel/index.tsx");
   const experiments = read("src/utils/experiments.ts");
   assert.doesNotMatch(panel, /AIRefinementSettings/);
   assert.doesNotMatch(experiments, /aiRefinement/);
   assert.match(settings, /AITranslationSection/);
-  assert.match(settings, /"AI translation"/);
+  assert.match(settings, /"AI providers"/);
 });
 
 test("key storage and cache clearing remain separated from normal settings and credentials", () => {
@@ -92,6 +97,6 @@ test("key storage and cache clearing remain separated from normal settings and c
   const cacheTools = read("src/utils/LyricsCacheTools.ts");
   assert.doesNotMatch(credentials, /LocalStorage|SL:settings|SL:uiState/);
   assert.match(credentials, /ObjectStores\.AICredentials/);
-  assert.match(cacheTools, /aiRefinementCoordinator\.clearAll/);
+  assert.match(cacheTools, /clearAllAIRefinements/);
   assert.doesNotMatch(cacheTools, /deleteGeminiCredential|AICredentials/);
 });

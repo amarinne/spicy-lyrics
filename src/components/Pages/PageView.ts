@@ -36,13 +36,14 @@ import { ScrollSimplebar } from "../../utils/Scrolling/Simplebar/ScrollSimplebar
 import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackground.ts";
 import {
   $adaptiveSectioning,
-  $aiRefinementEnabled,
   $currentLyricsData,
   $fixHanGlyphVariants,
   $lineHoverBackground,
   $lyricsContainerExists,
   $minimalLyricsMode,
   $meaningBackend,
+  $soundBackend,
+  $soundTargetOrthography,
   $showVolumeSlider,
   $simpleLyricsMode,
   $skipSpicyFont,
@@ -80,7 +81,7 @@ import { OpenLyricsDBPanel } from "../../utils/openLyricsDBPanel.tsx";
 import { openSettingsPanel } from "../../utils/settings.ts";
 import Logger from "../../utils/Logger.ts";
 import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experiments.ts";
-import { aiRefinementCoordinator } from "../../utils/Lyrics/AIRefinement/singleton.ts";
+import { aiRefinementCoordinator, aiSoundCoordinator, invalidateAIRefinementBaseline, syncAIRefinementBackends } from "../../utils/Lyrics/AIRefinement/singleton.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
 import { openAISteeringEditor } from "../../utils/openAISteeringEditor.tsx";
@@ -103,6 +104,7 @@ export const Tooltips: {
   CopyLyrics: TippyInstance | null;
   Settings: TippyInstance | null;
   AIRefinement: TippyInstance | null;
+  AISound: TippyInstance | null;
 } = {
   Close: null,
   NowBarToggle: null,
@@ -113,6 +115,7 @@ export const Tooltips: {
   CopyLyrics: null,
   Settings: null,
   AIRefinement: null,
+  AISound: null,
 };
 
 const PageView = {
@@ -529,6 +532,18 @@ function AppendViewControls(ReAppend: boolean = false) {
           }
         </button>
         ${
+          $soundBackend.get() !== "deterministic"
+            ? `<button id="AISoundToggle" class="ViewControl">${
+                aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
+                  || aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
+                  ? Icons.Spinner.replaceAll("{SIZE}", "20")
+                  : aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined"
+                    ? Icons.AIRestore
+                    : Icons.AIRefine
+              }</button>`
+            : ""
+        }
+        ${
           $showChineseTranslitButton.get() && PageContainer.classList.contains("Lyrics_ChineseDetected")
             ? `<button id="ChineseTranslitToggle" class="ViewControl" style="font-size: 14px; font-weight: 600; line-height: 1;">${
                 chineseTranslitMode === "jyutping" ? "粵" : "拼"
@@ -539,7 +554,7 @@ function AppendViewControls(ReAppend: boolean = false) {
           ${translationEnabled ? Icons.DisableTranslation : Icons.EnableTranslation}
         </button>
         ${
-          $aiRefinementEnabled.get()
+          $meaningBackend.get() !== "google"
             ? `<button id="AIRefinementToggle" class="ViewControl">${
                 aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
                   || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
@@ -713,7 +728,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       const songId = SpotifyPlayer.GetId();
       if (!songUri) return;
       PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.add("HiddenTransitioned");
-      aiRefinementCoordinator.invalidateBaseline(songUri);
+      invalidateAIRefinementBaseline(songUri);
       $currentLyricsData.set("");
       if (songId) await LyricsStore.RemoveItem(songId).catch(() => {});
       const lyrics = await fetchLyrics(songUri);
@@ -740,6 +755,31 @@ function AppendViewControls(ReAppend: boolean = false) {
       } catch (err) {
         controlsLogger.warn("Failed to setup Chinese transliteration tooltip", err);
       }
+    }
+
+    const soundToggle = elem.querySelector("#AISoundToggle");
+    if (soundToggle) {
+      const trackUri = SpotifyPlayer.GetUri();
+      const state = trackUri ? aiSoundCoordinator.getState(trackUri) : { status: "idle" as const };
+      if (!isPip) {
+        const label = state.status === "refined"
+          ? "Restore built-in sound"
+          : state.status === "refining" || state.status === "requested"
+            ? `Refining sound ${state.done ?? 0}/${state.total ?? 0}`
+            : state.status === "failed"
+              ? state.reason === "alignment_required" ? "AI sound is unavailable for syllable-timed lyrics." : `Sound failed: ${state.reason}. Click to retry.`
+              : "Refine sound with AI";
+        Tooltips.AISound = Spicetify.Tippy(soundToggle, { ...Spicetify.TippyProps, content: label });
+      }
+      soundToggle.addEventListener("click", () => {
+        if (!trackUri || state.status === "refining" || state.status === "requested") return;
+        if (state.status === "refined") aiSoundCoordinator.restoreBaseline(trackUri);
+        else aiSoundCoordinator.refine(trackUri);
+      });
+      soundToggle.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        openAISteeringEditor("sound");
+      });
     }
 
     const translationToggle = elem.querySelector("#TranslationToggle");
@@ -781,7 +821,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       });
       refinementToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        openAISteeringEditor();
+        openAISteeringEditor("meaning");
       });
     }
 
@@ -942,7 +982,7 @@ const reprocessCurrentLyricsFromSource = async (): Promise<void> => {
   if (!uri) return;
   const lyricsContent = PageContainer.querySelector(".LyricsContainer .LyricsContent");
   lyricsContent?.classList.add("HiddenTransitioned");
-  aiRefinementCoordinator.invalidateBaseline(uri);
+  invalidateAIRefinementBaseline(uri);
   $currentLyricsData.set("");
   if (trackId) await LyricsStore.RemoveItem(trackId).catch(() => {});
   const lyrics = await fetchLyrics(uri);
@@ -1014,20 +1054,18 @@ onExperimentChange(() => {
   AppendViewControls(true);
 });
 
-$aiRefinementEnabled.listen((enabled) => {
-  aiRefinementCoordinator.setEnabled(enabled && $meaningBackend.get() !== "google");
-  if (PageContainer) AppendViewControls(true);
-});
-
-$meaningBackend.listen((backend) => {
-  const aiEnabled = backend !== "google";
-  $aiRefinementEnabled.set(aiEnabled);
-  aiRefinementCoordinator.setMode(backend === "ai_auto" ? "auto" : "on_demand");
-  aiRefinementCoordinator.setEnabled(aiEnabled);
-  aiRefinementCoordinator.notifyConfigChanged();
+$meaningBackend.listen(() => {
+  syncAIRefinementBackends();
   queueProcessingSettingsRefresh();
   if (PageContainer) AppendViewControls(true);
 });
+
+$soundBackend.listen(() => {
+  syncAIRefinementBackends();
+  if (PageContainer) AppendViewControls(true);
+});
+
+$soundTargetOrthography.listen(() => aiSoundCoordinator.notifyConfigChanged());
 
 $skipSpicyFont.listen((v) => {
   if (!PageContainer) return;
@@ -1110,6 +1148,10 @@ window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) =
 }) as EventListener);
 
 aiRefinementCoordinator.subscribe((trackUri) => {
+  if (trackUri === SpotifyPlayer.GetUri() && PageContainer) AppendViewControls(true);
+});
+
+aiSoundCoordinator.subscribe((trackUri) => {
   if (trackUri === SpotifyPlayer.GetUri() && PageContainer) AppendViewControls(true);
 });
 

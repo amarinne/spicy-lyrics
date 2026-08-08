@@ -36,7 +36,7 @@ import { IsPlaying } from "./utils/Addons.ts";
 import { requestPositionSync } from "./utils/Gets/GetProgress.ts";
 import { IntervalManager } from "./utils/IntervalManager.ts";
 import fetchLyrics, { PrefetchLyrics } from "./utils/Lyrics/fetchLyrics.ts";
-import { aiRefinementCoordinator } from "./utils/Lyrics/AIRefinement/singleton.ts";
+import { onAIRefinementTrackChanged } from "./utils/Lyrics/AIRefinement/singleton.ts";
 import ApplyLyrics from "./utils/Lyrics/Global/Applyer.ts";
 import { ScrollingIntervalTime } from "./utils/Lyrics/lyrics.ts";
 import { ScrollToActiveLine } from "./utils/Scrolling/ScrollToActiveLine.ts";
@@ -767,7 +767,7 @@ async function main() {
       }
 
       const songUri = event?.data?.item?.uri;
-      aiRefinementCoordinator.onTrackChanged(songUri ?? null);
+      onAIRefinementTrackChanged(songUri ?? null);
       if (songUri) {
         fetchLyrics(songUri).then(ApplyLyrics);
       }
@@ -806,7 +806,7 @@ async function main() {
     Global.Event.listen("playback:songchange", onSongChange);
 
     const initUri = SpotifyPlayer.GetUri();
-    aiRefinementCoordinator.onTrackChanged(initUri ?? null);
+    onAIRefinementTrackChanged(initUri ?? null);
     if (initUri) {
       fetchLyrics(initUri).then(ApplyLyrics);
       void scheduleNextLyricsPrefetch(1800);

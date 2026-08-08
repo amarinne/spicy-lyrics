@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import fetchLyrics, { LyricsStore } from "./Lyrics/fetchLyrics.ts";
 import ApplyLyrics from "./Lyrics/Global/Applyer.ts";
 import { $currentLyricsData } from "./stores.ts";
-import { aiRefinementCoordinator } from "./Lyrics/AIRefinement/singleton.ts";
+import { clearAIRefinementTrack, clearAllAIRefinements, invalidateAIRefinementBaseline } from "./Lyrics/AIRefinement/singleton.ts";
 
 export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
   const currentSongId = SpotifyPlayer.GetId();
@@ -16,8 +16,8 @@ export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
   }
   try {
     if (ui && !window.confirm("Clear baseline caches and paid AI refinement results for this song? API keys are kept.")) return;
-    if (currentSongUri) await aiRefinementCoordinator.clearTrack(currentSongUri);
-    if (currentSongUri) aiRefinementCoordinator.invalidateBaseline(currentSongUri);
+    if (currentSongUri) await clearAIRefinementTrack(currentSongUri);
+    if (currentSongUri) invalidateAIRefinementBaseline(currentSongUri);
     await LyricsStore.RemoveItem(currentSongId ?? "");
     $currentLyricsData.set("");
     ui
@@ -40,7 +40,7 @@ export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
 export const RemoveAIRefinementCache = async (ui: boolean = false) => {
   try {
     if (ui && !window.confirm("Clear every paid AI refinement result? API keys are kept.")) return;
-    await aiRefinementCoordinator.clearAll();
+    await clearAllAIRefinements();
     if (ui) toast.success("AI refinement cache cleared");
   } catch {
     if (ui) toast.error("AI refinement cache could not be cleared");
@@ -71,7 +71,7 @@ export const RemoveLyricsCache = async (ui: boolean = false) => {
 export const RemoveCurrentLyrics_StateCache = (ui: boolean = false) => {
   try {
     const currentSongUri = SpotifyPlayer.GetUri();
-    if (currentSongUri) aiRefinementCoordinator.invalidateBaseline(currentSongUri);
+    if (currentSongUri) invalidateAIRefinementBaseline(currentSongUri);
     $currentLyricsData.set("");
     ui
       ? toast.success("Lyrics for the current song, have been removed from the internal state successfully")

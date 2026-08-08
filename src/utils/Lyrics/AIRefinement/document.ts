@@ -45,6 +45,48 @@ export function enumerateRefinementLines(document: any, targetLang: string): Enu
   return rows;
 }
 
+function soundRow(id: string, sourceText: string, target: any): EnumeratedLine {
+  const lineClass = classifyRefinementLine(sourceText);
+  const baseline = typeof target?.ReadingRenderPlan?.joinedDisplayText === "string"
+    ? target.ReadingRenderPlan.joinedDisplayText
+    : typeof target?.RomanizedText === "string"
+      ? target.RomanizedText
+      : typeof target?.TransliteratedText === "string"
+        ? target.TransliteratedText
+        : typeof target?.JapaneseReading?.romaji === "string"
+          ? target.JapaneseReading.romaji
+          : undefined;
+  return { id, class: lineClass, sendDisposition: lineClass === "structural" ? "structural" : "sent", sourceText, baselineTranslatedText: baseline, target: target ?? null, targetField: target ? "RomanizedText" : null };
+}
+
+export function enumerateSourceRows(document: any): Array<{ id: string; sourceText: string }> {
+  if (document?.Type === "Static") return (document.Lines ?? []).map((line: any, index: number) => ({ id: `S${index}`, sourceText: line?.Text ?? "" }));
+  if (document?.Type === "Line") return (document.Content ?? []).map((line: any, index: number) => ({ id: `G${index}`, sourceText: line?.Text ?? "" }));
+  if (document?.Type === "Syllable") {
+    const rows: Array<{ id: string; sourceText: string }> = [];
+    for (let i = 0; i < (document.Content ?? []).length; i++) {
+      const group = document.Content[i];
+      if (group?.Type !== undefined && group.Type !== "Vocal") { rows.push({ id: `G${i}`, sourceText: group?.Text ?? "" }); continue; }
+      rows.push({ id: `L${i}`, sourceText: syllableText(group?.Lead) });
+      for (let j = 0; j < (group?.Background ?? []).length; j++) rows.push({ id: `B${i}.${j}`, sourceText: syllableText(group.Background[j]) });
+    }
+    return rows;
+  }
+  throw new TypeError(`Unsupported lyrics type: ${String(document?.Type)}`);
+}
+
+export function enumerateSoundLines(document: any): EnumeratedLine[] {
+  const rows: EnumeratedLine[] = [];
+  if (document?.Type === "Static") {
+    for (let i = 0; i < (document.Lines ?? []).length; i++) rows.push(soundRow(`S${i}`, document.Lines[i]?.Text ?? "", document.Lines[i]));
+  } else if (document?.Type === "Line") {
+    for (let i = 0; i < (document.Content ?? []).length; i++) rows.push(soundRow(`G${i}`, document.Content[i]?.Text ?? "", document.Content[i]));
+  } else if (document?.Type === "Syllable") {
+    throw new TypeError("sound_alignment_required");
+  } else throw new TypeError(`Unsupported lyrics type: ${String(document?.Type)}`);
+  return rows;
+}
+
 export function captureOriginalSnapshot(document: Record<string, unknown>, targetLang: string | null): CanonicalOriginalSnapshot {
   const derivedKeys = new Set([
     "AIOriginalSnapshot", "TranslatedText", "RomanizedText", "TransliteratedText",

@@ -1,4 +1,5 @@
 export const AI_REFINEMENT_SCHEMA = 1;
+export const AI_SOUND_REFINEMENT_SCHEMA = 2;
 export const AI_ORIGINAL_SNAPSHOT_SCHEMA = 1;
 export const AI_PROMPT_VERSION = 2;
 export const AI_MAX_STEERING_BYTES = 2 * 1024;
@@ -12,6 +13,9 @@ export const AI_MAX_RESPONSE_BYTES = 128 * 1024;
 export const AI_MAX_TRANSLATED_ITEM_BYTES = 4 * 1024;
 export const AI_MAX_CONFIGURED_OUTPUT_TOKENS = 8_192;
 export const AI_MAX_ATTEMPTS = 2;
+export type DerivedLayer = "meaning" | "sound";
+export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
+export type RefinementSchema = typeof AI_REFINEMENT_SCHEMA | typeof AI_SOUND_REFINEMENT_SCHEMA;
 
 export type RefinementLineClass = "ordinary" | "adlib" | "structural";
 export type SendDisposition = "sent" | "structural" | "skipped";
@@ -23,7 +27,7 @@ export type EnumeratedLine = {
   sourceText: string;
   baselineTranslatedText?: string;
   target: Record<string, unknown> | null;
-  targetField: "TranslatedText" | null;
+  targetField: "TranslatedText" | "RomanizedText" | null;
 };
 
 export type CanonicalOriginalSnapshot = {
@@ -45,6 +49,7 @@ export type ProviderConfig = {
   providerVersion: string;
   model: ModelDescriptor;
   targetLang: string;
+  layer?: DerivedLayer;
   instructions?: string;
   promptVersion: number;
   temperature: 0;
@@ -52,6 +57,7 @@ export type ProviderConfig = {
   credential: Readonly<ProviderCredential>;
   repair: boolean;
   maxOutputTokens: number;
+  captureId?: string | null;
 };
 
 export type ProviderFailure =
@@ -91,7 +97,7 @@ export type PlannedChunk = {
 };
 export type ChunkPlan = { version: typeof AI_CHUNK_PLAN_VERSION; chunks: ReadonlyArray<PlannedChunk>; enumerableRows: number; canonicalSourceUtf8Bytes: number };
 
-export type RefinementFailureReason = "no_credential" | "baseline_unavailable" | "model_unavailable" | "auth_rejected" | "quota_exhausted" | "rate_limited" | "delivery_unknown" | "protocol_invalid" | "request_rejected" | "provider_refused" | "truncated" | "oversized" | "budget_exceeded";
+export type RefinementFailureReason = "no_credential" | "baseline_unavailable" | "alignment_required" | "model_unavailable" | "auth_rejected" | "quota_exhausted" | "rate_limited" | "delivery_unknown" | "protocol_invalid" | "request_rejected" | "provider_refused" | "truncated" | "oversized" | "budget_exceeded";
 export type CancellationReason = "track_change" | "user" | "config_changed" | "credential_changed" | "baseline_superseded" | "experiment_disabled";
 export type ChunkFailure = { reason: RefinementFailureReason; status?: number; detail?: string };
 export type RefinementChunkRecord = { ids: string[]; requestJson: string; status: "pending" | "complete" | "failed"; attempts: number; repairs: number; tokens: { input: number; output: number }; usageEstimated: boolean; failure?: ChunkFailure };
@@ -99,7 +105,7 @@ export type RefinementRecord = {
   key: string;
   trackUri: string;
   trackLabel?: string;
-  schema: typeof AI_REFINEMENT_SCHEMA;
+  schema: RefinementSchema;
   configId: string;
   docDigest: string;
   chunkPlanVersion: typeof AI_CHUNK_PLAN_VERSION;
@@ -107,6 +113,7 @@ export type RefinementRecord = {
   providerVersion: string;
   modelName: string;
   targetLang: string;
+  layer?: DerivedLayer;
   createdAt: number;
   lastAccessedAt: number;
   bytes: number;

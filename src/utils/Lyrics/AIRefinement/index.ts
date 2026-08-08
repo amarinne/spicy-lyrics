@@ -7,6 +7,7 @@ export * from "./runtime.ts";
 export * from "./FakeProvider.ts";
 export * from "./Replay.ts";
 export * from "./Coordinator.ts";
+export * from "./LayerComposer.ts";
 export * from "./GeminiProvider.ts";
 export * from "./OpenAIProvider.ts";
 export * from "./DebugCapture.ts";

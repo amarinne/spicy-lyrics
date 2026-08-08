@@ -26,7 +26,7 @@ import { translateLyrics } from "./Fork/Translation.ts";
 import { $chineseCharacterForm, $japaneseReadingMode } from "../uiState.ts";
 import { buildProcessingContextKey } from "./ProcessingContext.ts";
 import { captureOriginalSnapshot, type CanonicalOriginalSnapshot } from "./AIRefinement/index.ts";
-import { aiRefinementCoordinator } from "./AIRefinement/singleton.ts";
+import { acceptAIRefinementBaseline, getAIRefinementBaseline } from "./AIRefinement/singleton.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
@@ -87,7 +87,7 @@ function createAndAttachSnapshot(lyrics: any): CanonicalOriginalSnapshot {
 }
 
 function acceptBaseline(trackUri: string, lyrics: any, stage: "intermediate" | "final", snapshot: CanonicalOriginalSnapshot): void {
-  aiRefinementCoordinator.acceptBaseline(trackUri, lyrics, stage, snapshot);
+  acceptAIRefinementBaseline(trackUri, lyrics, stage, snapshot);
 }
 
 async function finishProcessingInBackground(trackId: string, trackUri: string, lyrics: any, snapshot: CanonicalOriginalSnapshot): Promise<void> {
@@ -351,7 +351,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
 
 
   // Check if there's already data in localStorage
-  const coordinatorBaseline = aiRefinementCoordinator.getBaselineDocument(uri);
+  const coordinatorBaseline = getAIRefinementBaseline(uri);
   const savedLyricsData = coordinatorBaseline ? JSON.stringify(coordinatorBaseline) : $currentLyricsData.get();
 
   if (savedLyricsData && !isDev) {

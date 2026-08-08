@@ -87,6 +87,11 @@ export const $aiOpenAIBaseUrl = persistAtom<string>("aiOpenAIBaseUrl", "https://
 export const $aiSteeringInstructions = persistAtom<string>("aiSteeringInstructions", "");
 export type MeaningBackend = "google" | "ai_auto" | "ai_on_demand";
 export const $meaningBackend = persistAtom<MeaningBackend>("meaningBackend", _settings.aiRefinementEnabled ? "ai_on_demand" : "google");
+export type SoundBackend = "deterministic" | "ai_auto" | "ai_on_demand";
+export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
+export const $soundBackend = persistAtom<SoundBackend>("soundBackend", "deterministic");
+export const $soundTargetOrthography = persistAtom<SoundOrthography>("soundTargetOrthography", "Latin");
+export const $soundSteeringInstructions = persistAtom<string>("soundSteeringInstructions", "");
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {

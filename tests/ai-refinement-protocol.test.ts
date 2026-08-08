@@ -3,9 +3,11 @@ import { test } from "node:test";
 import {
   buildDocumentDigest,
   buildConfigId,
+  buildSystemPrompt,
   canonicalSerialize,
   classifyRefinementLine,
   enumerateRefinementLines,
+  enumerateSoundLines,
   captureOriginalSnapshot,
   planChunks,
   sha256Hex,
@@ -59,6 +61,39 @@ test("provider, custom endpoint, and normalized steering are part of config iden
   assert.notEqual(direct, steered);
   assert.equal(steered, normalized);
   assert.equal(await buildConfigId({ ...base, provider: "openai", instructions: "e\u0301" }), await buildConfigId({ ...base, provider: "openai", instructions: "é" }));
+  assert.notEqual(direct, await buildConfigId({ ...base, layer: "sound", provider: "openai", targetLang: "Latin" }));
+});
+
+test("Sound config identity includes source language, target orthography, and whole-line mode", async () => {
+  const base = { layer: "sound" as const, provider: "openai", providerVersion: "1", endpoint: "https://proxy.example/v1", modelName: "model", targetLang: "Latin", sourceLanguage: "ja", soundMode: "whole_line_v1" as const, instructions: "Keep names", promptVersion: 2, temperature: 0 as const, contextMode: "document_or_v1_chunks" as const };
+  const first = await buildConfigId(base);
+  assert.notEqual(first, await buildConfigId({ ...base, sourceLanguage: "ko" }));
+  assert.notEqual(first, await buildConfigId({ ...base, targetLang: "Hangul" }));
+  assert.notEqual(first, await buildConfigId({ ...base, soundMode: null }));
+});
+
+test("Sound protocol enumerates whole-line lyrics and rejects timed syllable documents", () => {
+  const rows = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "안녕", RomanizedText: "annyeong" }, { Text: "Hello" }] });
+  assert.deepEqual(rows.map((row) => [row.id, row.sourceText, row.baselineTranslatedText, row.targetField]), [
+    ["S0", "안녕", "annyeong", "RomanizedText"], ["S1", "Hello", undefined, "RomanizedText"],
+  ]);
+  assert.throws(() => enumerateSoundLines({ Type: "Syllable", Content: [] }), /sound_alignment_required/);
+  assert.match(buildSystemPrompt("sound", "Latin", "Use Revised Romanization."), /^Additional instructions:/);
+  assert.match(buildSystemPrompt("sound", "Latin"), /do not translate meaning/);
+  assert.match(buildSystemPrompt("sound", "Latin"), /Target orthography: Latin\.$/);
+});
+
+test("Sound validation permits unchanged readable segments while Meaning rejects them", () => {
+  const request = [{ id: "S0", c: "ordinary" as const, s: "Hello" }];
+  assert.deepEqual(validateProviderItems([{ id: "S0", t: "Hello" }], request, "sound", "Latin"), [{ id: "S0", t: "Hello" }]);
+  assert.throws(() => validateProviderItems([{ id: "S0", t: "안녕" }], request, "sound", "Latin"), /target_orthography_mismatch/);
+  assert.deepEqual(validateProviderItems([{ id: "S0", t: "안녕 Hello" }], request, "sound", "Hangul"), [{ id: "S0", t: "안녕 Hello" }]);
+  const korean = [{ id: "S0", c: "ordinary" as const, s: "안녕 Hello" }];
+  assert.throws(() => validateProviderItems([{ id: "S0", t: "annyeong Hello" }], korean, "sound", "Hangul"), /target_orthography_mismatch/);
+  assert.throws(() => validateProviderItems([{ id: "S0", t: "annyeong Hello" }], korean, "sound", "Kana"), /target_orthography_mismatch/);
+  assert.throws(() => validateProviderItems([{ id: "S0", t: "annyeong Hello" }], korean, "sound", "Cyrillic"), /target_orthography_mismatch/);
+  assert.deepEqual(validateProviderItems([{ id: "S0", t: "안녕 Hello" }], korean, "sound", "Hangul"), [{ id: "S0", t: "안녕 Hello" }]);
+  assert.throws(() => validateProviderItems([{ id: "S0", t: "Hello" }], request, "meaning"), /unchanged_ordinary/);
 });
 
 test("canonical original snapshot is deeply immutable and source-only", () => {

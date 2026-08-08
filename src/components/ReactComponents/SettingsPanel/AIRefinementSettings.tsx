@@ -4,10 +4,10 @@ import { AI_CONSENT_VERSION, deleteProviderCredential, loadProviderCredential, s
 import { normalizeOpenAIBaseUrl } from "../../../utils/Lyrics/AIRefinement/OpenAIProvider.ts";
 import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCaptures, downloadProviderCapture, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, listProviderCaptures, loadLatestProviderCapture, selectProviderCapture, subscribeProviderCapture, type ProviderCaptureSummary } from "../../../utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
-import { aiRefinementCoordinator, geminiRefinementProvider, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
+import { aiRefinementCoordinator, aiSoundCoordinator, geminiRefinementProvider, notifyAIRefinementConfigChanged, notifyAIRefinementCredentialChanged, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
 import { AI_MAX_STEERING_BYTES } from "../../../utils/Lyrics/AIRefinement/types.ts";
-import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $aiSteeringInstructions } from "../../../utils/stores.ts";
+import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $aiSteeringInstructions, $soundSteeringInstructions } from "../../../utils/stores.ts";
 import { Row, Select, Toggle } from "./components.tsx";
 
 const encoder = new TextEncoder();
@@ -48,6 +48,7 @@ export default function AIRefinementSettings() {
   const discoveredModelsJson = useStore($aiDiscoveredModelsByProvider);
   const openAIBaseUrl = useStore($aiOpenAIBaseUrl);
   const steeringInstructions = useStore($aiSteeringInstructions);
+  const soundInstructions = useStore($soundSteeringInstructions);
   const providerId: ProviderId = selectedProviderValue === "openai" ? "openai" : "gemini";
   const providerName = providerId === "gemini" ? "Gemini" : "OpenAI-compatible";
   const selectedModels = useMemo(() => stringMap(selectedModelsJson), [selectedModelsJson]);
@@ -61,6 +62,7 @@ export default function AIRefinementSettings() {
   const [probing, setProbing] = useState(false);
   const [probeFailures, setProbeFailures] = useState<string[]>([]);
   const [steeringDraft, setSteeringDraft] = useState(steeringInstructions);
+  const [soundDraft, setSoundDraft] = useState(soundInstructions);
   const [captureState, setCaptureState] = useState(getProviderCaptureState);
   const [captureInventory, setCaptureInventory] = useState<ProviderCaptureSummary[]>([]);
   const [showComparison, setShowComparison] = useState(false);
@@ -71,6 +73,7 @@ export default function AIRefinementSettings() {
   const consented = consentVersion === AI_CONSENT_VERSION;
   const byteCount = encoder.encode(draft).byteLength;
   const steeringByteCount = encoder.encode(steeringDraft).byteLength;
+  const soundByteCount = encoder.encode(soundDraft).byteLength;
   const cancelModelProbe = useCallback((updateState = true) => {
     probeGenerationRef.current++;
     probeControllerRef.current?.abort("configuration_changed");
@@ -88,6 +91,7 @@ export default function AIRefinementSettings() {
     return () => { current = false; };
   }, [providerId]);
   useEffect(() => setSteeringDraft(steeringInstructions), [steeringInstructions]);
+  useEffect(() => setSoundDraft(soundInstructions), [soundInstructions]);
   useEffect(() => subscribeProviderCapture((state) => { setCaptureState(state); void refreshCaptures(); }), [refreshCaptures]);
   useEffect(() => {
     void loadLatestProviderCapture().then(refreshCaptures);
@@ -101,7 +105,7 @@ export default function AIRefinementSettings() {
     if (!consented) { setStatus("Allow AI requests first"); return; }
     if (!draft || byteCount > 512) { setStatus("Key must be 1–512 UTF-8 bytes"); return; }
     await saveProviderCredential(providerId, draft);
-    aiRefinementCoordinator.notifyCredentialChanged();
+    notifyAIRefinementCredentialChanged();
     setSavedMask(maskKey(draft)); setDraft(""); setEditing(false); setStatus("Key saved");
   };
 
@@ -113,7 +117,7 @@ export default function AIRefinementSettings() {
   const remove = async () => {
     cancelModelProbe();
     await deleteProviderCredential(providerId);
-    aiRefinementCoordinator.notifyCredentialChanged();
+    notifyAIRefinementCredentialChanged();
     setSavedMask(""); setDraft(""); setEditing(false); setStatus("Key deleted");
   };
 
@@ -148,11 +152,14 @@ export default function AIRefinementSettings() {
   };
 
   const testModels = async () => {
-    if (providerId !== "openai" || !discoveredModels.length) return;
+    if (!discoveredModels.length) return;
     const secret = await loadProviderCredential(providerId);
     if (!secret) { setStatus("Save a key first"); return; }
-    try { openAIRefinementProvider.setBaseUrl(normalizeOpenAIBaseUrl(openAIBaseUrl)); }
-    catch { setStatus("Invalid API base URL"); return; }
+    if (providerId === "openai") {
+      try { openAIRefinementProvider.setBaseUrl(normalizeOpenAIBaseUrl(openAIBaseUrl)); }
+      catch { setStatus("Invalid API base URL"); return; }
+    }
+    const provider = providerId === "gemini" ? geminiRefinementProvider : openAIRefinementProvider;
     cancelModelProbe(false);
     const controller = new AbortController();
     probeControllerRef.current = controller;
@@ -172,7 +179,7 @@ export default function AIRefinementSettings() {
       controller.signal.addEventListener("abort", abortCall, { once: true });
       const timeout = window.setTimeout(() => callController.abort("timeout"), 30_000);
       try {
-        const result = await openAIRefinementProvider.probeModel(model, { secret }, callController.signal);
+        const result = await provider.probeModel(model, { secret }, callController.signal);
         if (controller.signal.aborted || probeGenerationRef.current !== generation) return;
         if (result.ok) {
           passed.push(model);
@@ -186,7 +193,7 @@ export default function AIRefinementSettings() {
     }
     if (controller.signal.aborted || probeGenerationRef.current !== generation) return;
     const discoveredByProvider = stringMap($aiDiscoveredModelsByProvider.get());
-    discoveredByProvider.openai = JSON.stringify(passed);
+    discoveredByProvider[providerId] = JSON.stringify(passed);
     $aiDiscoveredModelsByProvider.set(JSON.stringify(discoveredByProvider));
     setProbeFailures(failures);
     setStatus(`Models tested · ${passed.length}/${models.length} available`);
@@ -208,22 +215,22 @@ export default function AIRefinementSettings() {
     const track = item.trackLabel ?? item.trackUri ?? "Unknown track";
     const model = item.model?.replace(/^models\//, "") ?? "No model response";
     const attempts = `${item.attempts} attempt${item.attempts === 1 ? "" : "s"}`;
-    return `${track} · ${model} · ${attempts} · ${new Date(item.updatedAt).toLocaleString()}`;
+    return `${track} · ${item.layer === "sound" ? "Sound" : "Meaning"} · ${model} · ${attempts} · ${new Date(item.updatedAt).toLocaleString()}`;
   });
 
   return (
     <div className="sl-ai-settings">
       <Row label="Allow AI requests" description="Sends lyrics to the selected provider and may incur charges.">
-        <Toggle checked={consented} onChange={(enabled) => { cancelModelProbe(); $aiConsentVersion.set(enabled ? AI_CONSENT_VERSION : 0); aiRefinementCoordinator.notifyCredentialChanged(); }} />
+        <Toggle checked={consented} onChange={(enabled) => { cancelModelProbe(); $aiConsentVersion.set(enabled ? AI_CONSENT_VERSION : 0); notifyAIRefinementCredentialChanged(); }} />
       </Row>
       <Row label="Provider">
         <Select value={providerId} options={["gemini", "openai"]} labels={["Gemini", "OpenAI-compatible"]} onChange={(value) => {
-          cancelModelProbe(); $aiSelectedProvider.set(value); aiRefinementCoordinator.notifyConfigChanged();
+          cancelModelProbe(); $aiSelectedProvider.set(value); notifyAIRefinementConfigChanged();
         }} />
       </Row>
       {providerId === "openai" && (
         <Row label="API base URL" description="HTTPS required. Plain HTTP is allowed only for localhost development." stacked>
-          <input className="sl-sp-text-input" type="text" value={openAIBaseUrl} onChange={(event) => { cancelModelProbe(); $aiOpenAIBaseUrl.set(event.currentTarget.value); }} onBlur={() => aiRefinementCoordinator.notifyConfigChanged()} autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} placeholder="https://api.openai.com/v1" />
+          <input className="sl-sp-text-input" type="text" value={openAIBaseUrl} onChange={(event) => { cancelModelProbe(); $aiOpenAIBaseUrl.set(event.currentTarget.value); }} onBlur={notifyAIRefinementConfigChanged} autoComplete="off" autoCorrect="off" autoCapitalize="off" spellCheck={false} placeholder="https://api.openai.com/v1" />
         </Row>
       )}
       <Row label="API key" description="Use a dedicated key with a spend cap." stacked>
@@ -239,7 +246,7 @@ export default function AIRefinementSettings() {
           <div className="sl-ai-actions">
             {savedMask && !editing ? <button className="sl-sp-btn" type="button" onClick={edit}>Edit</button> : <button className="sl-sp-btn" type="button" onClick={save} disabled={!draft || byteCount > 512}>Save</button>}
             <button className="sl-sp-btn" type="button" onClick={testConnection} disabled={!savedMask || testing || probing || !consented}>{testing ? "Testing…" : "Test connection"}</button>
-            {providerId === "openai" && <button className="sl-sp-btn" type="button" onClick={testModels} disabled={!savedMask || !discoveredModels.length || testing || probing || !consented}>{probing ? "Testing models…" : "Test models"}</button>}
+            <button className="sl-sp-btn" type="button" onClick={testModels} disabled={!savedMask || !discoveredModels.length || testing || probing || !consented}>{probing ? "Testing models…" : "Test models"}</button>
             <button className="sl-sp-btn" type="button" onClick={remove} disabled={!savedMask}>Delete</button>
           </div>
           {status && <span className="sl-ai-status">{status}</span>}
@@ -252,17 +259,24 @@ export default function AIRefinementSettings() {
           cancelModelProbe(); const names = stringMap($aiSelectedModelsByProvider.get()); names[providerId] = value; $aiSelectedModelsByProvider.set(JSON.stringify(names));
           const descriptors = stringMap($aiSelectedModelDescriptorsByProvider.get());
           const descriptor = discoveredModels.find((model) => model.name === value); descriptors[providerId] = descriptor ? JSON.stringify(descriptor) : ""; $aiSelectedModelDescriptorsByProvider.set(JSON.stringify(descriptors));
-          aiRefinementCoordinator.notifyConfigChanged();
+          notifyAIRefinementConfigChanged();
         }} disabled={!discoveredModels.length} />
       </Row>
-      <Row label="AI instructions" description="Optional guidance for mixed languages, dialect, tone, names, slang, or cultural nuance." stacked>
+      <Row label="Meaning Instructions" stacked>
         <div className="sl-ai-secret-controls">
           <textarea className="sl-sp-text-input sl-ai-instructions" value={steeringDraft} onChange={(event) => setSteeringDraft(event.currentTarget.value)} placeholder="Example: Preserve Vietnamese honorifics; translate the Korean verse informally." />
           <span className="sl-ai-note">{steeringByteCount}/{AI_MAX_STEERING_BYTES} UTF-8 bytes</span>
           <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={steeringByteCount > AI_MAX_STEERING_BYTES || steeringDraft === steeringInstructions} onClick={() => { $aiSteeringInstructions.set(steeringDraft); aiRefinementCoordinator.notifyConfigChanged(); }}>Apply instructions</button></div>
         </div>
       </Row>
-      {providerId === "openai" && <Row label="Request history" description="Every paid refinement is saved locally, including lyric text, until explicitly deleted." stacked>
+      <Row label="Sound Instructions" stacked>
+        <div className="sl-ai-secret-controls">
+          <textarea className="sl-sp-text-input sl-ai-instructions" value={soundDraft} onChange={(event) => setSoundDraft(event.currentTarget.value)} placeholder="Example: Use Egyptian Arabic pronunciation; keep English names unchanged." />
+          <span className="sl-ai-note">{soundByteCount}/{AI_MAX_STEERING_BYTES} UTF-8 bytes</span>
+          <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={soundByteCount > AI_MAX_STEERING_BYTES || soundDraft === soundInstructions} onClick={() => { $soundSteeringInstructions.set(soundDraft); aiSoundCoordinator.notifyConfigChanged(); }}>Apply instructions</button></div>
+        </div>
+      </Row>
+      <Row label="Request history" description="Every paid refinement is saved locally, including lyric text, until explicitly deleted." stacked>
         {!!captureInventory.length && <div className="sl-ai-capture-picker">
           <span>Saved comparisons</span>
           <Select value={captureState.captureId ?? ""} options={captureOptions} labels={captureLabels} onChange={(id) => {
@@ -297,16 +311,16 @@ export default function AIRefinementSettings() {
             <span>{captureMetadata.trackLabel ?? captureMetadata.trackUri ?? "Unknown track"}</span>
           </div>}
           {captureMetadata?.systemPrompt && <details className="sl-ai-system-prompt"><summary>System prompt</summary><pre>{captureMetadata.systemPrompt}</pre></details>}
-          <div className="sl-ai-comparison-head"><span>Google baseline</span><span>AI candidate</span></div>
+          <div className="sl-ai-comparison-head"><span>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Google baseline"}</span><span>{captureMetadata?.layer === "sound" ? "AI sound" : "AI candidate"}</span></div>
           {getProviderComparisonRows().map((row) => <div className="sl-ai-comparison-row" key={row.id}><span><small>{row.id}</small>{row.baseline || "—"}</span><span>{row.ai || "—"}</span></div>)}
         </div>}
-      </Row>}
+      </Row>
       <Row label="Saved AI results" description="IndexedDB cache entries for paid refinement work." stacked>
         <div className="sl-ai-cache-inventory">
           <button className="sl-sp-btn" type="button" onClick={() => void listRefinementCacheInventory().then(setCacheInventory)}>Refresh</button>
           {cacheInventory.length ? cacheInventory.map((item) => <div className="sl-ai-cache-item" key={item.key}>
             <span>{item.trackLabel ?? item.trackUri}</span>
-            <small>{item.modelName} · {item.status} · {item.tokens.input + item.tokens.output} tokens · {new Date(item.lastAccessedAt).toLocaleString()}</small>
+            <small>{item.layer === "sound" ? "Sound" : "Meaning"} · {item.modelName} · {item.status} · {item.tokens.input + item.tokens.output} tokens · {new Date(item.lastAccessedAt).toLocaleString()}</small>
           </div>) : <span className="sl-ai-note">No saved AI results.</span>}
         </div>
       </Row>

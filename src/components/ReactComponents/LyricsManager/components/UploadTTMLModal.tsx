@@ -10,7 +10,7 @@ import { LocalLyricsManager } from "../../../../utils/Lyrics/manager";
 import { IconButton } from "./IconButton";
 import { ArrowLeftIcon, UploadIcon } from "./Icons";
 import { captureOriginalSnapshot } from "../../../../utils/Lyrics/AIRefinement/index.ts";
-import { aiRefinementCoordinator } from "../../../../utils/Lyrics/AIRefinement/singleton.ts";
+import { acceptAIRefinementBaseline, invalidateAIRefinementBaseline } from "../../../../utils/Lyrics/AIRefinement/singleton.ts";
 import { translationEnabled, translationTargetLang } from "../../../../utils/Lyrics/lyrics.ts";
 
 type UploadMode = "persistent" | "temporary";
@@ -55,7 +55,7 @@ export default function UploadTTMLModal({ onBack, onDone }: UploadTTMLModalProps
 
         if (mode === "persistent") {
           await LocalLyricsManager.put(uri, ttml);
-          aiRefinementCoordinator.invalidateBaseline(uri);
+          invalidateAIRefinementBaseline(uri);
           $currentLyricsData.set("");
           setTimeout(() => {
             fetchLyrics(uri)
@@ -81,7 +81,7 @@ export default function UploadTTMLModal({ onBack, onDone }: UploadTTMLModalProps
           dataToSave.ProcessingPending = false;
           dataToSave.RomanizationPending = false;
           dataToSave.TranslationPending = false;
-          aiRefinementCoordinator.acceptBaseline(uri, dataToSave, "final", originalSnapshot);
+          acceptAIRefinementBaseline(uri, dataToSave, "final", originalSnapshot);
           toast.success("Lyrics Parsed and Applied!", { duration: 5000 });
           onDone("temporary");
         }

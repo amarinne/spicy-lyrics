@@ -1,12 +1,12 @@
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
-import { cloneSnapshotDocument, enumerateRefinementLines } from "./document.ts";
+import { cloneSnapshotDocument, enumerateRefinementLines, enumerateSoundLines } from "./document.ts";
 import { refinementRecordKey, sumBudgetConsumed } from "./cache.ts";
 import { buildConfigId, buildDocumentDigest, planChunks } from "./protocol.ts";
 import { executeChunk } from "./runtime.ts";
-import { AI_CHUNK_PLAN_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord } from "./types.ts";
+import { AI_CHUNK_PLAN_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema } from "./types.ts";
 import { captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
 
-export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; credential: ProviderCredential | null };
+export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; credential?: ProviderCredential | null };
 export type RefinementState = {
   status: "idle" | "requested" | "refining" | "refined" | "unchanged" | "failed" | "cancelled";
   done?: number;
@@ -18,17 +18,19 @@ export type RefinementState = {
   origin?: "baseline" | "overlay";
   runId?: number;
 };
-type BaselineSession = { document: any; snapshot: CanonicalOriginalSnapshot; stage: "intermediate" | "final"; revision: number; targetLang?: string; docDigest?: string; rows?: ReturnType<typeof enumerateRefinementLines>; configId?: string };
+type BaselineSession = { document: any; snapshot: CanonicalOriginalSnapshot; stage: "intermediate" | "final"; revision: number; publicationRevision: number; targetLang?: string; docDigest?: string; rows?: ReturnType<typeof enumerateRefinementLines>; configId?: string };
 type ActiveRun = { trackUri: string; baselineRevision: number; configId: string; configRevision: number; credentialRevision: number; runId: number; controller: AbortController };
 
 export class AIRefinementCoordinator {
+  private readonly layer: DerivedLayer;
   private readonly deps: {
     cache: RefinementCache;
     provider?: RefinementProvider;
     getProvider?: (providerId: string) => RefinementProvider | null;
     getTrackLabel?: (trackUri: string) => string | undefined;
     getConfig: () => Promise<CoordinatorConfig | null>;
-    publish: (trackUri: string, document: any, origin: "baseline" | "overlay") => void;
+    getCredential?: (providerId?: string) => Promise<ProviderCredential | null>;
+    publish: (trackUri: string, document: any, origin: "baseline" | "overlay", publicationRevision: number) => void;
     ensurePersistence?: () => Promise<boolean>;
   };
   private baselines = new Map<string, BaselineSession>();
@@ -48,19 +50,21 @@ export class AIRefinementCoordinator {
   private sessionTokens = { input: 0, output: 0 };
 
   constructor(deps: {
+    layer?: DerivedLayer;
     cache: RefinementCache;
     provider?: RefinementProvider;
     getProvider?: (providerId: string) => RefinementProvider | null;
     getTrackLabel?: (trackUri: string) => string | undefined;
     getConfig: () => Promise<CoordinatorConfig | null>;
-    publish: (trackUri: string, document: any, origin: "baseline" | "overlay") => void;
+    getCredential?: (providerId?: string) => Promise<ProviderCredential | null>;
+    publish: (trackUri: string, document: any, origin: "baseline" | "overlay", publicationRevision: number) => void;
     ensurePersistence?: () => Promise<boolean>;
-  }) { this.deps = deps; }
+  }) { this.layer = deps.layer ?? "meaning"; this.deps = deps; }
 
-  acceptBaseline(trackUri: string, document: any, stage: "intermediate" | "final", originalSnapshot: CanonicalOriginalSnapshot): void {
+  acceptBaseline(trackUri: string, document: any, stage: "intermediate" | "final", originalSnapshot: CanonicalOriginalSnapshot, publicationRevision?: number): void {
     const revision = ++this.revision;
     if (this.active?.trackUri === trackUri) this.cancel(trackUri, "baseline_superseded");
-    const session = { document: structuredClone(document), snapshot: originalSnapshot, stage, revision };
+    const session = { document: structuredClone(document), snapshot: originalSnapshot, stage, revision, publicationRevision: publicationRevision ?? revision };
     this.baselines.set(trackUri, session);
     this.overlays.delete(trackUri);
     this.publishBaseline(trackUri);
@@ -156,17 +160,25 @@ export class AIRefinementCoordinator {
     const provider = this.providerFor(config);
     if (!provider) return;
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
-    const sourceRows = enumerateRefinementLines(cloneSnapshotDocument(session.snapshot), config.targetLang);
-    const baselineRows = enumerateRefinementLines(session.document, config.targetLang);
+    let sourceRows: ReturnType<typeof enumerateRefinementLines>;
+    let baselineRows: ReturnType<typeof enumerateRefinementLines>;
+    try {
+      sourceRows = this.layer === "sound" ? enumerateSoundLines(cloneSnapshotDocument(session.snapshot)) : enumerateRefinementLines(cloneSnapshotDocument(session.snapshot), config.targetLang);
+      baselineRows = this.layer === "sound" ? enumerateSoundLines(session.document) : enumerateRefinementLines(session.document, config.targetLang);
+    } catch (error) {
+      if (this.layer === "sound" && error instanceof TypeError && error.message === "sound_alignment_required") this.setState(trackUri, { status: "failed", reason: "alignment_required" });
+      return;
+    }
     const byId = new Map(baselineRows.map((row) => [row.id, row]));
     const rows = sourceRows.map((row) => ({ ...row, baselineTranslatedText: byId.get(row.id)?.baselineTranslatedText }));
     const docDigest = await buildDocumentDigest(rows);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
-    const configId = await this.configId(config, provider);
+    const configId = await this.configId(config, provider, session);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
     session.rows = rows; session.targetLang = config.targetLang; session.docDigest = docDigest; session.configId = configId;
     if (!this.enabled || !this.baselineEligible(trackUri, session) || this.suppressed.has(this.suppressionKey(trackUri, configId, docDigest))) return;
-    const cached = await this.deps.cache.get(refinementRecordKey(trackUri, configId, docDigest));
+    if (this.layer === "sound" && this.mode === "auto" && trackUri !== this.currentTrackUri) return;
+    const cached = await this.deps.cache.get(refinementRecordKey(trackUri, configId, docDigest, this.schema()));
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision || session.configId !== configId || session.docDigest !== docDigest) return;
     if (cached?.status === "complete") this.applyRecord(trackUri, session, cached);
     else if (this.mode === "auto" && trackUri === this.currentTrackUri && !this.active) this.refine(trackUri);
@@ -181,13 +193,14 @@ export class AIRefinementCoordinator {
     if (!config) { this.failActive(identity, "model_unavailable"); return; }
     const provider = this.providerFor(config);
     if (!provider) { this.failActive(identity, "model_unavailable"); return; }
+    if (this.layer === "sound" && session.document?.Type === "Syllable") { this.failActive(identity, "alignment_required"); return; }
     if (!session.rows || !session.docDigest || !session.configId) await this.prepareFinalBaseline(trackUri, session.revision, identity.configRevision);
     if (!this.identityCurrent(identity)) return;
     session = this.baselines.get(trackUri);
     if (!session || !this.baselineEligible(trackUri, session)) { this.failActive(identity, "baseline_unavailable"); return; }
     identity.configId = session.configId!;
     this.suppressed.delete(this.suppressionKey(trackUri, session.configId, session.docDigest));
-    const key = refinementRecordKey(trackUri, session.configId, session.docDigest);
+    const key = refinementRecordKey(trackUri, session.configId, session.docDigest, this.schema());
     const cached = await this.deps.cache.get(key);
     if (!this.identityCurrent(identity)) return;
     if (cached?.status === "complete") {
@@ -195,13 +208,15 @@ export class AIRefinementCoordinator {
       if (this.active?.runId === identity.runId) this.active = null;
       return;
     }
-    if (!config.credential) { this.failActive(identity, "no_credential"); return; }
+    const credential = config.credential !== undefined ? config.credential : await this.deps.getCredential?.(config.providerId);
+    if (!this.identityCurrent(identity)) return;
+    if (!credential) { this.failActive(identity, "no_credential"); return; }
     let plan;
-    try { plan = planChunks(session.rows!, config.targetLang, config.model, config.instructions); } catch { this.failActive(identity, "oversized"); return; }
+    try { plan = planChunks(session.rows!, config.targetLang, config.model, config.instructions, this.layer); } catch { this.failActive(identity, "oversized"); return; }
     this.deps.cache.pin(key);
     let record = cached ?? this.newRecord(key, trackUri, session, config, provider, plan.chunks);
     const needsProviderRequest = plan.chunks.some((chunk) => record.chunks[chunk.id]?.status !== "complete");
-    const providerCaptureId = needsProviderRequest ? captureProviderBaseline(trackUri, this.deps.getTrackLabel?.(trackUri) ?? null, session.rows!) : null;
+    const providerCaptureId = needsProviderRequest ? captureProviderBaseline(trackUri, this.deps.getTrackLabel?.(trackUri) ?? null, session.rows!, this.layer) : null;
     let cacheWarning: "write_failed" | undefined;
     let persistenceWarning: "denied" | undefined;
     const ledgerKey = `${trackUri}|${session.configId}`;
@@ -218,7 +233,7 @@ export class AIRefinementCoordinator {
         this.setState(trackUri, { status: "refining", done: Object.keys(record.items).length, total: session.rows.filter((row) => row.sendDisposition === "sent").length, runId: identity.runId, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } });
         const records = await this.deps.cache.listByTrackConfig(trackUri, session.configId);
         if (!this.identityCurrent(identity)) return;
-        const execution = await executeChunk({ provider, chunk, config: { endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential: config.credential, repair: false, maxOutputTokens: 0 }, signal: identity.controller.signal, budgetAlreadyConsumed: sumBudgetConsumed(records) + (this.unpersistedBudget.get(ledgerKey) ?? 0), previous: existing });
+        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, maxOutputTokens: 0, captureId: providerCaptureId }, signal: identity.controller.signal, budgetAlreadyConsumed: sumBudgetConsumed(records) + (this.unpersistedBudget.get(ledgerKey) ?? 0), previous: existing });
         if (!this.identityCurrent(identity)) return;
         record.chunks[chunk.id] = execution.record;
         record.budgetConsumed += execution.budgetConsumed;
@@ -256,13 +271,18 @@ export class AIRefinementCoordinator {
     this.setState(trackUri, { status: "refined", cacheWarning, persistenceWarning, origin: "overlay", tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } });
   }
 
-  private publishBaseline(trackUri: string): void { const session = this.baselines.get(trackUri); if (session) this.deps.publish(trackUri, this.renderable(session.document), "baseline"); }
+  private publishBaseline(trackUri: string): void { const session = this.baselines.get(trackUri); if (session) this.deps.publish(trackUri, this.renderable(session.document), "baseline", session.publicationRevision); }
   private publishComposed(trackUri: string): void {
     const session = this.baselines.get(trackUri); const overlay = this.overlays.get(trackUri); if (!session || !overlay) return;
     const composed = this.renderable(session.document);
-    for (const row of enumerateRefinementLines(composed, session.targetLang ?? "en")) if (row.target && overlay[row.id]) (row.target as any).TranslatedText = overlay[row.id];
-    composed.IncludesTranslation = true;
-    this.deps.publish(trackUri, composed, "overlay");
+    const rows = this.layer === "sound" ? enumerateSoundLines(composed) : enumerateRefinementLines(composed, session.targetLang ?? "en");
+    for (const row of rows) if (row.target && overlay[row.id]) {
+      if (this.layer === "sound") { (row.target as any).RomanizedText = overlay[row.id]; (row.target as any).TransliteratedText = overlay[row.id]; }
+      else (row.target as any).TranslatedText = overlay[row.id];
+    }
+    if (this.layer === "sound") { composed.HasTransliterations = true; composed.IncludesRomanization = true; }
+    else composed.IncludesTranslation = true;
+    this.deps.publish(trackUri, composed, "overlay", session.publicationRevision);
   }
   private renderable(document: any): any { const copy = structuredClone(document); delete copy.AIOriginalSnapshot; return copy; }
   private setState(trackUri: string, state: RefinementState): void { this.states.set(trackUri, state); for (const listener of this.listeners) listener(trackUri, state); }
@@ -291,9 +311,12 @@ export class AIRefinementCoordinator {
     if (!this.deps.provider || (config.providerId && config.providerId !== this.deps.provider.id)) return null;
     return this.deps.provider;
   }
-  private configId(config: CoordinatorConfig, provider: RefinementProvider): Promise<string> { return buildConfigId({ provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null, modelName: config.model.name, targetLang: config.targetLang, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks" }); }
+  private configId(config: CoordinatorConfig, provider: RefinementProvider, session: BaselineSession): Promise<string> {
+    return buildConfigId({ layer: this.layer, provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? String(session?.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null, soundMode: this.layer === "sound" ? "whole_line_v1" : null, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks" });
+  }
+  private schema(): RefinementSchema { return this.layer === "sound" ? AI_SOUND_REFINEMENT_SCHEMA : AI_REFINEMENT_SCHEMA; }
   private newRecord(key: string, trackUri: string, session: BaselineSession, config: CoordinatorConfig, provider: RefinementProvider, chunks: ReadonlyArray<{ id: string; items: ReadonlyArray<{ id: string }>; requestJson: string }>): RefinementRecord {
     const now = Date.now();
-    return { key, trackUri, trackLabel: this.deps.getTrackLabel?.(trackUri), schema: AI_REFINEMENT_SCHEMA, configId: session.configId!, docDigest: session.docDigest!, chunkPlanVersion: AI_CHUNK_PLAN_VERSION, providerId: provider.id, providerVersion: config.providerVersion, modelName: config.model.name, targetLang: config.targetLang, createdAt: now, lastAccessedAt: now, bytes: 0, status: "partial", tokens: { input: 0, output: 0 }, usageEstimated: false, budgetConsumed: 0, items: {}, chunks: Object.fromEntries(chunks.map((chunk) => [chunk.id, { ids: chunk.items.map((item) => item.id), requestJson: chunk.requestJson, status: "pending", attempts: 0, repairs: 0, tokens: { input: 0, output: 0 }, usageEstimated: false }])) };
+    return { key, trackUri, trackLabel: this.deps.getTrackLabel?.(trackUri), schema: this.schema(), layer: this.layer, configId: session.configId!, docDigest: session.docDigest!, chunkPlanVersion: AI_CHUNK_PLAN_VERSION, providerId: provider.id, providerVersion: config.providerVersion, modelName: config.model.name, targetLang: config.targetLang, createdAt: now, lastAccessedAt: now, bytes: 0, status: "partial", tokens: { input: 0, output: 0 }, usageEstimated: false, budgetConsumed: 0, items: {}, chunks: Object.fromEntries(chunks.map((chunk) => [chunk.id, { ids: chunk.items.map((item) => item.id), requestJson: chunk.requestJson, status: "pending", attempts: 0, repairs: 0, tokens: { input: 0, output: 0 }, usageEstimated: false }])) };
   }
 }

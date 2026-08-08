@@ -7,7 +7,11 @@ import {
   $simpleLyricsMode,
   $simpleLyricsModeRenderingType,
   $meaningBackend,
+  $soundBackend,
+  $soundTargetOrthography,
   type MeaningBackend,
+  type SoundBackend,
+  type SoundOrthography,
 } from "../../../utils/stores.ts";
 import {
   $chineseCharacterForm,
@@ -96,6 +100,8 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const translationEnabled = useStore($translationEnabled);
   const translationTargetLang = useStore($translationTargetLang);
   const meaningBackend = useStore($meaningBackend);
+  const soundBackend = useStore($soundBackend);
+  const soundTargetOrthography = useStore($soundTargetOrthography);
   const lyricsCopyFormat = useStore($lyricsCopyFormat);
   const showChineseTranslitButton = useStore($showChineseTranslitButton);
 
@@ -116,6 +122,8 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showCyrillicKeepSigns = matches(query, "Keep Cyrillic Signs", "Preserve Cyrillic hard and soft sign marks.");
   const showLyricsTranslation = matches(query, "Lyrics Translation", "Show translated lyrics under each line.");
   const showMeaningBackend = matches(query, "Translation Backend", "Choose Google, automatic AI, or on-demand AI translation.");
+  const showSoundBackend = matches(query, "Sound Backend", "Choose built-in or AI pronunciation.");
+  const showSoundTarget = matches(query, "Target Orthography", "Choose the script used for AI pronunciation.");
   const showTranslationTarget = matches(query, "Translation Target Language", "Language used for lyrics translation.");
   const showChineseQuickButton = matches(query, "Chinese Transliteration Quick Button", "Show the pinyin/jyutping toggle in lyrics controls when Chinese lyrics are detected.");
   const showCopyFormat = matches(query, "Copy Lyrics Format", "Choose what the lyrics copy button writes to clipboard.");
@@ -136,6 +144,8 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
     showCyrillicKeepSigns ||
     showLyricsTranslation ||
     showMeaningBackend ||
+    showSoundBackend ||
+    showSoundTarget ||
     showTranslationTarget ||
     showChineseQuickButton ||
     showCopyFormat;
@@ -205,6 +215,18 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
             options={CHINESE_TRANSLIT_OPTIONS}
             onChange={(v) => $chineseTranslitMode.set(v as "pinyin" | "jyutping")}
           />
+        </Row>
+      )}
+
+      {showSoundBackend && (
+        <Row label="Sound Backend">
+          <Select value={soundBackend} options={["deterministic", "ai_auto", "ai_on_demand"]} labels={["Built-in", "AI automatic", "AI on demand"]} onChange={(value) => $soundBackend.set(value as SoundBackend)} />
+        </Row>
+      )}
+
+      {showSoundTarget && soundBackend !== "deterministic" && (
+        <Row label="Target Orthography">
+          <Select value={soundTargetOrthography} options={["Latin", "Kana", "Hangul", "Cyrillic"]} onChange={(value) => $soundTargetOrthography.set(value as SoundOrthography)} />
         </Row>
       )}
 

@@ -125,6 +125,30 @@ test("exact paid cache auto-applies without a credential", async () => {
   assert.equal(second.provider.calls.length, 0);
 });
 
+test("exact Sound cache is checked before credential storage or provider work", async () => {
+  const cache = new MemoryRefinementCache();
+  const soundConfig = { ...config, targetLang: "Latin" };
+  const paidProvider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "sarang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 32 } })]);
+  const paid = new AIRefinementCoordinator({ layer: "sound", cache, provider: paidProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  paid.setEnabled(true); paid.onTrackChanged("spotify:track:test");
+  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "builtin" }], ProcessingPending: false, RomanizationPending: false };
+  const snapshot = captureOriginalSnapshot(source, null);
+  paid.acceptBaseline("spotify:track:test", source, "final", snapshot);
+  paid.refine("spotify:track:test");
+  await waitFor(() => paid.getState("spotify:track:test").status === "refined");
+  assert.equal(cache.snapshot()[0].schema, 2);
+  assert.match(cache.snapshot()[0].key, /\|2\|/);
+
+  let credentialReads = 0;
+  const provider = new FakeRefinementProvider();
+  const cached = new AIRefinementCoordinator({ layer: "sound", cache, provider, getConfig: async () => ({ ...soundConfig, credential: undefined }), getCredential: async () => { credentialReads++; return null; }, publish: () => undefined });
+  cached.setEnabled(true); cached.onTrackChanged("spotify:track:test");
+  cached.acceptBaseline("spotify:track:test", source, "final", snapshot);
+  await waitFor(() => cached.getState("spotify:track:test").status === "refined");
+  assert.equal(credentialReads, 0);
+  assert.equal(provider.calls.length, 0);
+});
+
 test("local tracks, missing credential and unsettled baselines fail closed", async () => {
   const missing = harness(new FakeRefinementProvider(), new MemoryRefinementCache(), async () => ({ ...config, credential: null }));
   const value = baseline();
@@ -329,6 +353,51 @@ test("automatic AI config changes dispatch only for the current track", async ()
   coordinator.notifyConfigChanged();
   await waitFor(() => provider.calls.length === 1, "current-track automatic call");
   assert.equal(provider.calls[0].request.items[0].s, "今");
+});
+
+test("automatic AI Sound bills only the current track", async () => {
+  const provider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "sa-rang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 32 } })]);
+  const soundConfig = { ...config, targetLang: "Latin" };
+  const coordinator = new AIRefinementCoordinator({ layer: "sound", cache: new MemoryRefinementCache(), provider, getConfig: async () => soundConfig, publish: () => undefined });
+  coordinator.setEnabled(true);
+  coordinator.setMode("auto");
+  coordinator.onTrackChanged("spotify:track:current");
+  const old = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "builtin" }], ProcessingPending: false, RomanizationPending: false };
+  coordinator.acceptBaseline("spotify:track:prefetch", old, "final", captureOriginalSnapshot(old, null));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(provider.calls.length, 0);
+
+  coordinator.acceptBaseline("spotify:track:current", old, "final", captureOriginalSnapshot(old, null));
+  await waitFor(() => coordinator.getState("spotify:track:current").status === "refined");
+  assert.equal(provider.calls.length, 1);
+});
+
+test("Sound coordinator publishes whole-line reading overlays and rejects syllable-timed lyrics", async () => {
+  const provider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "sa-rang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 32 } })]);
+  const cache = new MemoryRefinementCache();
+  const publications: any[] = [];
+  const soundConfig = { ...config, targetLang: "Latin", instructions: "Use a readable pronunciation spelling." };
+  const coordinator = new AIRefinementCoordinator({ layer: "sound", cache, provider, getConfig: async () => soundConfig, publish: (_trackUri, document, origin) => publications.push({ document: structuredClone(document), origin }) });
+  coordinator.setEnabled(true);
+  coordinator.onTrackChanged("spotify:track:test");
+  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "sarang" }], ProcessingPending: false, RomanizationPending: false };
+  const snapshot = captureOriginalSnapshot(source, null);
+  coordinator.acceptBaseline("spotify:track:test", source, "final", snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(publications.at(-1).document.Lines[0].RomanizedText, "sa-rang");
+  assert.equal(publications.at(-1).document.Lines[0].TransliteratedText, "sa-rang");
+  assert.equal(publications.at(-1).document.IncludesRomanization, true);
+
+  const timed = new AIRefinementCoordinator({ layer: "sound", cache: new MemoryRefinementCache(), provider, getConfig: async () => soundConfig, publish: () => undefined });
+  timed.setEnabled(true);
+  timed.onTrackChanged("spotify:track:timed");
+  const timedSource = { Type: "Syllable", Language: "jpn", Content: [], ProcessingPending: false, RomanizationPending: false };
+  timed.acceptBaseline("spotify:track:timed", timedSource, "final", captureOriginalSnapshot(timedSource, null));
+  timed.refine("spotify:track:timed");
+  await waitFor(() => timed.getState("spotify:track:timed").status === "failed");
+  assert.equal(timed.getState("spotify:track:timed").reason, "alignment_required");
+  assert.equal(provider.calls.length, 1);
 });
 
 test("config change and global clear visibly restore the baseline", async () => {

@@ -5,11 +5,11 @@ import type { RefinementCache, RefinementRecord } from "./types.ts";
 const MAX_RECORDS = 200;
 const MAX_BYTES = 16 * 1024 * 1024;
 
-export type RefinementCacheInventoryItem = { key: string; trackUri: string; trackLabel?: string; providerId: string; modelName: string; status: RefinementRecord["status"]; tokens: { input: number; output: number }; lastAccessedAt: number; bytes: number };
+export type RefinementCacheInventoryItem = { key: string; trackUri: string; trackLabel?: string; layer: "meaning" | "sound"; providerId: string; modelName: string; status: RefinementRecord["status"]; tokens: { input: number; output: number }; lastAccessedAt: number; bytes: number };
 
 export async function listRefinementCacheInventory(): Promise<RefinementCacheInventoryItem[]> {
   const records = await (await dbPromise).getAll(ObjectStores.AIRefinements) as RefinementRecord[];
-  return records.sort((left, right) => right.lastAccessedAt - left.lastAccessedAt).map(({ key, trackUri, trackLabel, providerId, modelName, status, tokens, lastAccessedAt, bytes }) => ({ key, trackUri, trackLabel, providerId, modelName, status, tokens, lastAccessedAt, bytes }));
+  return records.sort((left, right) => right.lastAccessedAt - left.lastAccessedAt).map(({ key, trackUri, trackLabel, layer, providerId, modelName, status, tokens, lastAccessedAt, bytes }) => ({ key, trackUri, trackLabel, layer: layer ?? "meaning", providerId, modelName, status, tokens, lastAccessedAt, bytes }));
 }
 
 export class IndexedDBRefinementCache implements RefinementCache {

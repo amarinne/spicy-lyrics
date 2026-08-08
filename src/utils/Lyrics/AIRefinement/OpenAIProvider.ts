@@ -1,7 +1,7 @@
 import { getJson, postJson } from "./ProviderTransport.ts";
 import { buildSystemPrompt, validateProviderItems } from "./protocol.ts";
 import { AI_MAX_RESPONSE_BYTES, type ModelDescriptor, type ModelListResult, type ProviderConfig, type ProviderCredential, type ProviderFailure, type ProviderResult, type RefinementProvider } from "./types.ts";
-import { captureProviderExchange, getActiveProviderCaptureId } from "./DebugCapture.ts";
+import { captureProviderExchange } from "./DebugCapture.ts";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -130,13 +130,13 @@ export class OpenAIRefinementProvider implements RefinementProvider {
   }
 
   private async translateChunkInternal(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal, captureEnabled: boolean): Promise<ProviderResult> {
-    const captureId = captureEnabled ? getActiveProviderCaptureId() : null;
+    const captureId = captureEnabled ? config.captureId ?? null : null;
     let response: Awaited<ReturnType<typeof postJson>>;
     try {
       const providerRequest = {
         model: config.model.name,
         messages: [
-          { role: "system", content: buildSystemPrompt(config.instructions, config.repair) },
+          { role: "system", content: buildSystemPrompt(config.layer ?? "meaning", config.targetLang, config.instructions, config.repair) },
           { role: "user", content: JSON.stringify({ target: request.target, items: request.items }) },
         ],
         response_format: { type: "json_object" },

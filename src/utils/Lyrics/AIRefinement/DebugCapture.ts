@@ -18,15 +18,16 @@ export type DurableProviderCapture = {
   enabled: boolean;
   trackUri: string | null;
   trackLabel: string | null;
+  layer: "meaning" | "sound";
   baseline: Array<{ id: string; baseline: string }>;
   exchanges: ProviderExchangeCapture[];
 };
 
 export type ProviderComparisonRow = { id: string; baseline: string; ai: string };
 export type CaptureState = { enabled: boolean; durable: boolean; captureId: string | null; activeCaptureId: string | null; exchanges: ReadonlyArray<ProviderExchangeCapture> };
-export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; model: string | null; attempts: number; updatedAt: number };
+export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; model: string | null; attempts: number; updatedAt: number };
 
-let activeCapture: DurableProviderCapture | null = null;
+const activeCaptures = new Map<string, DurableProviderCapture>();
 let selectedCapture: DurableProviderCapture | null = null;
 let writeChain = Promise.resolve();
 const listeners = new Set<(state: CaptureState) => void>();
@@ -40,7 +41,8 @@ function notify(): void {
   for (const listener of listeners) listener(state);
 }
 
-function displayedCapture(): DurableProviderCapture | null { return selectedCapture ?? activeCapture; }
+function latestActiveCapture(): DurableProviderCapture | null { return Array.from(activeCaptures.values()).at(-1) ?? null; }
+function displayedCapture(): DurableProviderCapture | null { return selectedCapture ?? latestActiveCapture(); }
 
 function persist(record: DurableProviderCapture): void {
   if (typeof indexedDB === "undefined") return;
@@ -54,11 +56,11 @@ function persist(record: DurableProviderCapture): void {
 
 export function getProviderCaptureState(): CaptureState {
   const shown = displayedCapture();
-  return { enabled: !!activeCapture, durable: !!shown, captureId: shown?.id ?? null, activeCaptureId: activeCapture?.id ?? null, exchanges: shown?.exchanges.map((exchange) => structuredClone(exchange)) ?? [] };
+  return { enabled: activeCaptures.size > 0, durable: !!shown, captureId: shown?.id ?? null, activeCaptureId: shown && activeCaptures.has(shown.id) ? shown.id : latestActiveCapture()?.id ?? null, exchanges: shown?.exchanges.map((exchange) => structuredClone(exchange)) ?? [] };
 }
 
 export function getActiveProviderCaptureId(): string | null {
-  return activeCapture?.id ?? null;
+  return latestActiveCapture()?.id ?? null;
 }
 
 export function subscribeProviderCapture(listener: (state: CaptureState) => void): () => void {
@@ -87,6 +89,7 @@ export async function listProviderCaptures(): Promise<ProviderCaptureSummary[]> 
     id: record.id,
     trackUri: record.trackUri,
     trackLabel: record.trackLabel,
+    layer: record.layer ?? "meaning",
     model: record.exchanges.at(-1)?.model ?? null,
     attempts: record.exchanges.length,
     updatedAt: record.updatedAt,
@@ -106,7 +109,7 @@ export async function selectProviderCapture(id: string): Promise<boolean> {
 
 export async function deleteProviderCapture(): Promise<boolean> {
   const id = displayedCapture()?.id;
-  if (!id || activeCapture?.id === id) return false;
+  if (!id || activeCaptures.has(id)) return false;
   selectedCapture = null;
   if (id && typeof indexedDB !== "undefined") {
     await writeChain;
@@ -118,10 +121,10 @@ export async function deleteProviderCapture(): Promise<boolean> {
   return true;
 }
 
-export function clearProviderCapture(): void { activeCapture = null; selectedCapture = null; notify(); }
+export function clearProviderCapture(): void { activeCaptures.clear(); selectedCapture = null; notify(); }
 
 export async function deleteAllProviderCaptures(): Promise<boolean> {
-  if (activeCapture) return false;
+  if (activeCaptures.size) return false;
   selectedCapture = null;
   if (typeof indexedDB !== "undefined") {
     await writeChain;
@@ -132,19 +135,22 @@ export async function deleteAllProviderCaptures(): Promise<boolean> {
   return true;
 }
 
-export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>): string {
+export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>, layer: "meaning" | "sound" = "meaning"): string {
   const now = Date.now();
-  activeCapture = {
-    id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri, trackLabel,
+  const activeCapture = {
+    id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri, trackLabel, layer,
     baseline: rows.map((row) => ({ id: row.id, baseline: row.baselineTranslatedText ?? "" })), exchanges: [],
   };
+  activeCaptures.set(activeCapture.id, activeCapture);
   selectedCapture = activeCapture;
   persist(activeCapture); notify();
   return activeCapture.id;
 }
 
 export function captureProviderExchange(captureId: string | null, exchange: ProviderExchangeCapture): void {
-  if (!captureId || activeCapture?.id !== captureId) return;
+  if (!captureId) return;
+  const activeCapture = activeCaptures.get(captureId);
+  if (!activeCapture) return;
   activeCapture.exchanges = [...activeCapture.exchanges.slice(-3), structuredClone(exchange)];
   activeCapture.updatedAt = Date.now();
   if (selectedCapture?.id === captureId) selectedCapture = activeCapture;
@@ -152,11 +158,13 @@ export function captureProviderExchange(captureId: string | null, exchange: Prov
 }
 
 export function finishProviderCapture(captureId: string | null): void {
-  if (!captureId || activeCapture?.id !== captureId) return;
+  if (!captureId) return;
+  const activeCapture = activeCaptures.get(captureId);
+  if (!activeCapture) return;
   activeCapture.enabled = false;
   if (selectedCapture?.id === captureId) selectedCapture = activeCapture;
   persist(activeCapture);
-  activeCapture = null;
+  activeCaptures.delete(captureId);
   notify();
 }
 
@@ -207,7 +215,9 @@ export async function downloadAllProviderCaptures(): Promise<{ filename: string;
 
 function latestAIItems(): Array<{ id?: unknown; t?: unknown }> {
   for (const exchange of [...(displayedCapture()?.exchanges ?? [])].reverse()) {
-    const content = (exchange.response as any)?.choices?.[0]?.message?.content;
+    const response = exchange.response as any;
+    const content = response?.choices?.[0]?.message?.content
+      ?? response?.candidates?.[0]?.content?.parts?.map((part: any) => typeof part?.text === "string" ? part.text : "").join("");
     if (typeof content !== "string") continue;
     try {
       const trimmed = content.trim();
@@ -225,11 +235,13 @@ export function getProviderComparisonRows(): ProviderComparisonRow[] {
   return (shown?.baseline ?? []).map((row) => ({ id: row.id, baseline: row.baseline, ai: byId.get(row.id) ?? "" }));
 }
 
-export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; updatedAt: number } | null {
+export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; updatedAt: number } | null {
   const shown = displayedCapture();
   const latest = shown?.exchanges.at(-1);
   if (!shown || !latest) return null;
   const messages = (latest.request as any)?.messages;
-  const systemPrompt = Array.isArray(messages) ? messages.find((message) => message?.role === "system")?.content : "";
-  return { model: latest.model, providerId: latest.providerId, endpoint: latest.endpoint, attempts: shown.exchanges.length, systemPrompt: typeof systemPrompt === "string" ? systemPrompt : "", trackUri: shown.trackUri, trackLabel: shown.trackLabel, updatedAt: shown.updatedAt };
+  const systemPrompt = Array.isArray(messages)
+    ? messages.find((message) => message?.role === "system")?.content
+    : (latest.request as any)?.systemInstruction?.parts?.map((part: any) => typeof part?.text === "string" ? part.text : "").join("") ?? "";
+  return { model: latest.model, providerId: latest.providerId, endpoint: latest.endpoint, attempts: shown.exchanges.length, systemPrompt: typeof systemPrompt === "string" ? systemPrompt : "", trackUri: shown.trackUri, trackLabel: shown.trackLabel, layer: shown.layer ?? "meaning", updatedAt: shown.updatedAt };
 }

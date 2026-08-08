@@ -1,10 +1,10 @@
-import { AI_CHUNK_PLAN_VERSION, AI_REFINEMENT_SCHEMA, type RefinementCache, type RefinementRecord } from "./types.ts";
+import { AI_CHUNK_PLAN_VERSION, AI_REFINEMENT_SCHEMA, type RefinementCache, type RefinementRecord, type RefinementSchema } from "./types.ts";
 
 const MAX_RECORDS = 200;
 const MAX_BYTES = 16 * 1024 * 1024;
 
-export function refinementRecordKey(trackUri: string, configId: string, docDigest: string): string {
-  return `${trackUri}|${AI_REFINEMENT_SCHEMA}|${configId}|${docDigest}|${AI_CHUNK_PLAN_VERSION}`;
+export function refinementRecordKey(trackUri: string, configId: string, docDigest: string, schema: RefinementSchema = AI_REFINEMENT_SCHEMA): string {
+  return `${trackUri}|${schema}|${configId}|${docDigest}|${AI_CHUNK_PLAN_VERSION}`;
 }
 
 export function measureRecordBytes(record: RefinementRecord): number {
