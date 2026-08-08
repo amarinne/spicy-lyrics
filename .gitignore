@@ -188,6 +188,7 @@ CLAUDE.md
 AGENTS.md
 project/*.md
 docs/
+tests/private/ai-refinement-replay/
 
 # Release/build artifacts
 builds/

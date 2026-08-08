@@ -7,11 +7,13 @@ import ExperimentsSection from "./ExperimentsSection.tsx";
 import InterfaceSection from "./InterfaceSection.tsx";
 import LyricsSection from "./LyricsSection.tsx";
 import PlaybackSection from "./PlaybackSection.tsx";
+import AITranslationSection from "./AITranslationSection.tsx";
 import { FilterDropdown, SearchBar } from "./components.tsx";
 
 const SECTIONS = [
   "Background",
   "Lyrics Display",
+  "AI translation",
   "Playback",
   "Appearance",
   "Interface",
@@ -33,6 +35,7 @@ export default function SettingsPanel({ onOpenExperiments }: { onOpenExperiments
 
       <BackgroundSection query={query} sectionFilter={sectionFilter} />
       <LyricsSection query={query} sectionFilter={sectionFilter} />
+      <AITranslationSection query={query} sectionFilter={sectionFilter} />
       <PlaybackSection query={query} sectionFilter={sectionFilter} />
       <AppearanceSection query={query} sectionFilter={sectionFilter} />
       <InterfaceSection query={query} sectionFilter={sectionFilter} />

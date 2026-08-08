@@ -71,6 +71,19 @@ export const $hideNpvLyricsWhenUnavailable = persistAtom<boolean>(
   "hideNpvLyricsWhenUnavailable",
   true
 );
+export const $aiConsentVersion = persistAtom<number>("aiConsentVersion", 0);
+export const $aiRefinementEnabled = persistAtom<boolean>(
+  "aiRefinementEnabled",
+  _settings["experiment:aiRefinement"] === true
+);
+export const $aiSelectedModelName = persistAtom<string>("aiSelectedModelName", "");
+export const $aiSelectedModelDescriptor = persistAtom<string>("aiSelectedModelDescriptor", "");
+export const $aiDiscoveredModels = persistAtom<string>("aiDiscoveredModels", "[]");
+export const $aiSelectedProvider = persistAtom<string>("aiSelectedProvider", "gemini");
+export const $aiSelectedModelsByProvider = persistAtom<string>("aiSelectedModelsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelName ?? "", openai: "" }));
+export const $aiSelectedModelDescriptorsByProvider = persistAtom<string>("aiSelectedModelDescriptorsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelDescriptor ?? "", openai: "" }));
+export const $aiDiscoveredModelsByProvider = persistAtom<string>("aiDiscoveredModelsByProvider", JSON.stringify({ gemini: _settings.aiDiscoveredModels ?? "[]", openai: "[]" }));
+export const $aiOpenAIBaseUrl = persistAtom<string>("aiOpenAIBaseUrl", "https://api.openai.com/v1");
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {

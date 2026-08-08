@@ -10,6 +10,7 @@ import {
   $japaneseReadingMode,
   $joinMandarinWords,
   $showChineseTranslitButton,
+  $translationTargetLang,
 } from "../../utils/uiState.ts";
 import "../../css/Loaders/DotLoader.css";
 import { DestroyAllLyricsContainers } from "../../utils/Lyrics/Applyer/CreateLyricsContainer.ts";
@@ -35,6 +36,7 @@ import { ScrollSimplebar } from "../../utils/Scrolling/Simplebar/ScrollSimplebar
 import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackground.ts";
 import {
   $adaptiveSectioning,
+  $aiRefinementEnabled,
   $currentLyricsData,
   $fixHanGlyphVariants,
   $lineHoverBackground,
@@ -77,6 +79,7 @@ import { OpenLyricsDBPanel } from "../../utils/openLyricsDBPanel.tsx";
 import { openSettingsPanel } from "../../utils/settings.ts";
 import Logger from "../../utils/Logger.ts";
 import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experiments.ts";
+import { aiRefinementCoordinator } from "../../utils/Lyrics/AIRefinement/singleton.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
 
@@ -97,6 +100,7 @@ export const Tooltips: {
   LyricsManager: TippyInstance | null;
   CopyLyrics: TippyInstance | null;
   Settings: TippyInstance | null;
+  AIRefinement: TippyInstance | null;
 } = {
   Close: null,
   NowBarToggle: null,
@@ -106,6 +110,7 @@ export const Tooltips: {
   LyricsManager: null,
   CopyLyrics: null,
   Settings: null,
+  AIRefinement: null,
 };
 
 const PageView = {
@@ -532,6 +537,18 @@ function AppendViewControls(ReAppend: boolean = false) {
           ${translationEnabled ? Icons.DisableTranslation : Icons.EnableTranslation}
         </button>
         ${
+          $aiRefinementEnabled.get()
+            ? `<button id="AIRefinementToggle" class="ViewControl">${
+                aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
+                  || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
+                  ? Icons.Spinner.replaceAll("{SIZE}", "20")
+                  : aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined"
+                    ? Icons.AIRestore
+                    : Icons.AIRefine
+              }</button>`
+            : ""
+        }
+        ${
           !Fullscreen.IsOpen &&
           !Fullscreen.CinemaViewOpen
             ? IsPIP ? "" : `<button id="NowBarToggle" class="ViewControl">${Icons.NowBar}</button>`
@@ -694,6 +711,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       const songId = SpotifyPlayer.GetId();
       if (!songUri) return;
       PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.add("HiddenTransitioned");
+      aiRefinementCoordinator.invalidateBaseline(songUri);
       $currentLyricsData.set("");
       if (songId) await LyricsStore.RemoveItem(songId).catch(() => {});
       const lyrics = await fetchLyrics(songUri);
@@ -738,6 +756,27 @@ function AppendViewControls(ReAppend: boolean = false) {
       } catch (err) {
         controlsLogger.warn("Failed to setup Translation tooltip", err);
       }
+    }
+
+    const refinementToggle = elem.querySelector("#AIRefinementToggle");
+    if (refinementToggle) {
+      const trackUri = SpotifyPlayer.GetUri();
+      const state = trackUri ? aiRefinementCoordinator.getState(trackUri) : { status: "idle" as const };
+      if (!isPip) {
+        const label = state.status === "refined"
+          ? "Restore baseline"
+          : state.status === "refining" || state.status === "requested"
+            ? `Refining ${state.done ?? 0}/${state.total ?? 0}`
+            : state.status === "failed"
+              ? `Refine failed: ${state.reason}. Click to retry.`
+              : "Refine translation with AI";
+        Tooltips.AIRefinement = Spicetify.Tippy(refinementToggle, { ...Spicetify.TippyProps, content: label });
+      }
+      refinementToggle.addEventListener("click", () => {
+        if (!trackUri || state.status === "refining" || state.status === "requested") return;
+        if (state.status === "refined") aiRefinementCoordinator.restoreBaseline(trackUri);
+        else aiRefinementCoordinator.refine(trackUri);
+      });
     }
 
     if (!Fullscreen.IsOpen && !Fullscreen.CinemaViewOpen) {
@@ -897,6 +936,7 @@ const reprocessCurrentLyricsFromSource = async (): Promise<void> => {
   if (!uri) return;
   const lyricsContent = PageContainer.querySelector(".LyricsContainer .LyricsContent");
   lyricsContent?.classList.add("HiddenTransitioned");
+  aiRefinementCoordinator.invalidateBaseline(uri);
   $currentLyricsData.set("");
   if (trackId) await LyricsStore.RemoveItem(trackId).catch(() => {});
   const lyrics = await fetchLyrics(uri);
@@ -965,6 +1005,12 @@ $showVolumeSlider.listen((v) => {
 onExperimentChange(() => {
   if (!PageContainer) return;
   ApplyExperimentClasses(PageContainer);
+  AppendViewControls(true);
+});
+
+$aiRefinementEnabled.listen((enabled) => {
+  aiRefinementCoordinator.setEnabled(enabled);
+  if (PageContainer) AppendViewControls(true);
 });
 
 $skipSpicyFont.listen((v) => {
@@ -996,6 +1042,10 @@ $chineseCharacterForm.listen(queueProcessingSettingsRefresh);
 $chineseTranslitMode.listen(queueProcessingSettingsRefresh);
 $chineseTones.listen(queueProcessingSettingsRefresh);
 $joinMandarinWords.listen(queueProcessingSettingsRefresh);
+$translationTargetLang.listen(() => {
+  aiRefinementCoordinator.notifyConfigChanged();
+  queueProcessingSettingsRefresh();
+});
 
 const rerenderCurrentLyrics = async () => {
   if (!PageContainer) return;
@@ -1042,6 +1092,10 @@ window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) =
     setTimeout(() => triggerRemeasureLV(), 60);
   });
 }) as EventListener);
+
+aiRefinementCoordinator.subscribe((trackUri) => {
+  if (trackUri === SpotifyPlayer.GetUri() && PageContainer) AppendViewControls(true);
+});
 
 $ttmlMakerMode.listen(() => {
   if (!PageContainer) return;

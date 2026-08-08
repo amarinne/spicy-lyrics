@@ -1,5 +1,47 @@
 /* ── Settings Panel — reads chrome tokens from the modal scope ────── */
 sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
+  .sl-ai-settings {
+    padding: 0 0 var(--space-4);
+  }
+
+  .sl-ai-disclosure {
+    margin: var(--space-2) 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--accent-tint-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--text-caption-size);
+  }
+
+  .sl-ai-disclosure p { margin: 0 0 var(--space-2); }
+  .sl-ai-disclosure label { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--color-text-primary); }
+  .sl-ai-secret-controls { display: flex; flex-direction: column; width: 100%; gap: var(--space-2); }
+  .sl-ai-secret-input-wrap { position: relative; width: 100%; }
+  .sl-ai-secret-input-wrap .sl-sp-text-input { width: 100%; padding-right: 76px; }
+  .sl-ai-secret-input-wrap > span { position: absolute; right: 10px; bottom: 8px; color: var(--color-text-tertiary); font-size: 10px; }
+  .sl-ai-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .sl-ai-saved-key { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--tap-min); padding: 0 10px; border-radius: var(--radius-sm); background: var(--accent-tint-bg); box-shadow: inset 0 0 0 1px var(--hairline); }
+  .sl-ai-saved-key code { color: var(--color-text-primary); font-size: var(--text-body-size); }
+  .sl-ai-saved-key span, .sl-ai-status { color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-note { color: var(--color-text-tertiary); font-size: 11px; }
+  .sl-ai-probe-failures { color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-probe-failures summary { cursor: pointer; }
+  .sl-ai-probe-failures span { display: block; margin-top: 3px; overflow-wrap: anywhere; }
+  .sl-ai-comparison { display: grid; gap: 1px; width: 100%; max-height: 440px; overflow: auto; border-radius: var(--radius-sm); background: var(--hairline); }
+  .sl-ai-comparison-head, .sl-ai-comparison-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1px; }
+  .sl-ai-comparison-head span, .sl-ai-comparison-row > span { padding: 8px 10px; background: var(--material-regular-bg); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .sl-ai-comparison-head span { color: var(--color-text-secondary); font-size: var(--text-caption-size); font-weight: var(--w-semibold); }
+  .sl-ai-comparison-row > span { color: var(--color-text-primary); font-size: var(--text-caption-size); }
+  .sl-ai-comparison-row small { display: block; color: var(--color-text-tertiary); margin-bottom: 3px; }
+  .sl-ai-capture-meta { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; background: var(--material-regular-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-capture-meta span:not(:last-child)::after { content: " ·"; }
+  .sl-ai-system-prompt { padding: 8px 10px; background: var(--material-regular-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-system-prompt summary { cursor: pointer; font-weight: var(--w-semibold); }
+  .sl-ai-system-prompt pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text-primary); font: inherit; }
+  .sl-ai-cache-inventory { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; max-height: 320px; overflow: auto; }
+  .sl-ai-cache-item { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-tint-bg); }
+  .sl-ai-cache-item span { color: var(--color-text-primary); overflow-wrap: anywhere; }
+  .sl-ai-cache-item small { color: var(--color-text-tertiary); overflow-wrap: anywhere; }
   /* Toolbar: search + filter */
   .sl-sp-toolbar {
     display: flex;

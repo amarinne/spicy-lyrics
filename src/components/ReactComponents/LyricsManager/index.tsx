@@ -11,6 +11,7 @@ import { SpotifyPlayer } from "../../Global/SpotifyPlayer";
 import fetchLyrics from "../../../utils/Lyrics/fetchLyrics";
 import ApplyLyrics from "../../../utils/Lyrics/Global/Applyer";
 import { $currentLyricsData } from "../../../utils/stores";
+import { aiRefinementCoordinator } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 
 type LyricsDBPanelProps = {
   onUploadClick: () => void;
@@ -79,6 +80,7 @@ export default function LyricsDBPanel({ onUploadClick }: LyricsDBPanelProps) {
       toast.error("No track is currently playing.", { duration: 4000 });
       return;
     }
+    aiRefinementCoordinator.invalidateBaseline(uri);
     $currentLyricsData.set("");
     toast("TTML has been reset.", { duration: 4000 });
     setTimeout(() => {

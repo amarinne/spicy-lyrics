@@ -9,6 +9,9 @@ import { $currentLyricsData } from "../../../../utils/stores";
 import { LocalLyricsManager } from "../../../../utils/Lyrics/manager";
 import { IconButton } from "./IconButton";
 import { ArrowLeftIcon, UploadIcon } from "./Icons";
+import { captureOriginalSnapshot } from "../../../../utils/Lyrics/AIRefinement/index.ts";
+import { aiRefinementCoordinator } from "../../../../utils/Lyrics/AIRefinement/singleton.ts";
+import { translationEnabled, translationTargetLang } from "../../../../utils/Lyrics/lyrics.ts";
 
 type UploadMode = "persistent" | "temporary";
 
@@ -52,6 +55,7 @@ export default function UploadTTMLModal({ onBack, onDone }: UploadTTMLModalProps
 
         if (mode === "persistent") {
           await LocalLyricsManager.put(uri, ttml);
+          aiRefinementCoordinator.invalidateBaseline(uri);
           $currentLyricsData.set("");
           setTimeout(() => {
             fetchLyrics(uri)
@@ -71,19 +75,14 @@ export default function UploadTTMLModal({ onBack, onDone }: UploadTTMLModalProps
             ...result?.Result,
             uri,
           };
+          const originalSnapshot = captureOriginalSnapshot(dataToSave, translationEnabled ? translationTargetLang : null);
+          dataToSave.AIOriginalSnapshot = originalSnapshot;
           await ProcessLyrics(dataToSave);
-          $currentLyricsData.set(JSON.stringify(dataToSave));
-          setTimeout(() => {
-            fetchLyrics(uri)
-              .then((lyrics) => {
-                ApplyLyrics(lyrics);
-                toast.success("Lyrics Parsed and Applied!", { duration: 5000 });
-              })
-              .catch((err) => {
-                toast.error("Error applying lyrics", { duration: 5000 });
-                console.error("Error applying lyrics:", err);
-              });
-          }, 25);
+          dataToSave.ProcessingPending = false;
+          dataToSave.RomanizationPending = false;
+          dataToSave.TranslationPending = false;
+          aiRefinementCoordinator.acceptBaseline(uri, dataToSave, "final", originalSnapshot);
+          toast.success("Lyrics Parsed and Applied!", { duration: 5000 });
           onDone("temporary");
         }
       } catch (err) {

@@ -25,6 +25,8 @@ import { SLObjPack } from "../objpack.ts";
 import { translateLyrics } from "./Fork/Translation.ts";
 import { $chineseCharacterForm, $japaneseReadingMode } from "../uiState.ts";
 import { buildProcessingContextKey } from "./ProcessingContext.ts";
+import { captureOriginalSnapshot, type CanonicalOriginalSnapshot } from "./AIRefinement/index.ts";
+import { aiRefinementCoordinator } from "./AIRefinement/singleton.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
@@ -73,17 +75,21 @@ function setRomanizationClass(hasTransliterations: boolean | undefined): void {
  * loader, publish the type, reveal the containers and view controls, and clear the
  * fetching flag. Used by every successful return path.
  */
-function dispatchProcessingReady(trackId: string, lyrics: any): void {
-  if (SpotifyPlayer.GetId() !== trackId) return;
-  $currentLyricsData.set(JSON.stringify(lyrics));
-  window.dispatchEvent(
-    new CustomEvent("spicy-lyrics:processing-ready", {
-      detail: { trackId, lyrics },
-    })
-  );
+function snapshotFrom(lyrics: any): CanonicalOriginalSnapshot | null {
+  return lyrics?.AIOriginalSnapshot?.schema === 1 ? lyrics.AIOriginalSnapshot : null;
 }
 
-async function finishProcessingInBackground(trackId: string, lyrics: any): Promise<void> {
+function createAndAttachSnapshot(lyrics: any): CanonicalOriginalSnapshot {
+  const snapshot = captureOriginalSnapshot(lyrics, translationEnabled ? translationTargetLang : null);
+  lyrics.AIOriginalSnapshot = snapshot;
+  return snapshot;
+}
+
+function acceptBaseline(trackUri: string, lyrics: any, stage: "intermediate" | "final", snapshot: CanonicalOriginalSnapshot): void {
+  aiRefinementCoordinator.acceptBaseline(trackUri, lyrics, stage, snapshot);
+}
+
+async function finishProcessingInBackground(trackId: string, trackUri: string, lyrics: any, snapshot: CanonicalOriginalSnapshot): Promise<void> {
   const shouldTranslate = lyrics.TranslationPending === true;
   const shouldRerenderAfterRomanization = lyrics.RomanizationPending === true;
 
@@ -93,7 +99,7 @@ async function finishProcessingInBackground(trackId: string, lyrics: any): Promi
     lyrics.RomanizationPending = false;
     lyrics.TranslationPending = shouldTranslate;
     await setProcessedLyricsStoreItem(trackId, lyrics);
-    if (shouldRerenderAfterRomanization) dispatchProcessingReady(trackId, lyrics);
+    if (shouldRerenderAfterRomanization) acceptBaseline(trackUri, lyrics, shouldTranslate ? "intermediate" : "final", snapshot);
   } catch (error) {
     lyrics.ProcessingPending = false;
     lyrics.RomanizationPending = false;
@@ -111,7 +117,7 @@ async function finishProcessingInBackground(trackId: string, lyrics: any): Promi
   } finally {
     lyrics.TranslationPending = false;
     await setProcessedLyricsStoreItem(trackId, lyrics);
-    dispatchProcessingReady(trackId, lyrics);
+    acceptBaseline(trackUri, lyrics, "final", snapshot);
   }
 }
 
@@ -238,7 +244,9 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
     if (cached) return;
     const localLyric = await LocalLyricsManager.get(uri);
     if (localLyric) {
-      await setProcessedLyricsStoreItem(trackId, { ...localLyric, id: trackId });
+      const localDocument = { ...localLyric, id: trackId, uri };
+      createAndAttachSnapshot(localDocument);
+      await setProcessedLyricsStoreItem(trackId, localDocument);
       return;
     }
   } catch (error) {
@@ -269,6 +277,8 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
     const lyrics = lyricsPacker.unpack(lyricsQuery.data);
     if (lyrics === null || lyrics === undefined || lyrics === "") return;
     lyrics.id = trackId;
+    lyrics.uri = uri;
+    createAndAttachSnapshot(lyrics);
 
     if (hasRomanizationWorkQuick(lyrics) || hasTranslationWorkQuick(lyrics)) {
       await ProcessLyrics(lyrics, { updatePageClasses: false });
@@ -340,7 +350,8 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
 
 
   // Check if there's already data in localStorage
-  const savedLyricsData = $currentLyricsData.get();
+  const coordinatorBaseline = aiRefinementCoordinator.getBaselineDocument(uri);
+  const savedLyricsData = coordinatorBaseline ? JSON.stringify(coordinatorBaseline) : $currentLyricsData.get();
 
   if (savedLyricsData && !isDev) {
     try {
@@ -358,10 +369,14 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         // URI guard; fall back to id only for pre-uri cache entries.
         const isCurrentTrack = lyricsData?.uri === uri || (!lyricsData?.uri && lyricsData?.id === trackId);
         if (isCurrentTrack) {
-          const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData);
-          $currentLyricsData.set(JSON.stringify(processedLyrics));
-          presentLyrics(processedLyrics);
-          return [processedLyrics, 200];
+          const snapshot = snapshotFrom(lyricsData);
+          if (snapshot) {
+            const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData);
+            acceptBaseline(uri, processedLyrics, "final", snapshot);
+            presentLyrics(processedLyrics);
+            return [processedLyrics, 200];
+          }
+          lyricsCacheLogger.debug("Ignoring saved lyrics without canonical original snapshot", { trackId });
         }
       }
     } catch (error) {
@@ -374,9 +389,11 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
   const localLyric = await LocalLyricsManager.get(uri);
   if (localLyric) {
     const lyricsData = { ...localLyric, uri };
-    $currentLyricsData.set(JSON.stringify(lyricsData));
-    presentLyrics(lyricsData);
-    return [lyricsData, 200];
+    const snapshot = createAndAttachSnapshot(lyricsData);
+    const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData);
+    acceptBaseline(uri, processedLyrics, "final", snapshot);
+    presentLyrics(processedLyrics);
+    return [processedLyrics, 200];
   }
 
   // Local files have no real track id (uri.split(":")[2] is the URL-encoded
@@ -399,13 +416,18 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         // Tag the cached payload with the current uri so the saved-data and
         // re-fetch checks (which match on uri) recognise it — older cache
         // entries predate the uri field.
-        const lyricsFromCache = await ensureProcessingVersion(trackId, uri, {
+        const cachedCandidate = {
           ...lyricsFromCacheRes,
           uri,
-        });
-        $currentLyricsData.set(JSON.stringify(lyricsFromCache));
-        presentLyrics(lyricsFromCache);
-        return [{ ...lyricsFromCache, fromCache: true }, 200];
+        };
+        const snapshot = snapshotFrom(cachedCandidate);
+        if (snapshot) {
+          const lyricsFromCache = await ensureProcessingVersion(trackId, uri, cachedCandidate);
+          acceptBaseline(uri, lyricsFromCache, "final", snapshot);
+          presentLyrics(lyricsFromCache);
+          return [{ ...lyricsFromCache, fromCache: true }, 200];
+        }
+        lyricsCacheLogger.debug("Ignoring processed cache without canonical original snapshot", { trackId });
       }
     } catch (error) {
       lyricsCacheLogger.error("Error parsing cache entry", error);
@@ -488,6 +510,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
     // keys off the stable uri instead of the API-supplied id.
     lyrics.uri = uri;
     lyrics.id = trackId;
+    const originalSnapshot = createAndAttachSnapshot(lyrics);
     lyrics.DetectedChinese = detectChineseQuick(lyrics);
     const needsRomanization = hasRomanizationWorkQuick(lyrics);
     const needsTranslation = hasTranslationWorkQuick(lyrics);
@@ -495,7 +518,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
     if (!needsRomanization && !needsTranslation) {
       markProcessedWithoutBackground(lyrics);
       await setProcessedLyricsStoreItem(trackId, lyrics);
-      $currentLyricsData.set(JSON.stringify(lyrics));
+      acceptBaseline(uri, lyrics, "final", originalSnapshot);
       presentLyrics(lyrics);
       return [{ ...lyrics, fromCache: false }, 200];
     }
@@ -503,10 +526,10 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
     lyrics.ProcessingPending = true;
     lyrics.RomanizationPending = needsRomanization;
     lyrics.TranslationPending = needsTranslation;
-    $currentLyricsData.set(JSON.stringify(lyrics));
+    acceptBaseline(uri, lyrics, "intermediate", originalSnapshot);
 
     presentLyrics(lyrics);
-    void finishProcessingInBackground(trackId, lyrics);
+    void finishProcessingInBackground(trackId, uri, lyrics, originalSnapshot);
     return [{ ...lyrics, fromCache: false }, 200];
   } catch (error) {
     lyricsLogger.error("Error fetching lyrics", error);

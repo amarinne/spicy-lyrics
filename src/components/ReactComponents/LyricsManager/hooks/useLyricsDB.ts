@@ -4,6 +4,7 @@ import { $currentLyricsData } from "../../../../utils/stores";
 import ApplyLyrics from "../../../../utils/Lyrics/Global/Applyer";
 import fetchLyrics from "../../../../utils/Lyrics/fetchLyrics";
 import { SpotifyPlayer } from "../../../Global/SpotifyPlayer";
+import { aiRefinementCoordinator } from "../../../../utils/Lyrics/AIRefinement/singleton.ts";
 
 export type UseLyricsDBResult = {
   uris: string[];
@@ -38,6 +39,7 @@ export function useLyricsDB(): UseLyricsDBResult {
     // track that's currently playing. Otherwise we'd wipe the playing track's
     // lyrics and re-apply the (now deleted) non-playing track's lyrics.
     if (SpotifyPlayer.GetUri() === uri) {
+      aiRefinementCoordinator.invalidateBaseline(uri);
       $currentLyricsData.set("");
       setTimeout(() => {
         fetchLyrics(uri)

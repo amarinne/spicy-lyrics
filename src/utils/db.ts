@@ -8,9 +8,12 @@ export const ObjectStores = {
   // Gzipped UniDic/JMdict bytes, fetched once instead of bundled. See
   // Lyrics/Processing/Japanese/AssetCache.ts.
   JapaneseAssets: "japaneseAssets",
+  AIRefinements: "aiRefinements",
+  AICredentials: "aiCredentials",
+  AICaptures: "aiCaptures",
 }
 
-export const dbPromise = openDB("spicylyrics", 2, {
+export const dbPromise = openDB("spicylyrics", 4, {
   upgrade(db) {
     dbLogger.debug("Upgrade invoked");
     if (!db.objectStoreNames.contains(ObjectStores.LyricsStore)) {
@@ -20,6 +23,22 @@ export const dbPromise = openDB("spicylyrics", 2, {
     if (!db.objectStoreNames.contains(ObjectStores.JapaneseAssets)) {
       db.createObjectStore(ObjectStores.JapaneseAssets);
       dbLogger.debug("Created '", ObjectStores.JapaneseAssets, "' store");
+    }
+    if (!db.objectStoreNames.contains(ObjectStores.AIRefinements)) {
+      const store = db.createObjectStore(ObjectStores.AIRefinements, { keyPath: "key" });
+      store.createIndex("byTrackConfig", ["trackUri", "configId"]);
+      store.createIndex("byLastAccessedAt", "lastAccessedAt");
+      dbLogger.debug("Created AI refinement store and indexes");
+    }
+    if (!db.objectStoreNames.contains(ObjectStores.AICredentials)) {
+      db.createObjectStore(ObjectStores.AICredentials);
+      dbLogger.debug("Created AI credential store");
+    }
+    if (!db.objectStoreNames.contains(ObjectStores.AICaptures)) {
+      const store = db.createObjectStore(ObjectStores.AICaptures, { keyPath: "id" });
+      store.createIndex("byUpdatedAt", "updatedAt");
+      store.createIndex("byTrackUri", "trackUri");
+      dbLogger.debug("Created durable AI capture store and indexes");
     }
   },
 });

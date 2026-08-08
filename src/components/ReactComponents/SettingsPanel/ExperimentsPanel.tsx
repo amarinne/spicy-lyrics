@@ -39,9 +39,7 @@ export default function ExperimentsPanel({ onBack }: { onBack: () => void }) {
         before.
       </p>
 
-      {EXPERIMENTS.map((exp) => (
-        <ExperimentRow key={exp.id} experiment={exp} />
-      ))}
+      {EXPERIMENTS.map((exp) => <ExperimentRow key={exp.id} experiment={exp} />)}
     </div>
   );
 }
