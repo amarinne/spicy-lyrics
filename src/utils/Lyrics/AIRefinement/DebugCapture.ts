@@ -24,29 +24,37 @@ export type DurableProviderCapture = {
 
 export type ProviderComparisonRow = { id: string; baseline: string; ai: string };
 export type CaptureState = { enabled: boolean; durable: boolean; captureId: string | null; exchanges: ReadonlyArray<ProviderExchangeCapture> };
+export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; model: string | null; attempts: number; updatedAt: number };
 
 let capture: DurableProviderCapture | null = null;
 let writeChain = Promise.resolve();
 const listeners = new Set<(state: CaptureState) => void>();
+
+function newId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `capture-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
 
 function notify(): void {
   const state = getProviderCaptureState();
   for (const listener of listeners) listener(state);
 }
 
-function persistCurrent(replace = false): void {
+function persistCurrent(): void {
   if (!capture || typeof indexedDB === "undefined") return;
   const snapshot = structuredClone(capture);
   writeChain = writeChain.then(async () => {
     const { dbPromise, ObjectStores } = await import("../../db.ts");
     const db = await dbPromise;
-    if (replace) await db.clear(ObjectStores.AICaptures);
     await db.put(ObjectStores.AICaptures, snapshot);
   }).catch(() => undefined);
 }
 
 export function getProviderCaptureState(): CaptureState {
   return { enabled: capture?.enabled ?? false, durable: !!capture, captureId: capture?.id ?? null, exchanges: capture?.exchanges.map((exchange) => structuredClone(exchange)) ?? [] };
+}
+
+export function getActiveProviderCaptureId(): string | null {
+  return capture?.enabled ? capture.id : null;
 }
 
 export function subscribeProviderCapture(listener: (state: CaptureState) => void): () => void {
@@ -56,20 +64,47 @@ export function subscribeProviderCapture(listener: (state: CaptureState) => void
 
 export async function loadLatestProviderCapture(): Promise<boolean> {
   if (typeof indexedDB === "undefined") return false;
+  await writeChain;
   const { dbPromise, ObjectStores } = await import("../../db.ts");
   const records = await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[];
   const latest = records.sort((left, right) => right.updatedAt - left.updatedAt)[0];
   if (!latest) return false;
-  capture = { ...structuredClone(latest), id: "latest", enabled: false, updatedAt: Date.now() };
-  persistCurrent(true);
+  capture = { ...structuredClone(latest), enabled: false };
+  persistCurrent();
+  notify();
+  return true;
+}
+
+export async function listProviderCaptures(): Promise<ProviderCaptureSummary[]> {
+  if (typeof indexedDB === "undefined") return [];
+  await writeChain;
+  const { dbPromise, ObjectStores } = await import("../../db.ts");
+  const records = await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[];
+  return records.sort((left, right) => right.updatedAt - left.updatedAt).map((record) => ({
+    id: record.id,
+    trackUri: record.trackUri,
+    trackLabel: record.trackLabel,
+    model: record.exchanges.at(-1)?.model ?? null,
+    attempts: record.exchanges.length,
+    updatedAt: record.updatedAt,
+  }));
+}
+
+export async function selectProviderCapture(id: string): Promise<boolean> {
+  if (typeof indexedDB === "undefined") return false;
+  await writeChain;
+  const { dbPromise, ObjectStores } = await import("../../db.ts");
+  const selected = await (await dbPromise).get(ObjectStores.AICaptures, id) as DurableProviderCapture | undefined;
+  if (!selected) return false;
+  capture = { ...structuredClone(selected), enabled: false };
   notify();
   return true;
 }
 
 export function startProviderCapture(): void {
   const now = Date.now();
-  capture = { id: "latest", schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri: null, trackLabel: null, baseline: [], exchanges: [] };
-  persistCurrent(true); notify();
+  capture = { id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri: null, trackLabel: null, baseline: [], exchanges: [] };
+  persistCurrent(); notify();
 }
 
 export function stopProviderCapture(): void {
@@ -79,6 +114,20 @@ export function stopProviderCapture(): void {
 }
 
 export async function deleteProviderCapture(): Promise<void> {
+  const id = capture?.id;
+  capture = null;
+  if (id && typeof indexedDB !== "undefined") {
+    await writeChain;
+    const { dbPromise, ObjectStores } = await import("../../db.ts");
+    await (await dbPromise).delete(ObjectStores.AICaptures, id);
+  }
+  notify();
+  await loadLatestProviderCapture();
+}
+
+export function clearProviderCapture(): void { void deleteProviderCapture(); }
+
+export async function deleteAllProviderCaptures(): Promise<void> {
   capture = null;
   if (typeof indexedDB !== "undefined") {
     await writeChain;
@@ -88,10 +137,12 @@ export async function deleteProviderCapture(): Promise<void> {
   notify();
 }
 
-export function clearProviderCapture(): void { void deleteProviderCapture(); }
-
 export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>): void {
   if (!capture?.enabled) return;
+  if (capture.trackUri && capture.trackUri !== trackUri) {
+    const now = Date.now();
+    capture = { id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri: null, trackLabel: null, baseline: [], exchanges: [] };
+  }
   capture.trackUri = trackUri;
   capture.trackLabel = trackLabel;
   capture.baseline = rows.map((row) => ({ id: row.id, baseline: row.baselineTranslatedText ?? "" }));
@@ -99,18 +150,35 @@ export function captureProviderBaseline(trackUri: string, trackLabel: string | n
   persistCurrent(); notify();
 }
 
-export function captureProviderExchange(exchange: ProviderExchangeCapture): void {
-  if (!capture?.enabled) return;
+export function captureProviderExchange(captureId: string | null, exchange: ProviderExchangeCapture): void {
+  if (!captureId || !capture?.enabled || capture.id !== captureId) return;
   capture.exchanges = [...capture.exchanges.slice(-3), structuredClone(exchange)];
   capture.updatedAt = Date.now();
   persistCurrent(); notify();
 }
 
-export function downloadProviderCapture(): string | null {
+export async function downloadProviderCapture(): Promise<string | null> {
   if (!capture?.exchanges.length) return null;
   const model = capture.exchanges.at(-1)?.model.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "model";
   const filename = `spicy-ai-capture-${model}-${new Date(capture.updatedAt).toISOString().replace(/[:.]/g, "-")}.json`;
-  const blob = new Blob([JSON.stringify(capture, null, 2)], { type: "application/json" });
+  const contents = JSON.stringify(capture, null, 2);
+  const picker = (window as any).showSaveFilePicker as ((options: unknown) => Promise<any>) | undefined;
+  if (picker) {
+    try {
+      const handle = await picker({
+        suggestedName: filename,
+        types: [{ description: "JSON capture", accept: { "application/json": [".json"] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(contents);
+      await writable.close();
+      return filename;
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") return null;
+      throw error;
+    }
+  }
+  const blob = new Blob([contents], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
   anchor.href = url; anchor.download = filename; anchor.click();

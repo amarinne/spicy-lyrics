@@ -1,7 +1,7 @@
 import { getJson, postJson } from "./ProviderTransport.ts";
 import { AI_SYSTEM_PROMPT, validateProviderItems } from "./protocol.ts";
 import { AI_MAX_RESPONSE_BYTES, type ModelDescriptor, type ModelListResult, type ProviderConfig, type ProviderCredential, type ProviderFailure, type ProviderResult, type RefinementProvider } from "./types.ts";
-import { captureProviderExchange } from "./DebugCapture.ts";
+import { captureProviderExchange, getActiveProviderCaptureId } from "./DebugCapture.ts";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
@@ -107,7 +107,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
 
   async probeModel(model: ModelDescriptor, credential: Readonly<ProviderCredential>, signal: AbortSignal): Promise<ModelProbeResult> {
     const request = { target: "en", items: [{ id: "P0", c: "ordinary" as const, s: "hola" }] };
-    const result = await this.translateChunk(request, {
+    const result = await this.translateChunkInternal(request, {
       providerVersion: "openai-compatible-v1",
       endpoint: this.baseUrl,
       model,
@@ -118,7 +118,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
       credential,
       repair: false,
       maxOutputTokens: 32,
-    }, signal);
+    }, signal, false);
     if (!result.ok) return result;
     try { validateProviderItems(result.items, request.items); }
     catch { return { ok: false, failure: { kind: "protocol", detail: "probe_contract_invalid" } }; }
@@ -126,6 +126,11 @@ export class OpenAIRefinementProvider implements RefinementProvider {
   }
 
   async translateChunk(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
+    return this.translateChunkInternal(request, config, signal, true);
+  }
+
+  private async translateChunkInternal(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal, captureEnabled: boolean): Promise<ProviderResult> {
+    const captureId = captureEnabled ? getActiveProviderCaptureId() : null;
     let response: Awaited<ReturnType<typeof postJson>>;
     try {
       const providerRequest = {
@@ -143,7 +148,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
         Accept: "application/json",
         Authorization: `Bearer ${config.credential.secret}`,
       }, providerRequest, signal, AI_MAX_RESPONSE_BYTES, this.request);
-      captureProviderExchange({ schema: 1, capturedAt: new Date().toISOString(), providerId: this.id, endpoint: this.baseUrl, model: config.model.name, repair: config.repair, status: response.status, request: providerRequest, response: response.body ?? null });
+      captureProviderExchange(captureId, { schema: 1, capturedAt: new Date().toISOString(), providerId: this.id, endpoint: this.baseUrl, model: config.model.name, repair: config.repair, status: response.status, request: providerRequest, response: response.body ?? null });
     } catch (error) {
       if (signal.aborted) throw error;
       if (error instanceof RangeError && error.message.startsWith("response_oversized:")) {

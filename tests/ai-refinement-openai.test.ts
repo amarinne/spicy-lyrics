@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeOpenAIBaseUrl, OpenAIRefinementProvider } from "../src/utils/Lyrics/AIRefinement/OpenAIProvider.ts";
-import { captureProviderBaseline, clearProviderCapture, getProviderCaptureState, getProviderComparisonRows, startProviderCapture } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { captureProviderBaseline, captureProviderExchange, clearProviderCapture, getActiveProviderCaptureId, getProviderCaptureState, getProviderComparisonRows, startProviderCapture } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 
 test("OpenAI-compatible discovery uses bearer auth and a custom base URL without putting the key in the URL", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -77,6 +77,16 @@ test("model probe uses the translation transport and rejects malformed output", 
   if (!result.ok) assert.equal(result.failure.kind, "protocol");
 });
 
+test("model probes never enter an enabled real-song request capture", async () => {
+  clearProviderCapture(); startProviderCapture();
+  captureProviderBaseline("spotify:track:test", "Test — Artist", [{ id: "S0", baselineTranslatedText: "baseline" }]);
+  const model = { name: "model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
+  const provider = new OpenAIRefinementProvider("https://proxy.example.test/v1", async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"items":[{"id":"P0","t":"hello"}]}' }, finish_reason: "stop" }] }), { status: 200 }));
+  assert.equal((await provider.probeModel(model, { secret: "key" }, new AbortController().signal)).ok, true);
+  assert.equal(getProviderCaptureState().exchanges.length, 0);
+  clearProviderCapture();
+});
+
 test("explicit debug capture keeps payloads and raw responses in memory without credentials or headers", async () => {
   clearProviderCapture(); startProviderCapture();
   captureProviderBaseline("spotify:track:test", "Test — Artist", [{ id: "S0", baselineTranslatedText: "baseline hello" }]);
@@ -90,6 +100,33 @@ test("explicit debug capture keeps payloads and raw responses in memory without 
   assert.match(serialized, /hello/);
   assert.doesNotMatch(serialized, /private-key|Authorization|headers/i);
   assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "baseline hello", ai: "hello" }]);
+  clearProviderCapture();
+});
+
+test("capture rolls to a new durable record when refinement moves to another song", () => {
+  clearProviderCapture(); startProviderCapture();
+  captureProviderBaseline("spotify:track:first", "First — Artist", [{ id: "S0", baselineTranslatedText: "first baseline" }]);
+  captureProviderExchange(getActiveProviderCaptureId(), { schema: 1, capturedAt: new Date(0).toISOString(), providerId: "openai", endpoint: "https://proxy.example.test/v1", model: "model-a", repair: false, status: 200, request: {}, response: { choices: [{ message: { content: '{"items":[{"id":"S0","t":"first AI"}]}' } }] } });
+  const firstId = getProviderCaptureState().captureId;
+
+  captureProviderBaseline("spotify:track:second", "Second — Artist", [{ id: "S0", baselineTranslatedText: "second baseline" }]);
+  const second = getProviderCaptureState();
+  assert.notEqual(second.captureId, firstId);
+  assert.equal(second.enabled, true);
+  assert.equal(second.exchanges.length, 0);
+  assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "second baseline", ai: "" }]);
+  clearProviderCapture();
+});
+
+test("late exchange cannot cross from an old song into the newly active capture", () => {
+  clearProviderCapture(); startProviderCapture();
+  captureProviderBaseline("spotify:track:first", "First — Artist", [{ id: "S0", baselineTranslatedText: "first baseline" }]);
+  const firstCaptureId = getActiveProviderCaptureId();
+  captureProviderBaseline("spotify:track:second", "Second — Artist", [{ id: "S0", baselineTranslatedText: "second baseline" }]);
+
+  captureProviderExchange(firstCaptureId, { schema: 1, capturedAt: new Date(0).toISOString(), providerId: "openai", endpoint: "https://proxy.example.test/v1", model: "model-a", repair: false, status: 200, request: { song: "first" }, response: { choices: [{ message: { content: '{"items":[{"id":"S0","t":"late first AI"}]}' } }] } });
+  assert.equal(getProviderCaptureState().exchanges.length, 0);
+  assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "second baseline", ai: "" }]);
   clearProviderCapture();
 });
 
