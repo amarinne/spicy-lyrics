@@ -65,7 +65,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(lyricsUi, /Translation Backend/);
   assert.match(lyricsUi, /Google Translate/);
   assert.match(lyricsUi, /AI Translate on demand/);
-  assert.match(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) !== "google"/);
+  assert.match(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
   assert.match(ui, /Saved AI results/);
   assert.match(ui, /probeControllerRef/);
   assert.match(ui, /configuration_changed/);
