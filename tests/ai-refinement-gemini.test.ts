@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { captureProviderBaseline, clearProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { GeminiRefinementProvider } from "../src/utils/Lyrics/AIRefinement/GeminiProvider.ts";
+import { EMPTY_LYRIC_CONTEXT } from "../src/utils/Lyrics/AIRefinement/protocol.ts";
 
 const descriptor = (name: string, methods = ["generateContent"]) => ({
   name,
@@ -77,8 +78,9 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const model = descriptor("models/gemini-2.5-flash");
-  const result = await provider.translateChunk({ target: "en", items: [{ id: "S0", c: "ordinary", s: "amor" }] }, {
-    providerVersion: "v1beta", model, targetLang: "en", promptVersion: 2, temperature: 0,
+  const lyricContext = { title: "Song", artists: ["Artist"], album: "Album" };
+  const result = await provider.translateChunk({ context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] }, {
+    providerVersion: "v1beta", model, targetLang: "en", context: lyricContext, promptVersion: 3, temperature: 0,
     contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 128, captureId: getActiveProviderCaptureId(),
   }, new AbortController().signal);
   assert.equal(result.ok, true);
@@ -92,6 +94,7 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
   assert.equal(new Headers(requests[0].init?.headers).get("x-goog-api-key"), "private-key");
   assert.equal(requests[0].body.generationConfig.responseMimeType, "application/json");
   assert.equal(requests[0].body.generationConfig.responseSchema.properties.items.type, "ARRAY");
+  assert.deepEqual(JSON.parse(requests[0].body.contents[0].parts[0].text), { context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] });
   assert.match(requests[0].body.systemInstruction.parts[0].text, /Return every requested id exactly once/);
   assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "baseline", ai: "love" }]);
   assert.equal(getProviderCaptureMetadata()?.providerId, "gemini");
@@ -108,8 +111,8 @@ test("Gemini model probe and typed failures use the same direct transport", asyn
   assert.deepEqual(await probe.probeModel(model, { secret: "key" }, new AbortController().signal), { ok: true, usage: { input: 5, output: 2 } });
 
   const unavailable = new GeminiRefinementProvider(async () => new Response("sensitive", { status: 404 }));
-  const missing = await unavailable.translateChunk({ target: "en", items: [{ id: "S0", c: "ordinary", s: "amor" }] }, {
-    providerVersion: "v1beta", model, targetLang: "en", promptVersion: 2, temperature: 0,
+  const missing = await unavailable.translateChunk({ context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "S0", c: "ordinary", v: null, s: "amor" }] }, {
+    providerVersion: "v1beta", model, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: 3, temperature: 0,
     contextMode: "document_or_v1_chunks", credential: { secret: "key" }, repair: false, maxOutputTokens: 128,
   }, new AbortController().signal);
   assert.equal(missing.ok, false);

@@ -54,10 +54,14 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /Google baseline/);
   assert.match(ui, /AI candidate/);
   assert.match(ui, /System prompt/);
-  assert.match(ui, /Meaning Instructions/);
-  assert.match(ui, /Sound Instructions/);
-  assert.match(ui, /Egyptian Arabic pronunciation/);
-  assert.match(ui, /Vietnamese honorifics/);
+  assert.match(ui, /AI Instructions/);
+  assert.equal((ui.match(/label="AI Instructions"/g) ?? []).length, 1);
+  assert.doesNotMatch(ui, /Meaning Instructions|Sound Instructions|AI_MAX_STEERING_BYTES|instructionsByteCount|steeringByteCount|soundByteCount/);
+  assert.match(ui, /mixed-language phrasing/);
+  const stores = read("src/utils/stores.ts");
+  assert.match(stores, /persistAtom<string>\("aiInstructions"/);
+  assert.match(stores, /_settings\.aiSteeringInstructions/);
+  assert.match(stores, /_settings\.soundSteeringInstructions/);
   const page = read("src/components/Pages/PageView.ts");
   assert.match(page, /contextmenu/);
   assert.match(page, /openAISteeringEditor/);

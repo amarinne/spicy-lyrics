@@ -1,9 +1,9 @@
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
 import { cloneSnapshotDocument, enumerateRefinementLines, enumerateSoundLines } from "./document.ts";
 import { refinementRecordKey, sumBudgetConsumed } from "./cache.ts";
-import { buildConfigId, buildDocumentDigest, planChunks } from "./protocol.ts";
+import { buildConfigId, buildDocumentDigest, normalizeLyricContext, planChunks } from "./protocol.ts";
 import { executeChunk } from "./runtime.ts";
-import { AI_CHUNK_PLAN_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema } from "./types.ts";
+import { AI_CHUNK_PLAN_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type LyricContext, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema } from "./types.ts";
 import { captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
 
 export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; credential?: ProviderCredential | null };
@@ -18,7 +18,7 @@ export type RefinementState = {
   origin?: "baseline" | "overlay";
   runId?: number;
 };
-type BaselineSession = { document: any; snapshot: CanonicalOriginalSnapshot; stage: "intermediate" | "final"; revision: number; publicationRevision: number; targetLang?: string; docDigest?: string; rows?: ReturnType<typeof enumerateRefinementLines>; configId?: string };
+type BaselineSession = { document: any; snapshot: CanonicalOriginalSnapshot; context: LyricContext; stage: "intermediate" | "final"; revision: number; publicationRevision: number; targetLang?: string; docDigest?: string; rows?: ReturnType<typeof enumerateRefinementLines>; configId?: string };
 type ActiveRun = { trackUri: string; baselineRevision: number; configId: string; configRevision: number; credentialRevision: number; runId: number; controller: AbortController };
 
 export class AIRefinementCoordinator {
@@ -28,6 +28,7 @@ export class AIRefinementCoordinator {
     provider?: RefinementProvider;
     getProvider?: (providerId: string) => RefinementProvider | null;
     getTrackLabel?: (trackUri: string) => string | undefined;
+    getContext?: (trackUri: string) => Partial<LyricContext> | null | undefined;
     getConfig: () => Promise<CoordinatorConfig | null>;
     getCredential?: (providerId?: string) => Promise<ProviderCredential | null>;
     publish: (trackUri: string, document: any, origin: "baseline" | "overlay", publicationRevision: number) => void;
@@ -55,6 +56,7 @@ export class AIRefinementCoordinator {
     provider?: RefinementProvider;
     getProvider?: (providerId: string) => RefinementProvider | null;
     getTrackLabel?: (trackUri: string) => string | undefined;
+    getContext?: (trackUri: string) => Partial<LyricContext> | null | undefined;
     getConfig: () => Promise<CoordinatorConfig | null>;
     getCredential?: (providerId?: string) => Promise<ProviderCredential | null>;
     publish: (trackUri: string, document: any, origin: "baseline" | "overlay", publicationRevision: number) => void;
@@ -64,7 +66,7 @@ export class AIRefinementCoordinator {
   acceptBaseline(trackUri: string, document: any, stage: "intermediate" | "final", originalSnapshot: CanonicalOriginalSnapshot, publicationRevision?: number): void {
     const revision = ++this.revision;
     if (this.active?.trackUri === trackUri) this.cancel(trackUri, "baseline_superseded");
-    const session = { document: structuredClone(document), snapshot: originalSnapshot, stage, revision, publicationRevision: publicationRevision ?? revision };
+    const session = { document: structuredClone(document), snapshot: originalSnapshot, context: normalizeLyricContext(this.deps.getContext?.(trackUri)), stage, revision, publicationRevision: publicationRevision ?? revision };
     this.baselines.set(trackUri, session);
     this.overlays.delete(trackUri);
     this.publishBaseline(trackUri);
@@ -171,7 +173,7 @@ export class AIRefinementCoordinator {
     }
     const byId = new Map(baselineRows.map((row) => [row.id, row]));
     const rows = sourceRows.map((row) => ({ ...row, baselineTranslatedText: byId.get(row.id)?.baselineTranslatedText }));
-    const docDigest = await buildDocumentDigest(rows);
+    const docDigest = await buildDocumentDigest(rows, session.context);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
     const configId = await this.configId(config, provider, session);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
@@ -212,7 +214,7 @@ export class AIRefinementCoordinator {
     if (!this.identityCurrent(identity)) return;
     if (!credential) { this.failActive(identity, "no_credential"); return; }
     let plan;
-    try { plan = planChunks(session.rows!, config.targetLang, config.model, config.instructions, this.layer); } catch { this.failActive(identity, "oversized"); return; }
+    try { plan = planChunks(session.rows!, config.targetLang, config.model, config.instructions, this.layer, session.context); } catch { this.failActive(identity, "oversized"); return; }
     this.deps.cache.pin(key);
     let record = cached ?? this.newRecord(key, trackUri, session, config, provider, plan.chunks);
     const needsProviderRequest = plan.chunks.some((chunk) => record.chunks[chunk.id]?.status !== "complete");
@@ -233,7 +235,7 @@ export class AIRefinementCoordinator {
         this.setState(trackUri, { status: "refining", done: Object.keys(record.items).length, total: session.rows.filter((row) => row.sendDisposition === "sent").length, runId: identity.runId, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } });
         const records = await this.deps.cache.listByTrackConfig(trackUri, session.configId);
         if (!this.identityCurrent(identity)) return;
-        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, maxOutputTokens: 0, captureId: providerCaptureId }, signal: identity.controller.signal, budgetAlreadyConsumed: sumBudgetConsumed(records) + (this.unpersistedBudget.get(ledgerKey) ?? 0), previous: existing });
+        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: config.instructions, context: session.context, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, maxOutputTokens: 0, captureId: providerCaptureId }, signal: identity.controller.signal, budgetAlreadyConsumed: sumBudgetConsumed(records) + (this.unpersistedBudget.get(ledgerKey) ?? 0), previous: existing });
         if (!this.identityCurrent(identity)) return;
         record.chunks[chunk.id] = execution.record;
         record.budgetConsumed += execution.budgetConsumed;

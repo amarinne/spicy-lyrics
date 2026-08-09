@@ -19,9 +19,9 @@ function baseline(text = "愛", translated = "love") {
   return { snapshot, document: { ...original, ProcessingPending: false, RomanizationPending: false, TranslationPending: false, IncludesTranslation: true, Lines: [{ Text: text, TranslatedText: translated }] } };
 }
 
-function harness(provider = new FakeRefinementProvider(), cache = new MemoryRefinementCache(), getConfig = async () => config) {
+function harness(provider = new FakeRefinementProvider(), cache = new MemoryRefinementCache(), getConfig = async () => config, getContext?: () => { title: string | null; artists: string[]; album: string | null }) {
   const publications: Array<{ trackUri: string; document: any; origin: string }> = [];
-  const coordinator = new AIRefinementCoordinator({ cache, provider, getConfig, publish: (trackUri, document, origin) => publications.push({ trackUri, document: structuredClone(document), origin }) });
+  const coordinator = new AIRefinementCoordinator({ cache, provider, getConfig, getContext, publish: (trackUri, document, origin) => publications.push({ trackUri, document: structuredClone(document), origin }) });
   coordinator.setEnabled(true);
   coordinator.onTrackChanged("spotify:track:test");
   return { coordinator, provider, cache, publications };
@@ -45,6 +45,26 @@ test("coordinator publishes baseline then an atomic overlay without mutating bas
   assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "AI 愛");
   assert.equal(coordinator.getBaselineDocument("spotify:track:test").Lines[0].TranslatedText, "love");
   assert.equal("AIOriginalSnapshot" in publications.at(-1).document, false);
+});
+
+test("coordinator captures track metadata with the baseline and sends voice-aware context", async () => {
+  let context = { title: "Song A", artists: ["Artist A"], album: "Album A" };
+  const { coordinator, provider } = harness(new FakeRefinementProvider(), new MemoryRefinementCache(), async () => config, () => context);
+  const original = { Type: "Line", Language: "jpn", Content: [{ Type: "Vocal", Text: "愛" }, { Type: "Vocal", Text: "歌", OppositeAligned: true }] };
+  const snapshot = captureOriginalSnapshot(original, "en");
+  const document = { ...original, ProcessingPending: false, RomanizationPending: false, Content: original.Content.map((line, index) => ({ ...line, TranslatedText: index ? "song" : "love" })) };
+  coordinator.acceptBaseline("spotify:track:test", document, "final", snapshot);
+  context = { title: "Song B", artists: ["Artist B"], album: "Album B" };
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.deepEqual(provider.calls[0].request, {
+    context: { title: "Song A", artists: ["Artist A"], album: "Album A" },
+    target: "en",
+    items: [
+      { id: "G0", c: "ordinary", v: "primary", s: "愛" },
+      { id: "G1", c: "ordinary", v: "alternate", s: "歌" },
+    ],
+  });
 });
 
 test("double taps coalesce and track change cancels late provider work", async () => {

@@ -778,7 +778,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       });
       soundToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        openAISteeringEditor("sound");
+        openAISteeringEditor();
       });
     }
 
@@ -821,7 +821,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       });
       refinementToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        openAISteeringEditor("meaning");
+        openAISteeringEditor();
       });
     }
 

@@ -34,19 +34,38 @@ test("classification v1 is narrow", () => {
 
 test("enumerates every shape with stable lead/background and structural ids", () => {
   const staticRows = enumerateRefinementLines({ Type: "Static", Language: "jpn", Lines: [{ Text: "歌", TranslatedText: "song" }, { Text: "♪" }] }, "en");
-  assert.deepEqual(staticRows.map(({ id, class: c, sendDisposition }) => [id, c, sendDisposition]), [["S0", "ordinary", "sent"], ["S1", "structural", "structural"]]);
-  const lineRows = enumerateRefinementLines({ Type: "Line", Language: "kor", Content: [{ Type: "Vocal", Text: "사랑" }, { Type: "Interlude", Text: "" }] }, "en");
-  assert.deepEqual(lineRows.map((row) => row.id), ["G0", "G1"]);
+  assert.deepEqual(staticRows.map(({ id, class: c, sendDisposition, voice }) => [id, c, sendDisposition, voice]), [["S0", "ordinary", "sent", null], ["S1", "structural", "structural", null]]);
+  const lineRows = enumerateRefinementLines({ Type: "Line", Language: "kor", Content: [{ Type: "Vocal", Text: "사랑" }, { Type: "Vocal", Text: "안녕", OppositeAligned: true }] }, "en");
+  assert.deepEqual(lineRows.map((row) => [row.id, row.voice]), [["G0", "primary"], ["G1", "alternate"]]);
   const syllableRows = enumerateRefinementLines({ Type: "Syllable", Language: "jpn", Content: [
-    { Type: "Vocal", Lead: { Syllables: [{ Text: "愛" }] }, Background: [{ Syllables: [{ Text: "歌" }] }] },
+    { Type: "Vocal", Lead: { Syllables: [{ Text: "愛" }], OppositeAligned: true }, Background: [{ Syllables: [{ Text: "歌" }] }] },
     { Type: "Interlude", Text: "♪" },
   ] }, "en");
-  assert.deepEqual(syllableRows.map((row) => row.id), ["L0", "B0.0", "G1"]);
+  assert.deepEqual(syllableRows.map((row) => [row.id, row.voice]), [["L0", "alternate"], ["B0.0", "background"], ["G1", null]]);
 });
 
-test("document digest includes class, disposition, id and NFC source", async () => {
+test("document digest includes class, disposition, id, voice, metadata and NFC source", async () => {
   const rows = enumerateRefinementLines({ Type: "Static", Language: "jpn", Lines: [{ Text: "歌" }, { Text: "♪" }] }, "en");
   assert.notEqual(await buildDocumentDigest(rows), await buildDocumentDigest(rows.map((row) => row.id === "S1" ? { ...row, sendDisposition: "skipped" } : row)));
+  assert.notEqual(await buildDocumentDigest(rows), await buildDocumentDigest(rows.map((row) => row.id === "S0" ? { ...row, voice: "alternate" as const } : row)));
+  assert.notEqual(await buildDocumentDigest(rows), await buildDocumentDigest(rows.map((row) => row.id === "S0" ? { ...row, allowUnchanged: !row.allowUnchanged } : row)));
+  assert.notEqual(await buildDocumentDigest(rows), await buildDocumentDigest(rows, { title: "Song", artists: ["Artist"], album: "Album" }));
+  assert.equal(await buildDocumentDigest(rows, { title: " e\u0301 ", artists: [" Artist  Name "], album: null }), await buildDocumentDigest(rows, { title: "é", artists: ["Artist Name"], album: null }));
+});
+
+test("AI Meaning sends same-script rows so mixed-language phrases reach the model", () => {
+  const rows = enumerateRefinementLines({ Type: "Static", Language: "spa", Lines: [{ Text: "Te quiero mon amour" }, { Text: "Te quiero mucho" }] }, "es");
+  assert.deepEqual(rows.map((row) => [row.sendDisposition, row.allowUnchanged]), [["sent", true], ["sent", true]]);
+  const plan = planChunks(rows, "es", model);
+  assert.deepEqual(plan.chunks[0].items.map((item) => item.s), ["Te quiero mon amour", "Te quiero mucho"]);
+  assert.deepEqual(plan.chunks[0].allowUnchangedIds, ["S0", "S1"]);
+  assert.deepEqual(validateProviderItems([
+    { id: "S0", t: "Te quiero, mi amor" },
+    { id: "S1", t: "Te quiero mucho" },
+  ], plan.chunks[0].items, "meaning", "es", new Set(plan.chunks[0].allowUnchangedIds)), [
+    { id: "S0", t: "Te quiero, mi amor" },
+    { id: "S1", t: "Te quiero mucho" },
+  ]);
 });
 
 test("provider, custom endpoint, and normalized steering are part of config identity", async () => {
@@ -57,9 +76,10 @@ test("provider, custom endpoint, and normalized steering are part of config iden
   assert.notEqual(direct, proxy);
   assert.notEqual(direct, gemini);
   const steered = await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "Preserve honorifics." });
-  const normalized = await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "  Preserve   honorifics.  " });
+  const normalized = await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "  Preserve honorifics.  " });
   assert.notEqual(direct, steered);
   assert.equal(steered, normalized);
+  assert.notEqual(steered, await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "Preserve\nhonorifics." }));
   assert.equal(await buildConfigId({ ...base, provider: "openai", instructions: "e\u0301" }), await buildConfigId({ ...base, provider: "openai", instructions: "é" }));
   assert.notEqual(direct, await buildConfigId({ ...base, layer: "sound", provider: "openai", targetLang: "Latin" }));
 });
@@ -79,7 +99,7 @@ test("Sound protocol enumerates whole-line lyrics and rejects timed syllable doc
   ]);
   assert.throws(() => enumerateSoundLines({ Type: "Syllable", Content: [] }), /sound_alignment_required/);
   assert.match(buildSystemPrompt("sound", "Latin", "Use Revised Romanization."), /^Additional instructions:/);
-  assert.match(buildSystemPrompt("sound", "Latin"), /do not translate meaning/);
+  assert.match(buildSystemPrompt("sound", "Latin"), /Do not translate meaning/);
   assert.match(buildSystemPrompt("sound", "Latin"), /Target orthography: Latin\.$/);
 });
 
@@ -105,29 +125,31 @@ test("canonical original snapshot is deeply immutable and source-only", () => {
 });
 
 test("planner prefers one document call and chunks deterministically past 128 items", () => {
-  const rows = Array.from({ length: 129 }, (_, i) => ({ id: `S${i}`, class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: `源${i}`, target: {}, targetField: "TranslatedText" as const }));
-  const first = planChunks(rows, "en", model);
-  const second = planChunks(structuredClone(rows), "en", model);
+  const rows = Array.from({ length: 129 }, (_, i) => ({ id: `S${i}`, class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: `源${i}`, voice: i % 2 ? "alternate" as const : "primary" as const, allowUnchanged: false, target: {}, targetField: "TranslatedText" as const }));
+  const context = { title: "Song", artists: ["Artist"], album: "Album" };
+  const first = planChunks(rows, "en", model, undefined, "meaning", context);
+  const second = planChunks(structuredClone(rows), "en", model, undefined, "meaning", context);
   assert.deepEqual(first, second);
   assert.deepEqual(first.chunks.map((chunk) => [chunk.id, chunk.items.length]), [["C0", 64], ["C1", 64], ["C2", 1]]);
-  assert.equal(first.chunks[0].requestJson, JSON.stringify({ target: "en", items: first.chunks[0].items }));
+  assert.equal(first.chunks[0].requestJson, JSON.stringify({ context, target: "en", items: first.chunks[0].items }));
+  assert.deepEqual(first.chunks[0].items[0], { id: "S0", c: "ordinary", v: "primary", s: "源0" });
   assert.equal(planChunks(rows.slice(0, 8), "en", model).chunks.length, 1);
 });
 
 test("planner enforces document, item and model limits", () => {
-  const base = { class: "ordinary" as const, sendDisposition: "sent" as const, target: {}, targetField: "TranslatedText" as const };
+  const base = { class: "ordinary" as const, sendDisposition: "sent" as const, voice: null, allowUnchanged: false, target: {}, targetField: "TranslatedText" as const };
   assert.throws(() => planChunks(Array.from({ length: 513 }, (_, i) => ({ ...base, id: `S${i}`, sourceText: "x" })), "en", model), /oversized/);
   assert.throws(() => planChunks([{ ...base, id: "S0", sourceText: "x".repeat(2049) }], "en", model), /oversized/);
   assert.throws(() => planChunks([{ ...base, id: "S0", sourceText: "long enough source" }], "en", { inputTokenLimit: 2, outputTokenLimit: 2 }), /oversized/);
 });
 
 test("strict protocol accepts reordered ids and one code fence", () => {
-  const request = [{ id: "S0", c: "ordinary" as const, s: "hola" }, { id: "S1", c: "adlib" as const, s: "Yeah" }];
+  const request = [{ id: "S0", c: "ordinary" as const, v: null, s: "hola" }, { id: "S1", c: "adlib" as const, v: "background" as const, s: "Yeah" }];
   assert.deepEqual(validateProviderJson('```json\n{"items":[{"id":"S1","t":"Yeah"},{"id":"S0","t":"hello"}]}\n```', request), [{ id: "S1", t: "Yeah" }, { id: "S0", t: "hello" }]);
 });
 
 test("strict protocol rejects malformed shape, ids, controls, bounds and unchanged ordinary", () => {
-  const request = [{ id: "S0", c: "ordinary" as const, s: "hola / mundo" }];
+  const request = [{ id: "S0", c: "ordinary" as const, v: null, s: "hola / mundo" }];
   for (const items of [[], [{ id: "S0", t: "hello / world" }, { id: "S0", t: "duplicate / row" }], [{ id: "extra", t: "hello / world" }], [{ id: "S0", t: 3 }]]) {
     assert.throws(() => validateProviderItems(items, request));
   }

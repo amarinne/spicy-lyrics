@@ -48,7 +48,7 @@ export async function executeChunk(args: {
     }
     const reservation = args.chunk.estimatedInputTokens + maxOutputTokens;
     record.attempts++;
-    const result = await args.provider.translateChunk({ target: args.config.targetLang, items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, args.signal);
+    const result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, args.signal);
     if (!result.ok) {
       if (result.failure.kind === "rate_limited" && record.attempts < AI_MAX_ATTEMPTS) {
         totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
@@ -72,7 +72,7 @@ export async function executeChunk(args: {
       return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     }
     try {
-      const items = validateProviderItems(result.items, args.chunk.items, args.config.layer ?? "meaning", args.config.targetLang);
+      const items = validateProviderItems(result.items, args.chunk.items, args.config.layer ?? "meaning", args.config.targetLang, new Set(args.chunk.allowUnchangedIds));
       record.status = "complete"; delete record.failure;
       return { ok: true, items, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     } catch (error) {

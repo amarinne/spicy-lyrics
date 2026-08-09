@@ -1,6 +1,6 @@
 import { shouldTranslateLine } from "../Fork/Translation.ts";
 import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
-import { AI_ORIGINAL_SNAPSHOT_SCHEMA, type CanonicalOriginalSnapshot, type EnumeratedLine, type RefinementLineClass } from "./types.ts";
+import { AI_ORIGINAL_SNAPSHOT_SCHEMA, type CanonicalOriginalSnapshot, type EnumeratedLine, type RefinementLineClass, type VoiceHint } from "./types.ts";
 
 const STRUCTURAL_HEADINGS = /^(?:intro|verse(?: \d+)?|pre-chorus|chorus|post-chorus|refrain|hook|bridge|interlude|instrumental|break|solo|outro)$/;
 const ADLIB_TOKENS = new Set(["ah", "aah", "eh", "hey", "hm", "hmm", "la", "na", "oh", "ooh", "uh", "woo", "woah", "yeah", "yo"]);
@@ -21,31 +21,35 @@ export function classifyRefinementLine(sourceText: string): RefinementLineClass 
 function syllableText(group: any): string {
   return Array.isArray(group?.Syllables) ? canonicalTextFromSyllables(group.Syllables).canonical.text : "";
 }
-function row(id: string, sourceText: string, target: any, sourceLang: string, targetLang: string): EnumeratedLine {
+function row(id: string, sourceText: string, target: any, sourceLang: string, targetLang: string, voice: VoiceHint | null): EnumeratedLine {
   const lineClass = classifyRefinementLine(sourceText);
-  const sendDisposition = lineClass === "structural" ? "structural" : shouldTranslateLine(sourceText, sourceLang, targetLang) ? "sent" : "skipped";
-  return { id, class: lineClass, sendDisposition, sourceText, baselineTranslatedText: typeof target?.TranslatedText === "string" ? target.TranslatedText : undefined, target: target ?? null, targetField: target ? "TranslatedText" : null };
+  const sendDisposition = lineClass === "structural" ? "structural" : "sent";
+  const allowUnchanged = lineClass !== "structural" && !shouldTranslateLine(sourceText, sourceLang, targetLang);
+  return { id, class: lineClass, sendDisposition, sourceText, voice, allowUnchanged, baselineTranslatedText: typeof target?.TranslatedText === "string" ? target.TranslatedText : undefined, target: target ?? null, targetField: target ? "TranslatedText" : null };
 }
 
 export function enumerateRefinementLines(document: any, targetLang: string): EnumeratedLine[] {
   const sourceLang = document?.Language || "und";
   const rows: EnumeratedLine[] = [];
   if (document?.Type === "Static") {
-    for (let i = 0; i < (document.Lines ?? []).length; i++) rows.push(row(`S${i}`, document.Lines[i]?.Text ?? "", document.Lines[i], sourceLang, targetLang));
+    for (let i = 0; i < (document.Lines ?? []).length; i++) rows.push(row(`S${i}`, document.Lines[i]?.Text ?? "", document.Lines[i], sourceLang, targetLang, null));
   } else if (document?.Type === "Line") {
-    for (let i = 0; i < (document.Content ?? []).length; i++) rows.push(row(`G${i}`, document.Content[i]?.Text ?? "", document.Content[i], sourceLang, targetLang));
+    for (let i = 0; i < (document.Content ?? []).length; i++) {
+      const target = document.Content[i];
+      rows.push(row(`G${i}`, target?.Text ?? "", target, sourceLang, targetLang, target?.OppositeAligned === true ? "alternate" : "primary"));
+    }
   } else if (document?.Type === "Syllable") {
     for (let i = 0; i < (document.Content ?? []).length; i++) {
       const group = document.Content[i];
-      if (group?.Type !== undefined && group.Type !== "Vocal") { rows.push(row(`G${i}`, group?.Text ?? "", null, sourceLang, targetLang)); continue; }
-      rows.push(row(`L${i}`, syllableText(group?.Lead), group?.Lead, sourceLang, targetLang));
-      for (let j = 0; j < (group?.Background ?? []).length; j++) rows.push(row(`B${i}.${j}`, syllableText(group.Background[j]), group.Background[j], sourceLang, targetLang));
+      if (group?.Type !== undefined && group.Type !== "Vocal") { rows.push(row(`G${i}`, group?.Text ?? "", null, sourceLang, targetLang, null)); continue; }
+      rows.push(row(`L${i}`, syllableText(group?.Lead), group?.Lead, sourceLang, targetLang, group?.OppositeAligned === true || group?.Lead?.OppositeAligned === true ? "alternate" : "primary"));
+      for (let j = 0; j < (group?.Background ?? []).length; j++) rows.push(row(`B${i}.${j}`, syllableText(group.Background[j]), group.Background[j], sourceLang, targetLang, "background"));
     }
   } else throw new TypeError(`Unsupported lyrics type: ${String(document?.Type)}`);
   return rows;
 }
 
-function soundRow(id: string, sourceText: string, target: any): EnumeratedLine {
+function soundRow(id: string, sourceText: string, target: any, voice: VoiceHint | null): EnumeratedLine {
   const lineClass = classifyRefinementLine(sourceText);
   const baseline = typeof target?.ReadingRenderPlan?.joinedDisplayText === "string"
     ? target.ReadingRenderPlan.joinedDisplayText
@@ -56,7 +60,7 @@ function soundRow(id: string, sourceText: string, target: any): EnumeratedLine {
         : typeof target?.JapaneseReading?.romaji === "string"
           ? target.JapaneseReading.romaji
           : undefined;
-  return { id, class: lineClass, sendDisposition: lineClass === "structural" ? "structural" : "sent", sourceText, baselineTranslatedText: baseline, target: target ?? null, targetField: target ? "RomanizedText" : null };
+  return { id, class: lineClass, sendDisposition: lineClass === "structural" ? "structural" : "sent", sourceText, voice, allowUnchanged: true, baselineTranslatedText: baseline, target: target ?? null, targetField: target ? "RomanizedText" : null };
 }
 
 export function enumerateSourceRows(document: any): Array<{ id: string; sourceText: string }> {
@@ -78,9 +82,12 @@ export function enumerateSourceRows(document: any): Array<{ id: string; sourceTe
 export function enumerateSoundLines(document: any): EnumeratedLine[] {
   const rows: EnumeratedLine[] = [];
   if (document?.Type === "Static") {
-    for (let i = 0; i < (document.Lines ?? []).length; i++) rows.push(soundRow(`S${i}`, document.Lines[i]?.Text ?? "", document.Lines[i]));
+    for (let i = 0; i < (document.Lines ?? []).length; i++) rows.push(soundRow(`S${i}`, document.Lines[i]?.Text ?? "", document.Lines[i], null));
   } else if (document?.Type === "Line") {
-    for (let i = 0; i < (document.Content ?? []).length; i++) rows.push(soundRow(`G${i}`, document.Content[i]?.Text ?? "", document.Content[i]));
+    for (let i = 0; i < (document.Content ?? []).length; i++) {
+      const target = document.Content[i];
+      rows.push(soundRow(`G${i}`, target?.Text ?? "", target, target?.OppositeAligned === true ? "alternate" : "primary"));
+    }
   } else if (document?.Type === "Syllable") {
     throw new TypeError("sound_alignment_required");
   } else throw new TypeError(`Unsupported lyrics type: ${String(document?.Type)}`);

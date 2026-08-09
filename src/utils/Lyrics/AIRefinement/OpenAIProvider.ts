@@ -1,6 +1,6 @@
 import { getJson, postJson } from "./ProviderTransport.ts";
-import { buildSystemPrompt, validateProviderItems } from "./protocol.ts";
-import { AI_MAX_RESPONSE_BYTES, type ModelDescriptor, type ModelListResult, type ProviderConfig, type ProviderCredential, type ProviderFailure, type ProviderResult, type RefinementProvider } from "./types.ts";
+import { buildSystemPrompt, EMPTY_LYRIC_CONTEXT, validateProviderItems } from "./protocol.ts";
+import { AI_MAX_RESPONSE_BYTES, type ModelDescriptor, type ModelListResult, type ProviderConfig, type ProviderCredential, type ProviderFailure, type ProviderRequest, type ProviderResult, type RefinementProvider } from "./types.ts";
 import { captureProviderExchange } from "./DebugCapture.ts";
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -106,12 +106,13 @@ export class OpenAIRefinementProvider implements RefinementProvider {
   }
 
   async probeModel(model: ModelDescriptor, credential: Readonly<ProviderCredential>, signal: AbortSignal): Promise<ModelProbeResult> {
-    const request = { target: "en", items: [{ id: "P0", c: "ordinary" as const, s: "hola" }] };
+    const request: ProviderRequest = { context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "P0", c: "ordinary", v: null, s: "hola" }] };
     const result = await this.translateChunkInternal(request, {
       providerVersion: "openai-compatible-v1",
       endpoint: this.baseUrl,
       model,
       targetLang: "en",
+      context: EMPTY_LYRIC_CONTEXT,
       promptVersion: 1,
       temperature: 0,
       contextMode: "document_or_v1_chunks",
@@ -125,11 +126,11 @@ export class OpenAIRefinementProvider implements RefinementProvider {
     return { ok: true, usage: result.usage };
   }
 
-  async translateChunk(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
+  async translateChunk(request: ProviderRequest, config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
     return this.translateChunkInternal(request, config, signal, true);
   }
 
-  private async translateChunkInternal(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal, captureEnabled: boolean): Promise<ProviderResult> {
+  private async translateChunkInternal(request: ProviderRequest, config: Readonly<ProviderConfig>, signal: AbortSignal, captureEnabled: boolean): Promise<ProviderResult> {
     const captureId = captureEnabled ? config.captureId ?? null : null;
     let response: Awaited<ReturnType<typeof postJson>>;
     try {
@@ -137,7 +138,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
         model: config.model.name,
         messages: [
           { role: "system", content: buildSystemPrompt(config.layer ?? "meaning", config.targetLang, config.instructions, config.repair) },
-          { role: "user", content: JSON.stringify({ target: request.target, items: request.items }) },
+          { role: "user", content: JSON.stringify(request) },
         ],
         response_format: { type: "json_object" },
         temperature: 0,

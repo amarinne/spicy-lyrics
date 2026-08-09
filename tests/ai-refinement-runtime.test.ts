@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   AI_PROMPT_VERSION,
+  EMPTY_LYRIC_CONTEXT,
   FakeRefinementProvider,
   ReplayProvider,
   executeChunk,
@@ -13,8 +14,8 @@ import {
 } from "../src/utils/Lyrics/AIRefinement/index.ts";
 
 const descriptor = { name: "fake-model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 1_000, supportedGenerationMethods: ["generateContent"] };
-const config: ProviderConfig = { providerVersion: "1", model: descriptor, targetLang: "en", promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "never-log" }, repair: false, maxOutputTokens: 0 };
-const row = { id: "S0", class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: "hola", target: {}, targetField: "TranslatedText" as const };
+const config: ProviderConfig = { providerVersion: "1", model: descriptor, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "never-log" }, repair: false, maxOutputTokens: 0 };
+const row = { id: "S0", class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: "hola", voice: null, allowUnchanged: false, target: {}, targetField: "TranslatedText" as const };
 const chunk = planChunks([row], "en", descriptor).chunks[0];
 
 test("full-chunk repair uses byte-identical membership and caps attempts at two", async () => {
@@ -62,7 +63,7 @@ test("completed chunks cannot be resent", async () => {
 });
 
 test("record/replay contains no credential or headers and never calls network", async () => {
-  const entry: ReplayEntry = { schema: 1, request: { target: "en", items: [{ id: "S0", c: "ordinary", s: "synthetic source" }] }, response: { ok: true, items: [{ id: "S0", t: "synthetic translation" }], usage: { input: 3, output: 3 }, finish: "stop", raw: { bytes: 40 } }, model: descriptor };
+  const entry: ReplayEntry = { schema: 1, request: { context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "S0", c: "ordinary", v: null, s: "synthetic source" }] }, response: { ok: true, items: [{ id: "S0", t: "synthetic translation" }], usage: { input: 3, output: 3 }, finish: "stop", raw: { bytes: 40 } }, model: descriptor };
   const serialized = exportReplay([entry]);
   assert.doesNotMatch(serialized, /never-log|x-goog-api-key|authorization/i);
   const provider = new ReplayProvider(importReplay(serialized));

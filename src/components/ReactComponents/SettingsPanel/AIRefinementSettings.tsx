@@ -4,10 +4,9 @@ import { AI_CONSENT_VERSION, deleteProviderCredential, loadProviderCredential, s
 import { normalizeOpenAIBaseUrl } from "../../../utils/Lyrics/AIRefinement/OpenAIProvider.ts";
 import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCaptures, downloadProviderCapture, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, listProviderCaptures, loadLatestProviderCapture, selectProviderCapture, subscribeProviderCapture, type ProviderCaptureSummary } from "../../../utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
-import { aiRefinementCoordinator, aiSoundCoordinator, geminiRefinementProvider, notifyAIRefinementConfigChanged, notifyAIRefinementCredentialChanged, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
+import { geminiRefinementProvider, notifyAIRefinementConfigChanged, notifyAIRefinementCredentialChanged, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
-import { AI_MAX_STEERING_BYTES } from "../../../utils/Lyrics/AIRefinement/types.ts";
-import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $aiSteeringInstructions, $soundSteeringInstructions } from "../../../utils/stores.ts";
+import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider } from "../../../utils/stores.ts";
 import { Row, Select, Toggle } from "./components.tsx";
 
 const encoder = new TextEncoder();
@@ -47,8 +46,7 @@ export default function AIRefinementSettings() {
   const selectedDescriptorsJson = useStore($aiSelectedModelDescriptorsByProvider);
   const discoveredModelsJson = useStore($aiDiscoveredModelsByProvider);
   const openAIBaseUrl = useStore($aiOpenAIBaseUrl);
-  const steeringInstructions = useStore($aiSteeringInstructions);
-  const soundInstructions = useStore($soundSteeringInstructions);
+  const instructions = useStore($aiInstructions);
   const providerId: ProviderId = selectedProviderValue === "openai" ? "openai" : "gemini";
   const providerName = providerId === "gemini" ? "Gemini" : "OpenAI-compatible";
   const selectedModels = useMemo(() => stringMap(selectedModelsJson), [selectedModelsJson]);
@@ -61,8 +59,7 @@ export default function AIRefinementSettings() {
   const [testing, setTesting] = useState(false);
   const [probing, setProbing] = useState(false);
   const [probeFailures, setProbeFailures] = useState<string[]>([]);
-  const [steeringDraft, setSteeringDraft] = useState(steeringInstructions);
-  const [soundDraft, setSoundDraft] = useState(soundInstructions);
+  const [instructionsDraft, setInstructionsDraft] = useState(instructions);
   const [captureState, setCaptureState] = useState(getProviderCaptureState);
   const [captureInventory, setCaptureInventory] = useState<ProviderCaptureSummary[]>([]);
   const [showComparison, setShowComparison] = useState(false);
@@ -72,8 +69,6 @@ export default function AIRefinementSettings() {
   const probeGenerationRef = useRef(0);
   const consented = consentVersion === AI_CONSENT_VERSION;
   const byteCount = encoder.encode(draft).byteLength;
-  const steeringByteCount = encoder.encode(steeringDraft).byteLength;
-  const soundByteCount = encoder.encode(soundDraft).byteLength;
   const cancelModelProbe = useCallback((updateState = true) => {
     probeGenerationRef.current++;
     probeControllerRef.current?.abort("configuration_changed");
@@ -90,8 +85,7 @@ export default function AIRefinementSettings() {
     void loadProviderCredential(providerId).then((secret) => { if (current && secret) setSavedMask(maskKey(secret)); });
     return () => { current = false; };
   }, [providerId]);
-  useEffect(() => setSteeringDraft(steeringInstructions), [steeringInstructions]);
-  useEffect(() => setSoundDraft(soundInstructions), [soundInstructions]);
+  useEffect(() => setInstructionsDraft(instructions), [instructions]);
   useEffect(() => subscribeProviderCapture((state) => { setCaptureState(state); void refreshCaptures(); }), [refreshCaptures]);
   useEffect(() => {
     void loadLatestProviderCapture().then(refreshCaptures);
@@ -262,18 +256,10 @@ export default function AIRefinementSettings() {
           notifyAIRefinementConfigChanged();
         }} disabled={!discoveredModels.length} />
       </Row>
-      <Row label="Meaning Instructions" stacked>
+      <Row label="AI Instructions" stacked>
         <div className="sl-ai-secret-controls">
-          <textarea className="sl-sp-text-input sl-ai-instructions" value={steeringDraft} onChange={(event) => setSteeringDraft(event.currentTarget.value)} placeholder="Example: Preserve Vietnamese honorifics; translate the Korean verse informally." />
-          <span className="sl-ai-note">{steeringByteCount}/{AI_MAX_STEERING_BYTES} UTF-8 bytes</span>
-          <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={steeringByteCount > AI_MAX_STEERING_BYTES || steeringDraft === steeringInstructions} onClick={() => { $aiSteeringInstructions.set(steeringDraft); aiRefinementCoordinator.notifyConfigChanged(); }}>Apply instructions</button></div>
-        </div>
-      </Row>
-      <Row label="Sound Instructions" stacked>
-        <div className="sl-ai-secret-controls">
-          <textarea className="sl-sp-text-input sl-ai-instructions" value={soundDraft} onChange={(event) => setSoundDraft(event.currentTarget.value)} placeholder="Example: Use Egyptian Arabic pronunciation; keep English names unchanged." />
-          <span className="sl-ai-note">{soundByteCount}/{AI_MAX_STEERING_BYTES} UTF-8 bytes</span>
-          <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={soundByteCount > AI_MAX_STEERING_BYTES || soundDraft === soundInstructions} onClick={() => { $soundSteeringInstructions.set(soundDraft); aiSoundCoordinator.notifyConfigChanged(); }}>Apply instructions</button></div>
+          <textarea className="sl-sp-text-input sl-ai-instructions" value={instructionsDraft} onChange={(event) => setInstructionsDraft(event.currentTarget.value)} placeholder="Preserve honorifics, explain cultural nuance naturally, or guide mixed-language phrasing." />
+          <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={instructionsDraft === instructions} onClick={() => { $aiInstructions.set(instructionsDraft); notifyAIRefinementConfigChanged(); }}>Apply</button></div>
         </div>
       </Row>
       <section className="sl-ai-subsection">

@@ -1,4 +1,4 @@
-import { $currentLyricsData, $aiConsentVersion, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedProvider, $aiSteeringInstructions, $meaningBackend, $soundBackend, $soundSteeringInstructions, $soundTargetOrthography } from "../../stores.ts";
+import { $currentLyricsData, $aiConsentVersion, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedProvider, $meaningBackend, $soundBackend, $soundTargetOrthography } from "../../stores.ts";
 import { SpotifyPlayer } from "../../../components/Global/SpotifyPlayer.ts";
 import { AI_CONSENT_VERSION, loadProviderCredential } from "./Credentials.ts";
 import { AIRefinementCoordinator } from "./Coordinator.ts";
@@ -50,7 +50,7 @@ async function getConfig(layer: DerivedLayer) {
     endpoint,
     model,
     targetLang: layer === "sound" ? $soundTargetOrthography.get() : (await import("../lyrics.ts")).translationTargetLang,
-    instructions: layer === "sound" ? $soundSteeringInstructions.get() : $aiSteeringInstructions.get(),
+    instructions: $aiInstructions.get(),
   };
 }
 
@@ -71,6 +71,14 @@ function coordinator(layer: DerivedLayer): AIRefinementCoordinator {
       const name = SpotifyPlayer.GetName();
       const artists = SpotifyPlayer.GetArtists()?.map((artist) => artist.name).filter(Boolean).join(", ");
       return [name, artists].filter(Boolean).join(" — ") || undefined;
+    },
+    getContext: (trackUri) => {
+      if (SpotifyPlayer.GetUri() !== trackUri) return null;
+      return {
+        title: SpotifyPlayer.GetName() ?? null,
+        artists: SpotifyPlayer.GetArtists()?.map((artist) => artist.name).filter((name): name is string => !!name) ?? [],
+        album: SpotifyPlayer.GetAlbumName() ?? null,
+      };
     },
     getConfig: () => getConfig(layer),
     getCredential,

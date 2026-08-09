@@ -1,4 +1,4 @@
-import type { ModelListResult, ProviderConfig, ProviderCredential, ProviderResult, RefinementProvider, ReplayEntry } from "./types.ts";
+import type { ModelListResult, ProviderConfig, ProviderCredential, ProviderRequest, ProviderResult, RefinementProvider, ReplayEntry } from "./types.ts";
 
 export function exportReplay(entries: ReadonlyArray<ReplayEntry>): string {
   return JSON.stringify({ schema: 1, entries }, null, 2);
@@ -20,7 +20,7 @@ export class ReplayProvider implements RefinementProvider {
     const models = Array.from(new Map(this.entries.map((entry) => [entry.model.name, entry.model])).values());
     return { ok: true, models };
   }
-  async translateChunk(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, _config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
+  async translateChunk(request: ProviderRequest, _config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
     if (signal.aborted) throw signal.reason;
     const entry = this.entries[this.cursor++];
     if (!entry || JSON.stringify(entry.request) !== JSON.stringify(request)) return { ok: false, failure: { kind: "protocol", detail: "replay request mismatch" } };

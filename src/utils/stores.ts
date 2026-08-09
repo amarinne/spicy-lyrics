@@ -84,14 +84,13 @@ export const $aiSelectedModelsByProvider = persistAtom<string>("aiSelectedModels
 export const $aiSelectedModelDescriptorsByProvider = persistAtom<string>("aiSelectedModelDescriptorsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelDescriptor ?? "", openai: "" }));
 export const $aiDiscoveredModelsByProvider = persistAtom<string>("aiDiscoveredModelsByProvider", JSON.stringify({ gemini: _settings.aiDiscoveredModels ?? "[]", openai: "[]" }));
 export const $aiOpenAIBaseUrl = persistAtom<string>("aiOpenAIBaseUrl", "https://api.openai.com/v1");
-export const $aiSteeringInstructions = persistAtom<string>("aiSteeringInstructions", "");
+export const $aiInstructions = persistAtom<string>("aiInstructions", _settings.aiInstructions ?? _settings.aiSteeringInstructions ?? _settings.soundSteeringInstructions ?? "");
 export type MeaningBackend = "google" | "ai_auto" | "ai_on_demand";
 export const $meaningBackend = persistAtom<MeaningBackend>("meaningBackend", _settings.aiRefinementEnabled ? "ai_on_demand" : "google");
 export type SoundBackend = "deterministic" | "ai_auto" | "ai_on_demand";
 export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
 export const $soundBackend = persistAtom<SoundBackend>("soundBackend", "deterministic");
 export const $soundTargetOrthography = persistAtom<SoundOrthography>("soundTargetOrthography", "Latin");
-export const $soundSteeringInstructions = persistAtom<string>("soundSteeringInstructions", "");
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {

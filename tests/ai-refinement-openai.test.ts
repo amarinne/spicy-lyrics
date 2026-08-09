@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeOpenAIBaseUrl, OpenAIRefinementProvider } from "../src/utils/Lyrics/AIRefinement/OpenAIProvider.ts";
 import { captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureState, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { EMPTY_LYRIC_CONTEXT } from "../src/utils/Lyrics/AIRefinement/protocol.ts";
+
+const lyricContext = { title: "Song", artists: ["Artist"], album: "Album" };
 
 test("OpenAI-compatible discovery uses bearer auth and a custom base URL without putting the key in the URL", async () => {
   const calls: Array<{ url: string; init?: RequestInit }> = [];
@@ -50,8 +53,8 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const model = { name: "gemini-2.5-flash", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
-  const result = await provider.translateChunk({ target: "en", items: [{ id: "S0", c: "ordinary", s: "hola" }] }, {
-    providerVersion: "openai-compatible-v1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", instructions: "Preserve honorifics.", promptVersion: 2, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64,
+  const result = await provider.translateChunk({ context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] }, {
+    providerVersion: "openai-compatible-v1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", instructions: "Preserve honorifics.", context: lyricContext, promptVersion: 3, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64,
   }, new AbortController().signal);
   assert.equal(result.ok, true);
   if (!result.ok) return;
@@ -64,7 +67,7 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
   assert.deepEqual(body.response_format, { type: "json_object" });
   assert.equal(body.temperature, 0);
   assert.equal(body.max_tokens, 64);
-  assert.deepEqual(JSON.parse(body.messages[1].content), { target: "en", items: [{ id: "S0", c: "ordinary", s: "hola" }] });
+  assert.deepEqual(JSON.parse(body.messages[1].content), { context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] });
   assert.match(body.messages[0].content, /^Additional instructions: Preserve honorifics\./);
   assert.match(body.messages[0].content, /source unchanged\.$/);
 });
@@ -93,7 +96,7 @@ test("explicit debug capture keeps payloads and raw responses in memory without 
   captureProviderBaseline("spotify:track:test", "Test — Artist", [{ id: "S0", baselineTranslatedText: "baseline hello" }]);
   const provider = new OpenAIRefinementProvider("https://proxy.example.test/v1", async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"items":[{"id":"S0","t":"hello"}]}' }, finish_reason: "stop" }] }), { status: 200 }));
   const model = { name: "model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
-  await provider.translateChunk({ target: "en", items: [{ id: "S0", c: "ordinary", s: "private source" }] }, { providerVersion: "1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", promptVersion: 1, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64, captureId: getActiveProviderCaptureId() }, new AbortController().signal);
+  await provider.translateChunk({ context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "S0", c: "ordinary", v: null, s: "private source" }] }, { providerVersion: "1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: 3, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64, captureId: getActiveProviderCaptureId() }, new AbortController().signal);
   const state = getProviderCaptureState();
   assert.equal(state.exchanges.length, 1);
   const serialized = JSON.stringify(state.exchanges[0]);

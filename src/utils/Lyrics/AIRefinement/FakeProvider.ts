@@ -1,6 +1,6 @@
-import type { ModelDescriptor, ModelListResult, ProviderConfig, ProviderCredential, ProviderResult, RefinementProvider } from "./types.ts";
+import type { ModelDescriptor, ModelListResult, ProviderConfig, ProviderCredential, ProviderRequest, ProviderResult, RefinementProvider } from "./types.ts";
 
-export type FakeProviderStep = ProviderResult | ((request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal) => ProviderResult | Promise<ProviderResult>);
+export type FakeProviderStep = ProviderResult | ((request: ProviderRequest, config: Readonly<ProviderConfig>, signal: AbortSignal) => ProviderResult | Promise<ProviderResult>);
 
 export class FakeRefinementProvider implements RefinementProvider {
   readonly id = "fake";
@@ -18,7 +18,7 @@ export class FakeRefinementProvider implements RefinementProvider {
     return { ok: true, models: this.models };
   }
 
-  async translateChunk(request: { target: string; items: ReadonlyArray<{ id: string; c: "ordinary" | "adlib"; s: string }> }, config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
+  async translateChunk(request: ProviderRequest, config: Readonly<ProviderConfig>, signal: AbortSignal): Promise<ProviderResult> {
     if (signal.aborted) throw signal.reason;
     this.calls.push({ request: structuredClone(request), config: structuredClone(config) });
     const step = this.steps.shift();
