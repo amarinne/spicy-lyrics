@@ -10,6 +10,12 @@ export type ProviderExchangeCapture = {
   response: unknown;
 };
 
+export type LyricsSourceEvidence = {
+  provider: string | null;
+  label: string | null;
+  format: "Syllable" | "Line" | "Static" | null;
+};
+
 export type DurableProviderCapture = {
   id: string;
   schema: 1;
@@ -19,13 +25,14 @@ export type DurableProviderCapture = {
   trackUri: string | null;
   trackLabel: string | null;
   layer: "meaning" | "sound";
+  source?: LyricsSourceEvidence;
   baseline: Array<{ id: string; baseline: string }>;
   exchanges: ProviderExchangeCapture[];
 };
 
 export type ProviderComparisonRow = { id: string; baseline: string; ai: string };
 export type CaptureState = { enabled: boolean; durable: boolean; captureId: string | null; activeCaptureId: string | null; exchanges: ReadonlyArray<ProviderExchangeCapture> };
-export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; model: string | null; attempts: number; updatedAt: number };
+export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; sourceLabel: string | null; model: string | null; attempts: number; updatedAt: number };
 
 const activeCaptures = new Map<string, DurableProviderCapture>();
 let selectedCapture: DurableProviderCapture | null = null;
@@ -90,6 +97,7 @@ export async function listProviderCaptures(): Promise<ProviderCaptureSummary[]> 
     trackUri: record.trackUri,
     trackLabel: record.trackLabel,
     layer: record.layer ?? "meaning",
+    sourceLabel: record.source?.label ?? null,
     model: record.exchanges.at(-1)?.model ?? null,
     attempts: record.exchanges.length,
     updatedAt: record.updatedAt,
@@ -135,10 +143,11 @@ export async function deleteAllProviderCaptures(): Promise<boolean> {
   return true;
 }
 
-export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>, layer: "meaning" | "sound" = "meaning"): string {
+export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>, layer: "meaning" | "sound" = "meaning", source?: LyricsSourceEvidence): string {
   const now = Date.now();
   const activeCapture = {
     id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri, trackLabel, layer,
+    source: source ? structuredClone(source) : undefined,
     baseline: rows.map((row) => ({ id: row.id, baseline: row.baselineTranslatedText ?? "" })), exchanges: [],
   };
   activeCaptures.set(activeCapture.id, activeCapture);
@@ -235,7 +244,7 @@ export function getProviderComparisonRows(): ProviderComparisonRow[] {
   return (shown?.baseline ?? []).map((row) => ({ id: row.id, baseline: row.baseline, ai: byId.get(row.id) ?? "" }));
 }
 
-export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; updatedAt: number } | null {
+export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; source: LyricsSourceEvidence | null; updatedAt: number } | null {
   const shown = displayedCapture();
   const latest = shown?.exchanges.at(-1);
   if (!shown || !latest) return null;
@@ -243,5 +252,5 @@ export function getProviderCaptureMetadata(): { model: string; providerId: strin
   const systemPrompt = Array.isArray(messages)
     ? messages.find((message) => message?.role === "system")?.content
     : (latest.request as any)?.systemInstruction?.parts?.map((part: any) => typeof part?.text === "string" ? part.text : "").join("") ?? "";
-  return { model: latest.model, providerId: latest.providerId, endpoint: latest.endpoint, attempts: shown.exchanges.length, systemPrompt: typeof systemPrompt === "string" ? systemPrompt : "", trackUri: shown.trackUri, trackLabel: shown.trackLabel, layer: shown.layer ?? "meaning", updatedAt: shown.updatedAt };
+  return { model: latest.model, providerId: latest.providerId, endpoint: latest.endpoint, attempts: shown.exchanges.length, systemPrompt: typeof systemPrompt === "string" ? systemPrompt : "", trackUri: shown.trackUri, trackLabel: shown.trackLabel, layer: shown.layer ?? "meaning", source: shown.source ? structuredClone(shown.source) : null, updatedAt: shown.updatedAt };
 }

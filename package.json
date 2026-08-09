@@ -10,6 +10,7 @@
     "test:translation": "node --experimental-strip-types --test tests/translation-batch.test.ts",
     "test:ai-refinement": "node --experimental-strip-types --test tests/ai-refinement-*.test.ts",
     "test:processing-context": "node --experimental-strip-types --test tests/processing-context.test.ts",
+    "test:lyrics-sources": "node --experimental-strip-types --test tests/lyrics-source-*.test.ts tests/lyrics-request-session.test.ts tests/lyrics-candidate-selector.test.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",

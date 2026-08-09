@@ -1,4 +1,4 @@
-import fetchLyrics, { LyricsStore, ShowQueueLoader } from "../../utils/Lyrics/fetchLyrics.ts";
+import fetchLyrics, { invalidateLyricsPipeline, LyricsStore, ShowQueueLoader } from "../../utils/Lyrics/fetchLyrics.ts";
 import { LyricsQueueRetry } from "../../utils/Lyrics/LyricsQueueRetry.ts";
 import {
   $chineseCharacterForm,
@@ -40,6 +40,8 @@ import {
   $fixHanGlyphVariants,
   $lineHoverBackground,
   $lyricsContainerExists,
+  $lyricsSelectionMode,
+  $lyricsSourceOrder,
   $minimalLyricsMode,
   $meaningBackend,
   $soundBackend,
@@ -982,6 +984,7 @@ const reprocessCurrentLyricsFromSource = async (): Promise<void> => {
   if (!uri) return;
   const lyricsContent = PageContainer.querySelector(".LyricsContainer .LyricsContent");
   lyricsContent?.classList.add("HiddenTransitioned");
+  invalidateLyricsPipeline();
   invalidateAIRefinementBaseline(uri);
   $currentLyricsData.set("");
   if (trackId) await LyricsStore.RemoveItem(trackId).catch(() => {});
@@ -1066,6 +1069,9 @@ $soundBackend.listen(() => {
 });
 
 $soundTargetOrthography.listen(() => aiSoundCoordinator.notifyConfigChanged());
+
+$lyricsSourceOrder.listen(queueProcessingSettingsRefresh);
+$lyricsSelectionMode.listen(queueProcessingSettingsRefresh);
 
 $skipSpicyFont.listen((v) => {
   if (!PageContainer) return;

@@ -1,11 +1,9 @@
 import { franc } from "franc-all";
 import langs from "langs";
 import { isDev } from "../../components/Global/Defaults.ts";
-import { $currentLyricsData, $currentLyricsType, $currentlyFetching, $meaningBackend } from "../stores.ts";
-import Platform from "../../components/Global/Platform.ts";
+import { $currentLyricsData, $currentLyricsType, $currentlyFetching, $lyricsSelectionMode, $lyricsSourceOrder, $lyricsSourceOverrides, $meaningBackend } from "../stores.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import PageView, { PageContainer } from "../../components/Pages/PageView.ts";
-import { Query } from "../API/Query.ts";
 import { LYRICS_PROCESSING_VERSION, ProcessLyrics, READING_PLAN_SCHEMA_VERSION } from "./ProcessLyrics.ts";
 import {
   chineseTones,
@@ -21,17 +19,23 @@ import Logger from "../Logger.ts";
 import { LocalLyricsManager } from "./manager/index.ts";
 import { LyricsQueueRetry } from "./LyricsQueueRetry.ts";
 import { GetExpireStore } from "../../modules/Store.ts";
-import { SLObjPack } from "../objpack.ts";
 import { translateLyrics } from "./Fork/Translation.ts";
 import { $chineseCharacterForm, $japaneseReadingMode } from "../uiState.ts";
 import { buildProcessingContextKey } from "./ProcessingContext.ts";
 import { captureOriginalSnapshot, type CanonicalOriginalSnapshot } from "./AIRefinement/index.ts";
 import { acceptAIRefinementBaseline, getAIRefinementBaseline } from "./AIRefinement/singleton.ts";
+import { getTrackSourceOverride } from "./LyricsSourceOverrides.ts";
+import { effectiveLyricsSourceConfig, lyricsSourceCacheSignature } from "./LyricsSourcePreferences.ts";
+import { isLyricsSourceCacheCompatible } from "./LyricsSourceCache.ts";
+import { fetchLyricsFromSources, RUNTIME_LYRICS_SOURCE_ADAPTERS, type TrackLyricsInfo } from "./LyricsSources.ts";
+import { LyricsRequestCoordinator, type LyricsRequestSession } from "./LyricsRequestSession.ts";
+import { runProviderAcquisition } from "./ProviderAcquisition.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
 const lyricsPrefetchLogger = new Logger("Lyrics Prefetch");
 const prefetchInFlight = new Set<string>();
+const lyricsRequestCoordinator = new LyricsRequestCoordinator<[object | string, number] | null>();
 
 // recently updated key structure - changed name
 export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 2, {
@@ -39,7 +43,21 @@ export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 2, 
   Duration: 3,
 }, isDev as true);
 
-const lyricsPacker = new SLObjPack();
+function sourceConfigFor(trackUri: string) {
+  return effectiveLyricsSourceConfig(
+    $lyricsSourceOrder.get(),
+    $lyricsSelectionMode.get(),
+    getTrackSourceOverride($lyricsSourceOverrides.get(), trackUri),
+  );
+}
+
+function requestIsCurrent(session: LyricsRequestSession, trackUri: string): boolean {
+  return session.isCurrent() && SpotifyPlayer.GetUri() === trackUri;
+}
+
+function finishFetching(session: LyricsRequestSession): void {
+  if (session.isCurrent()) $currentlyFetching.set(false);
+}
 
 function currentProcessingContextKey(): string {
   return buildProcessingContextKey({
@@ -57,7 +75,8 @@ function currentProcessingContextKey(): string {
   });
 }
 
-async function setProcessedLyricsStoreItem(trackId: string, lyrics: any): Promise<void> {
+async function setProcessedLyricsStoreItem(trackId: string, lyrics: any, session?: LyricsRequestSession): Promise<void> {
+  if (session && !session.isCurrent()) return;
   lyrics.ProcessingContextKey = currentProcessingContextKey();
   lyrics.ReadingPlanSchemaVersion = READING_PLAN_SCHEMA_VERSION;
   await LyricsStore.SetItem(trackId, lyrics);
@@ -90,16 +109,18 @@ function acceptBaseline(trackUri: string, lyrics: any, stage: "intermediate" | "
   acceptAIRefinementBaseline(trackUri, lyrics, stage, snapshot);
 }
 
-async function finishProcessingInBackground(trackId: string, trackUri: string, lyrics: any, snapshot: CanonicalOriginalSnapshot): Promise<void> {
+async function finishProcessingInBackground(trackId: string, trackUri: string, lyrics: any, snapshot: CanonicalOriginalSnapshot, session: LyricsRequestSession): Promise<void> {
   const shouldTranslate = lyrics.TranslationPending === true;
   const shouldRerenderAfterRomanization = lyrics.RomanizationPending === true;
 
   try {
     await ProcessLyrics(lyrics, { updatePageClasses: false, awaitTranslation: false });
+    if (!requestIsCurrent(session, trackUri)) return;
     lyrics.ProcessingPending = false;
     lyrics.RomanizationPending = false;
     lyrics.TranslationPending = shouldTranslate;
-    await setProcessedLyricsStoreItem(trackId, lyrics);
+    await setProcessedLyricsStoreItem(trackId, lyrics, session);
+    if (!requestIsCurrent(session, trackUri)) return;
     if (shouldRerenderAfterRomanization) acceptBaseline(trackUri, lyrics, shouldTranslate ? "intermediate" : "final", snapshot);
   } catch (error) {
     lyrics.ProcessingPending = false;
@@ -113,13 +134,14 @@ async function finishProcessingInBackground(trackId: string, trackUri: string, l
 
   try {
     await translateLyrics(lyrics);
+    if (!requestIsCurrent(session, trackUri)) return;
   } catch (error) {
     lyricsCacheLogger.error("Background lyrics translation failed", error);
-  } finally {
-    lyrics.TranslationPending = false;
-    await setProcessedLyricsStoreItem(trackId, lyrics);
-    acceptBaseline(trackUri, lyrics, "final", snapshot);
   }
+  lyrics.TranslationPending = false;
+  await setProcessedLyricsStoreItem(trackId, lyrics, session);
+  if (!requestIsCurrent(session, trackUri)) return;
+  acceptBaseline(trackUri, lyrics, "final", snapshot);
 }
 
 const RomanizableScriptQuickTest = /[぀-ヿ一-鿿가-힯ᄀ-ᇿ㄰-㆏Ѐ-ԯͰ-Ͽἀ-῿]/;
@@ -180,7 +202,8 @@ function markProcessedWithoutBackground(lyrics: any): void {
   lyrics.IncludesTranslation = lyrics.IncludesTranslation === true;
 }
 
-function presentLyrics(lyricsData: any): void {
+function presentLyrics(lyricsData: any, session?: LyricsRequestSession): void {
+  if (session && !session.isCurrent()) return;
   // Lyrics are in hand — end any 503 retry loop that was running for this track.
   LyricsQueueRetry.NotifyResolved(lyricsData?.uri);
   setRomanizationClass(lyricsData?.HasTransliterations || lyricsData?.RomanizationPending);
@@ -194,7 +217,7 @@ function presentLyrics(lyricsData: any): void {
   $currentlyFetching.set(false);
 }
 
-async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any): Promise<any> {
+async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any, session?: LyricsRequestSession): Promise<any> {
   if (lyrics) {
     lyrics.uri = lyrics.uri || uri;
     lyrics.id = lyrics.id || trackId;
@@ -216,7 +239,8 @@ async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any
   if (!hasRomanizationWorkQuick(lyrics) && !hasTranslationWorkQuick(lyrics)) {
     markProcessedWithoutBackground(lyrics);
     lyrics.id = lyrics.id || trackId;
-    await setProcessedLyricsStoreItem(trackId, lyrics);
+    await setProcessedLyricsStoreItem(trackId, lyrics, session);
+    if (session && !requestIsCurrent(session, uri)) return null;
     return lyrics;
   }
 
@@ -228,10 +252,12 @@ async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any
     toContext: processingContextKey,
   });
   await ProcessLyrics(lyrics, { updatePageClasses: false, awaitTranslation: true });
+  if (session && !requestIsCurrent(session, uri)) return null;
   lyrics.ProcessingPending = false;
   lyrics.RomanizationPending = false;
   lyrics.TranslationPending = false;
-  await setProcessedLyricsStoreItem(trackId, lyrics);
+  await setProcessedLyricsStoreItem(trackId, lyrics, session);
+  if (session && !requestIsCurrent(session, uri)) return null;
   return lyrics;
 }
 
@@ -239,10 +265,12 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
   const trackId = uri?.split(":")?.[2];
   if (!trackId || uri.startsWith("spotify:local:")) return;
   if (prefetchInFlight.has(trackId)) return;
+  const sourceConfig = sourceConfigFor(uri);
+  const sourceSignature = lyricsSourceCacheSignature(sourceConfig);
 
   try {
     const cached = await LyricsStore.GetItem(trackId);
-    if (cached) return;
+    if (cached && isLyricsSourceCacheCompatible(cached, sourceSignature)) return;
     const localLyric = await LocalLyricsManager.get(uri);
     if (localLyric) {
       const localDocument = { ...localLyric, id: trackId, uri };
@@ -254,31 +282,19 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
     lyricsPrefetchLogger.debug("Prefetch cache probe failed", error);
   }
 
+  // Automatic source selection needs current-track metadata and a complete
+  // comparison. Only strict Spicy acquisition is safe to prefetch by id.
+  if (sourceConfig.mode !== "strict" || sourceConfig.order[0] !== "spicy") return;
+
   prefetchInFlight.add(trackId);
   try {
-    const Token = await Platform.GetSpotifyAccessToken();
-    const queries = await Query(
-      [
-        {
-          operation: "lyrics",
-          variables: {
-            id: trackId,
-            auth: "SpicyLyrics-WebAuth",
-          },
-        },
-      ],
-      {
-        "SpicyLyrics-WebAuth": `Bearer ${Token}`,
-      }
-    );
-
-    const lyricsQuery = queries.get("0");
-    if (!lyricsQuery || lyricsQuery.httpStatus !== 200) return;
-
-    const lyrics = lyricsPacker.unpack(lyricsQuery.data);
-    if (lyrics === null || lyrics === undefined || lyrics === "") return;
+    const info: TrackLyricsInfo = { uri, id: trackId, title: "", artists: [], album: "", durationMs: 1 };
+    const outcome = await runProviderAcquisition((signal) => RUNTIME_LYRICS_SOURCE_ADAPTERS.spicy(info, signal));
+    if (outcome.kind !== "lyrics" || !outcome.result.lyrics) return;
+    const lyrics = outcome.result.lyrics;
     lyrics.id = trackId;
     lyrics.uri = uri;
+    lyrics.LyricsSourceCacheSignature = sourceSignature;
     createAndAttachSnapshot(lyrics);
 
     if (hasRomanizationWorkQuick(lyrics) || hasTranslationWorkQuick(lyrics)) {
@@ -287,15 +303,15 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
       markProcessedWithoutBackground(lyrics);
     }
     await setProcessedLyricsStoreItem(trackId, lyrics);
-    lyricsPrefetchLogger.debug("Prefetched next lyrics", { trackId, uri });
+    lyricsPrefetchLogger.debug("Prefetched next lyrics", { trackId, provider: "spicy" });
   } catch (error) {
-    lyricsPrefetchLogger.debug("Prefetch failed", error);
+    lyricsPrefetchLogger.debug("Prefetch failed", { category: error instanceof SyntaxError ? "invalid-response" : "request-error" });
   } finally {
     prefetchInFlight.delete(trackId);
   }
 }
 
-export default async function fetchLyrics(uri: string): Promise<[object | string, number] | null> {
+async function fetchLyricsForSession(uri: string, session: LyricsRequestSession): Promise<[object | string, number] | null> {
   lyricsLogger.debug("Fetch requested", uri);
   //if (!PageContainer) return;
   const LyricsContent =
@@ -308,7 +324,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
   //if (!Fullscreen.IsOpen) PageView.AppendViewControls(true);
 
   if (SpotifyPlayer.IsDJ()) {
-    $currentlyFetching.set(false);
+    finishFetching(session);
     return ["dj", 400];
   }
 
@@ -318,7 +334,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
     mediaType &&
     mediaType !== "audio"
   ) {
-    $currentlyFetching.set(false);
+    finishFetching(session);
     if (mediaType === "video") {
       return ["video-track", 400];
     } else if (mediaType === "mixed") {
@@ -329,7 +345,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
 
   const contentType = SpotifyPlayer.GetContentType();
   if (contentType !== "track") {
-    $currentlyFetching.set(false);
+    finishFetching(session);
     if (contentType === "episode") {
       return ["episode-track", 400];
     }
@@ -337,11 +353,8 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
   }
 
   const trackId = uri.split(":")[2];
-
-  if ($currentlyFetching.get()) {
-    $currentlyFetching.set(false);
-    return null;
-  }
+  const sourceConfig = sourceConfigFor(uri);
+  const sourceSignature = lyricsSourceCacheSignature(sourceConfig);
 
   $currentlyFetching.set(true);
 
@@ -352,7 +365,9 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
 
   // Check if there's already data in localStorage
   const coordinatorBaseline = getAIRefinementBaseline(uri);
-  const savedLyricsData = coordinatorBaseline ? JSON.stringify(coordinatorBaseline) : $currentLyricsData.get();
+  const savedLyricsData = coordinatorBaseline && isLyricsSourceCacheCompatible(coordinatorBaseline, sourceSignature)
+    ? JSON.stringify(coordinatorBaseline)
+    : $currentLyricsData.get();
 
   if (savedLyricsData && !isDev) {
     try {
@@ -361,7 +376,7 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         // so strip the prefix rather than splitting on ":".
         const savedUri = savedLyricsData.slice("NO_LYRICS:".length);
         if (savedUri === uri) {
-          $currentlyFetching.set(false);
+          finishFetching(session);
           return ["lyrics-not-found", 404];
         }
       } else {
@@ -369,12 +384,13 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         // Return stored lyrics only when they match the current track. Prefer the
         // URI guard; fall back to id only for pre-uri cache entries.
         const isCurrentTrack = lyricsData?.uri === uri || (!lyricsData?.uri && lyricsData?.id === trackId);
-        if (isCurrentTrack) {
+        if (isCurrentTrack && isLyricsSourceCacheCompatible(lyricsData, sourceSignature)) {
           const snapshot = snapshotFrom(lyricsData);
           if (snapshot) {
-            const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData);
+            const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData, session);
+            if (!processedLyrics || !requestIsCurrent(session, uri)) return null;
             acceptBaseline(uri, processedLyrics, "final", snapshot);
-            presentLyrics(processedLyrics);
+            presentLyrics(processedLyrics, session);
             return [processedLyrics, 200];
           }
           lyricsCacheLogger.debug("Ignoring saved lyrics without canonical original snapshot", { trackId });
@@ -382,18 +398,20 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
       }
     } catch (error) {
       lyricsCacheLogger.error("Error parsing saved lyrics data", error);
-      $currentlyFetching.set(false);
+      finishFetching(session);
       HideLoaderContainer();
     }
   }
 
   const localLyric = await LocalLyricsManager.get(uri);
+  if (!requestIsCurrent(session, uri)) return null;
   if (localLyric) {
     const lyricsData = { ...localLyric, uri };
     const snapshot = createAndAttachSnapshot(lyricsData);
-    const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData);
+    const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData, session);
+    if (!processedLyrics || !requestIsCurrent(session, uri)) return null;
     acceptBaseline(uri, processedLyrics, "final", snapshot);
-    presentLyrics(processedLyrics);
+    presentLyrics(processedLyrics, session);
     return [processedLyrics, 200];
   }
 
@@ -402,16 +420,17 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
   // API. Bail out here — after LocalLyricsManager.get() (which serves any
   // user-uploaded TTML) but before the meaningless remote cache read.
   if (uri.startsWith("spotify:local:")) {
-    $currentlyFetching.set(false);
+    finishFetching(session);
     return ["local-track", 400];
   }
 
   if (LyricsStore) {
     try {
       const lyricsFromCacheRes = await LyricsStore.GetItem(trackId);
-      if (lyricsFromCacheRes) {
+      if (!requestIsCurrent(session, uri)) return null;
+      if (lyricsFromCacheRes && isLyricsSourceCacheCompatible(lyricsFromCacheRes, sourceSignature)) {
         if (lyricsFromCacheRes?.Value === "NO_LYRICS") {
-          $currentlyFetching.set(false);
+          finishFetching(session);
           return ["lyrics-not-found", 404];
         }
         // Tag the cached payload with the current uri so the saved-data and
@@ -423,94 +442,64 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
         };
         const snapshot = snapshotFrom(cachedCandidate);
         if (snapshot) {
-          const lyricsFromCache = await ensureProcessingVersion(trackId, uri, cachedCandidate);
+          const lyricsFromCache = await ensureProcessingVersion(trackId, uri, cachedCandidate, session);
+          if (!lyricsFromCache || !requestIsCurrent(session, uri)) return null;
           acceptBaseline(uri, lyricsFromCache, "final", snapshot);
-          presentLyrics(lyricsFromCache);
+          presentLyrics(lyricsFromCache, session);
           return [{ ...lyricsFromCache, fromCache: true }, 200];
         }
         lyricsCacheLogger.debug("Ignoring processed cache without canonical original snapshot", { trackId });
       }
     } catch (error) {
       lyricsCacheLogger.error("Error parsing cache entry", error);
-      $currentlyFetching.set(false);
+      finishFetching(session);
       return ["unknown-error", 0];
     }
   }
 
 
   if (!navigator.onLine) {
-    $currentlyFetching.set(false);
+    finishFetching(session);
     return ["offline", 400];
   }
 
   ShowLoaderContainer();
 
-  // Fetch new lyrics if no match in localStorage
-  /* const lyricsApi = storage.get("customLyricsApi") ?? Defaults.LyricsContent.api.url;
-    const lyricsAccessToken = storage.get("lyricsApiAccessToken") ?? Defaults.LyricsContent.api.accessToken; */
-
   try {
-    const Token = await Platform.GetSpotifyAccessToken();
-
-    lyricsLogger.debug("API lyrics query", { trackId });
-    const queries = await Query(
-      [
-        {
-          operation: "lyrics",
-          variables: {
-            id: trackId,
-            auth: "SpicyLyrics-WebAuth",
-          },
-        },
-      ],
-      {
-        "SpicyLyrics-WebAuth": `Bearer ${Token}`,
-      }
-    );
-
-    const lyricsQuery = queries.get("0");
-    if (!lyricsQuery) {
-      lyricsLogger.error("Lyrics query not found");
-      HideLoaderContainer();
-      $currentlyFetching.set(false);
-      return ["lyrics-not-found", 404];
-    }
-
-    const status = lyricsQuery.httpStatus;
+    const sourceResult = await fetchLyricsFromSources(uri, sourceConfig.order, sourceConfig.mode, session.signal);
+    if (!requestIsCurrent(session, uri)) return null;
+    const status = sourceResult.status;
     if (status === 503) {
       // The server accepted the request but hasn't processed it yet — it's
       // queued. Surface the queue loader immediately and hand off to the retry
       // loop, which keeps polling with backoff (and survives page close / view
       // swaps). We deliberately leave the loader up and return a sentinel so no
       // error notice is rendered.
-      $currentlyFetching.set(false);
+      finishFetching(session);
       LyricsQueueRetry.HandleQueued(uri);
       return ["lyrics-queued", 503];
     }
 
-    if (status !== 200) {
-      if (status === 404) {
-        HideLoaderContainer();
-        $currentlyFetching.set(false);
-        return ["lyrics-not-found", 404];
-      }
+    if (status !== 200 || !sourceResult.lyrics) {
       HideLoaderContainer();
-      $currentlyFetching.set(false);
+      finishFetching(session);
+      if (status === 404) {
+        return sourceConfig.override === "auto"
+          ? ["lyrics-not-found", 404]
+          : [`source-unavailable:${sourceConfig.override}`, 404];
+      }
+      if (sourceConfig.override !== "auto") return [`source-unavailable:${sourceConfig.override}`, status];
       return ["status-not-200", status];
     }
 
-    const lyrics = lyricsPacker.unpack(lyricsQuery.data) as any;
-
-    if (lyrics === null || lyrics === undefined || lyrics === "") {
-      HideLoaderContainer();
-      $currentlyFetching.set(false);
-      return ["lyrics-not-found", 404];
-    }
+    const lyrics = sourceResult.lyrics;
 
     // Stamp the uri so every match downstream (saved-data, re-fetch, cache)
     // keys off the stable uri instead of the API-supplied id.
     lyrics.uri = uri;
     lyrics.id = trackId;
+    lyrics.LyricsSourceCacheSignature = sourceSignature;
+    lyricsLogger.debug("Lyrics source selected", { provider: lyrics.fetchProvider, type: lyrics.Type });
     const originalSnapshot = createAndAttachSnapshot(lyrics);
     lyrics.DetectedChinese = detectChineseQuick(lyrics);
     const needsRomanization = hasRomanizationWorkQuick(lyrics);
@@ -518,26 +507,39 @@ export default async function fetchLyrics(uri: string): Promise<[object | string
 
     if (!needsRomanization && !needsTranslation) {
       markProcessedWithoutBackground(lyrics);
-      await setProcessedLyricsStoreItem(trackId, lyrics);
+      await setProcessedLyricsStoreItem(trackId, lyrics, session);
+      if (!requestIsCurrent(session, uri)) return null;
       acceptBaseline(uri, lyrics, "final", originalSnapshot);
-      presentLyrics(lyrics);
+      presentLyrics(lyrics, session);
       return [{ ...lyrics, fromCache: false }, 200];
     }
 
     lyrics.ProcessingPending = true;
     lyrics.RomanizationPending = needsRomanization;
     lyrics.TranslationPending = needsTranslation;
+    if (!requestIsCurrent(session, uri)) return null;
     acceptBaseline(uri, lyrics, "intermediate", originalSnapshot);
 
-    presentLyrics(lyrics);
-    void finishProcessingInBackground(trackId, uri, lyrics, originalSnapshot);
+    presentLyrics(lyrics, session);
+    void finishProcessingInBackground(trackId, uri, lyrics, originalSnapshot, session);
     return [{ ...lyrics, fromCache: false }, 200];
   } catch (error) {
-    lyricsLogger.error("Error fetching lyrics", error);
-    $currentlyFetching.set(false);
+    if (!requestIsCurrent(session, uri)) return null;
+    lyricsLogger.error("Lyrics acquisition failed", { category: error instanceof SyntaxError ? "invalid-response" : "request-error" });
+    finishFetching(session);
     HideLoaderContainer();
+    if (sourceConfig.override !== "auto") return [`source-unavailable:${sourceConfig.override}`, 0];
     return ["unknown-error", 0];
   }
+}
+
+export function invalidateLyricsPipeline(): void {
+  lyricsRequestCoordinator.invalidate();
+  $currentlyFetching.set(false);
+}
+
+export default function fetchLyrics(uri: string): Promise<[object | string, number] | null> {
+  return lyricsRequestCoordinator.run(uri, (session) => fetchLyricsForSession(uri, session));
 }
 
 let ContainerShowLoaderTimeout: ReturnType<typeof setTimeout> | null = null;

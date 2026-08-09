@@ -5,6 +5,7 @@ import { buildConfigId, buildDocumentDigest, normalizeLyricContext, planChunks }
 import { executeChunk } from "./runtime.ts";
 import { AI_CHUNK_PLAN_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type LyricContext, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema } from "./types.ts";
 import { captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
+import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
 
 export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; credential?: ProviderCredential | null };
 export type RefinementState = {
@@ -218,7 +219,17 @@ export class AIRefinementCoordinator {
     this.deps.cache.pin(key);
     let record = cached ?? this.newRecord(key, trackUri, session, config, provider, plan.chunks);
     const needsProviderRequest = plan.chunks.some((chunk) => record.chunks[chunk.id]?.status !== "complete");
-    const providerCaptureId = needsProviderRequest ? captureProviderBaseline(trackUri, this.deps.getTrackLabel?.(trackUri) ?? null, session.rows!, this.layer) : null;
+    const providerCaptureId = needsProviderRequest ? captureProviderBaseline(
+      trackUri,
+      this.deps.getTrackLabel?.(trackUri) ?? null,
+      session.rows!,
+      this.layer,
+      {
+        provider: session.document?.fetchProvider ?? session.document?.source ?? null,
+        label: resolveLyricsSourceLabel(session.document?.source, session.document?.sourceDisplayName, session.document?.fetchProvider),
+        format: ["Syllable", "Line", "Static"].includes(session.document?.Type) ? session.document.Type : null,
+      },
+    ) : null;
     let cacheWarning: "write_failed" | undefined;
     let persistenceWarning: "denied" | undefined;
     const ledgerKey = `${trackUri}|${session.configId}`;

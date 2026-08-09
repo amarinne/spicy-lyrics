@@ -209,7 +209,7 @@ export default function AIRefinementSettings() {
     const track = item.trackLabel ?? item.trackUri ?? "Unknown track";
     const model = item.model?.replace(/^models\//, "") ?? "No model response";
     const attempts = `${item.attempts} attempt${item.attempts === 1 ? "" : "s"}`;
-    return `${track} · ${item.layer === "sound" ? "Sound" : "Meaning"} · ${model} · ${attempts} · ${new Date(item.updatedAt).toLocaleString()}`;
+    return `${track} · ${item.sourceLabel ?? "Unknown source"} · ${item.layer === "sound" ? "Sound" : "Meaning"} · ${model} · ${attempts} · ${new Date(item.updatedAt).toLocaleString()}`;
   });
 
   return (
@@ -298,6 +298,7 @@ export default function AIRefinementSettings() {
           {captureMetadata && <div className="sl-ai-capture-meta">
             <span>{captureMetadata.model}</span><span>{captureMetadata.providerId}</span><span>{captureMetadata.attempts} attempt{captureMetadata.attempts === 1 ? "" : "s"}</span>
             <span>{captureMetadata.trackLabel ?? captureMetadata.trackUri ?? "Unknown track"}</span>
+            <span>{captureMetadata.source?.label ?? "Unknown source"} · {captureMetadata.source?.format ?? "Unknown format"}</span>
           </div>}
           {captureMetadata?.systemPrompt && <details className="sl-ai-system-prompt"><summary>System prompt</summary><pre>{captureMetadata.systemPrompt}</pre></details>}
           <div className="sl-ai-comparison-head"><span>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Google baseline"}</span><span>{captureMetadata?.layer === "sound" ? "AI sound" : "AI candidate"}</span></div>

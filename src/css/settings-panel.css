@@ -42,6 +42,10 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
   .sl-ai-comparison-head span { color: var(--color-text-secondary); font-size: var(--text-caption-size); font-weight: var(--w-semibold); }
   .sl-ai-comparison-row > span { color: var(--color-text-primary); font-size: var(--text-caption-size); }
   .sl-ai-comparison-row small { display: block; color: var(--color-text-tertiary); margin-bottom: 3px; }
+  .sl-lyrics-source-picker { display: grid; gap: 12px; min-width: min(360px, 75vw); }
+  .sl-lyrics-source-options { display: grid; gap: 6px; }
+  .sl-lyrics-source-options button { border: 0; border-radius: var(--radius-sm); padding: 10px 12px; color: var(--color-text-primary); background: var(--material-regular-bg); text-align: left; cursor: pointer; }
+  .sl-lyrics-source-options button:hover, .sl-lyrics-source-options button.active { background: var(--material-strong-bg); }
   .sl-ai-capture-meta { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; background: var(--material-regular-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); }
   .sl-ai-capture-meta span:not(:last-child)::after { content: " ·"; }
   .sl-ai-system-prompt { padding: 8px 10px; background: var(--material-regular-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); }

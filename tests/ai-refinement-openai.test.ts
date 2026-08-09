@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeOpenAIBaseUrl, OpenAIRefinementProvider } from "../src/utils/Lyrics/AIRefinement/OpenAIProvider.ts";
-import { captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureState, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { EMPTY_LYRIC_CONTEXT } from "../src/utils/Lyrics/AIRefinement/protocol.ts";
 
 const lyricContext = { title: "Song", artists: ["Artist"], album: "Album" };
@@ -93,7 +93,7 @@ test("model probes never enter an enabled real-song request capture", async () =
 
 test("explicit debug capture keeps payloads and raw responses in memory without credentials or headers", async () => {
   clearProviderCapture();
-  captureProviderBaseline("spotify:track:test", "Test — Artist", [{ id: "S0", baselineTranslatedText: "baseline hello" }]);
+  captureProviderBaseline("spotify:track:test", "Test — Artist", [{ id: "S0", baselineTranslatedText: "baseline hello" }], "meaning", { provider: "spotify", label: "Spotify", format: "Line" });
   const provider = new OpenAIRefinementProvider("https://proxy.example.test/v1", async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"items":[{"id":"S0","t":"hello"}]}' }, finish_reason: "stop" }] }), { status: 200 }));
   const model = { name: "model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
   await provider.translateChunk({ context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "S0", c: "ordinary", v: null, s: "private source" }] }, { providerVersion: "1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: 3, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64, captureId: getActiveProviderCaptureId() }, new AbortController().signal);
@@ -104,6 +104,7 @@ test("explicit debug capture keeps payloads and raw responses in memory without 
   assert.match(serialized, /hello/);
   assert.doesNotMatch(serialized, /private-key|Authorization|headers/i);
   assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "baseline hello", ai: "hello" }]);
+  assert.deepEqual(getProviderCaptureMetadata()?.source, { provider: "spotify", label: "Spotify", format: "Line" });
   clearProviderCapture();
 });
 
