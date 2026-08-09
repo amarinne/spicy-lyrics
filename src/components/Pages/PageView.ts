@@ -86,7 +86,7 @@ import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experime
 import { aiRefinementCoordinator, aiSoundCoordinator, invalidateAIRefinementBaseline, syncAIRefinementBackends } from "../../utils/Lyrics/AIRefinement/singleton.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
-import { openAIRevisionEditor, openAISteeringEditor } from "../../utils/openAISteeringEditor.tsx";
+import { getDefaultAIRefinementRequest, openAIRefinementComposer, type AIRefinementComposerRequest } from "../../utils/openAISteeringEditor.tsx";
 
 const pageLogger = new Logger("Page View");
 const controlsLogger = new Logger("View Controls");
@@ -539,9 +539,7 @@ function AppendViewControls(ReAppend: boolean = false) {
                 aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
                   || aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
                   ? Icons.Spinner.replaceAll("{SIZE}", "20")
-                  : aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined"
-                    ? Icons.AIRestore
-                    : Icons.AIRefine
+                  : Icons.AIRefine
               }</button>`
             : ""
         }
@@ -757,13 +755,51 @@ function AppendViewControls(ReAppend: boolean = false) {
       }
     }
 
+    const openAIComposer = (trackUri: string, initialLayer: "meaning" | "sound") => {
+      const meaningState = aiRefinementCoordinator.getState(trackUri);
+      const soundState = aiSoundCoordinator.getState(trackUri);
+      const submit = (request: AIRefinementComposerRequest) => {
+        const options = { instructions: request.instructions, model: request.model };
+        const runMeaning = () => {
+          if (meaningState.status === "refined") aiRefinementCoordinator.refineOutput(trackUri, options);
+          else aiRefinementCoordinator.refine(trackUri, options);
+        };
+        const runSound = () => {
+          if (soundState.status === "refined") aiSoundCoordinator.refineOutput(trackUri, options);
+          else aiSoundCoordinator.refine(trackUri, options);
+        };
+        if (request.meaning && request.sound) {
+          const unsubscribe = aiRefinementCoordinator.subscribe((updatedTrackUri, updatedState) => {
+            if (updatedTrackUri !== trackUri || updatedState.status === "requested" || updatedState.status === "refining") return;
+            unsubscribe();
+            runSound();
+          });
+          runMeaning();
+        } else {
+          if (request.meaning) runMeaning();
+          if (request.sound) runSound();
+        }
+      };
+      openAIRefinementComposer({
+        initialLayer,
+        meaningAvailable: $meaningBackend.get() !== "google" && meaningState.status !== "requested" && meaningState.status !== "refining",
+        soundAvailable: $soundBackend.get() !== "deterministic" && soundState.status !== "requested" && soundState.status !== "refining",
+        meaningRefined: meaningState.status === "refined",
+        soundRefined: soundState.status === "refined",
+        currentModelName: initialLayer === "meaning" ? meaningState.modelName : soundState.modelName,
+        onSubmit: submit,
+        onRestoreMeaning: () => aiRefinementCoordinator.restoreBaseline(trackUri),
+        onRestoreSound: () => aiSoundCoordinator.restoreBaseline(trackUri),
+      });
+    };
+
     const soundToggle = elem.querySelector("#AISoundToggle");
     if (soundToggle) {
       const trackUri = SpotifyPlayer.GetUri();
       const state = trackUri ? aiSoundCoordinator.getState(trackUri) : { status: "idle" as const };
       if (!isPip) {
         const label = state.status === "refined"
-          ? "Restore built-in sound"
+          ? `Refine AI pronunciation${state.revisionNumber ? ` · revision ${state.revisionNumber}` : ""}`
           : state.status === "refining" || state.status === "requested"
             ? `Refining sound ${state.done ?? 0}/${state.total ?? 0}`
             : state.status === "failed"
@@ -773,12 +809,14 @@ function AppendViewControls(ReAppend: boolean = false) {
       }
       soundToggle.addEventListener("click", () => {
         if (!trackUri || state.status === "refining" || state.status === "requested") return;
-        if (state.status === "refined") aiSoundCoordinator.restoreBaseline(trackUri);
-        else aiSoundCoordinator.refine(trackUri);
+        const request = getDefaultAIRefinementRequest();
+        if (!request) return;
+        if (state.status === "refined") aiSoundCoordinator.refineOutput(trackUri, request);
+        else aiSoundCoordinator.refine(trackUri, request);
       });
       soundToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        openAISteeringEditor();
+        if (trackUri) openAIComposer(trackUri, "sound");
       });
     }
 
@@ -816,15 +854,14 @@ function AppendViewControls(ReAppend: boolean = false) {
       }
       refinementToggle.addEventListener("click", () => {
         if (!trackUri || state.status === "refining" || state.status === "requested") return;
-        if (state.status === "refined") openAIRevisionEditor({
-          currentModelName: state.modelName,
-          onSubmit: (instructions, model) => aiRefinementCoordinator.refineOutput(trackUri, { instructions, model }),
-          onRestore: () => aiRefinementCoordinator.restoreBaseline(trackUri),
-        }); else aiRefinementCoordinator.refine(trackUri);
+        const request = getDefaultAIRefinementRequest();
+        if (!request) return;
+        if (state.status === "refined") aiRefinementCoordinator.refineOutput(trackUri, request);
+        else aiRefinementCoordinator.refine(trackUri, request);
       });
       refinementToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        openAISteeringEditor();
+        if (trackUri) openAIComposer(trackUri, "meaning");
       });
     }
 

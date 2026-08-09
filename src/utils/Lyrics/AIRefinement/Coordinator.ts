@@ -9,6 +9,7 @@ import { captureProviderAcceptedItems, captureProviderBaseline, finishProviderCa
 import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
 
 export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; credential?: ProviderCredential | null };
+export type RefinementRequestOptions = { instructions?: string; model?: ModelDescriptor };
 export type RefinementRevisionOptions = { instructions: string; model: ModelDescriptor };
 export type RefinementState = {
   status: "idle" | "requested" | "refining" | "refined" | "unchanged" | "failed" | "cancelled";
@@ -24,7 +25,7 @@ export type RefinementState = {
   modelName?: string;
 };
 type BaselineSession = { document: any; snapshot: CanonicalOriginalSnapshot; context: LyricContext; stage: "intermediate" | "final"; revision: number; publicationRevision: number; targetLang?: string; docDigest?: string; rows?: ReturnType<typeof enumerateRefinementLines>; configId?: string };
-type ActiveRun = { trackUri: string; baselineRevision: number; configId: string; configRevision: number; credentialRevision: number; runId: number; controller: AbortController; revision?: { instructions: string; model: ModelDescriptor; parent: RefinementRecord } };
+type ActiveRun = { trackUri: string; baselineRevision: number; configId: string; configRevision: number; credentialRevision: number; runId: number; controller: AbortController; request?: RefinementRequestOptions; revision?: { instructions: string; model: ModelDescriptor; parent: RefinementRecord } };
 
 export class AIRefinementCoordinator {
   private readonly layer: DerivedLayer;
@@ -91,10 +92,11 @@ export class AIRefinementCoordinator {
     this.currentTrackUri = trackUri;
   }
 
-  refine(trackUri: string): void {
+  refine(trackUri: string, options: RefinementRequestOptions = {}): void {
     if (this.active?.trackUri === trackUri) return;
     const session = this.baselines.get(trackUri);
-    const identity: ActiveRun = { trackUri, baselineRevision: session?.revision ?? -1, configId: "", configRevision: this.configRevision, credentialRevision: this.credentialRevision, runId: ++this.runId, controller: new AbortController() };
+    const instructions = normalizeSteeringInstructions(options.instructions);
+    const identity: ActiveRun = { trackUri, baselineRevision: session?.revision ?? -1, configId: "", configRevision: this.configRevision, credentialRevision: this.credentialRevision, runId: ++this.runId, controller: new AbortController(), request: instructions || options.model ? { instructions, model: options.model ? structuredClone(options.model) : undefined } : undefined };
     this.active = identity;
     this.setState(trackUri, { status: "requested", runId: identity.runId });
     void this.runRefinement(identity).catch(() => {
@@ -126,10 +128,11 @@ export class AIRefinementCoordinator {
   restoreBaseline(trackUri: string): void {
     const session = this.baselines.get(trackUri);
     if (!session?.configId || !session.docDigest) return;
+    const appliedConfigId = this.appliedRecords.get(trackUri)?.configId ?? session.configId;
     this.cancel(trackUri, "user");
     this.overlays.delete(trackUri);
     this.appliedRecords.delete(trackUri);
-    this.suppressed.add(this.suppressionKey(trackUri, session.configId, session.docDigest));
+    this.suppressed.add(this.suppressionKey(trackUri, appliedConfigId, session.docDigest));
     this.publishBaseline(trackUri);
     this.setState(trackUri, { status: "idle", origin: "baseline" });
   }
@@ -223,6 +226,11 @@ export class AIRefinementCoordinator {
     let config = await this.deps.getConfig();
     if (!this.identityCurrent(identity)) return;
     if (!config) { this.failActive(identity, "model_unavailable"); return; }
+    if (identity.request) config = {
+      ...config,
+      model: identity.request.model ?? config.model,
+      instructions: [config.instructions, identity.request.instructions].map((value) => normalizeSteeringInstructions(value)).filter(Boolean).join("\n"),
+    };
     if (identity.revision) config = { ...config, model: identity.revision.model };
     const provider = this.providerFor(config);
     if (!provider) { this.failActive(identity, "model_unavailable"); return; }
@@ -232,7 +240,6 @@ export class AIRefinementCoordinator {
     session = this.baselines.get(trackUri);
     if (!session || !this.baselineEligible(trackUri, session)) { this.failActive(identity, "baseline_unavailable"); return; }
     identity.configId = session.configId!;
-    this.suppressed.delete(this.suppressionKey(trackUri, session.configId, session.docDigest));
     const revisionInstructions = identity.revision?.instructions;
     const effectiveInstructions = [config.instructions, revisionInstructions].map((value) => normalizeSteeringInstructions(value)).filter(Boolean).join("\n");
     const previousById = identity.revision ? Object.fromEntries(Object.entries(identity.revision.parent.items).map(([id, item]) => [id, item.translatedText])) : null;
@@ -245,7 +252,8 @@ export class AIRefinementCoordinator {
       promptVersion: AI_PROMPT_VERSION, iterationPromptVersion: AI_ITERATION_PROMPT_VERSION,
       parentRecordKey: identity.revision.parent.key, parentOutputDigest, revisionInstructions,
       temperature: 0, contextMode: "document_or_v1_chunks",
-    }) : session.configId!;
+    }) : identity.request ? await this.configId(config, provider, session) : session.configId!;
+    this.suppressed.delete(this.suppressionKey(trackUri, runConfigId, session.docDigest));
     const key = refinementRecordKey(trackUri, runConfigId, session.docDigest, this.schema());
     let cached = await this.deps.cache.get(key);
     if (!this.identityCurrent(identity)) return;

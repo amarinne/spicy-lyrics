@@ -1,28 +1,42 @@
-import React, { useState } from "react";
+import React, { useMemo, useState } from "react";
 import ReactDOM from "react-dom/client";
 import { flushSync } from "react-dom";
 import { PopupModal } from "../components/Modal.ts";
-import { $aiDiscoveredModelsByProvider, $aiInstructions, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider } from "./stores.ts";
-import { notifyAIRefinementConfigChanged } from "./Lyrics/AIRefinement/singleton.ts";
+import {
+  allAIRefinementPresets,
+  DEFAULT_AI_REFINEMENT_PRESET_ID,
+  deleteCustomAIRefinementPreset,
+  resolveAIRefinementPreset,
+  saveCustomAIRefinementPreset,
+} from "./AIRefinementPresets.ts";
+import {
+  $aiDefaultRefinementPreset,
+  $aiDiscoveredModelsByProvider,
+  $aiRefinementPresets,
+  $aiSelectedModelDescriptorsByProvider,
+  $aiSelectedModelsByProvider,
+  $aiSelectedProvider,
+} from "./stores.ts";
 import type { ModelDescriptor, ProviderId } from "./Lyrics/AIRefinement/types.ts";
 
-function Editor() {
-  const [draft, setDraft] = useState($aiInstructions.get());
-  return <div className="sl-ai-steering-editor">
-    <textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} placeholder="Preserve honorifics, explain cultural nuance naturally, or guide mixed-language phrasing." autoFocus />
-    <div>
-      <button type="button" className="sl-sp-btn" onClick={() => PopupModal.hide()}>Cancel</button>
-      <button type="button" className="sl-sp-btn" onClick={() => { $aiInstructions.set(draft); notifyAIRefinementConfigChanged(); PopupModal.hide(); }}>Save</button>
-    </div>
-  </div>;
-}
+export type AIRefinementComposerRequest = {
+  instructions: string;
+  model: ModelDescriptor;
+  meaning: boolean;
+  sound: boolean;
+};
 
-export function openAISteeringEditor(): void {
-  const container = document.createElement("div");
-  const root = ReactDOM.createRoot(container);
-  flushSync(() => root.render(<Editor />));
-  PopupModal.display({ title: "AI Instructions", content: container, onClose: () => root.unmount() });
-}
+type ComposerOptions = {
+  initialLayer: "meaning" | "sound";
+  meaningAvailable: boolean;
+  soundAvailable: boolean;
+  meaningRefined: boolean;
+  soundRefined: boolean;
+  currentModelName?: string;
+  onSubmit: (request: AIRefinementComposerRequest) => void;
+  onRestoreMeaning: () => void;
+  onRestoreSound: () => void;
+};
 
 function providerMap(value: string): Record<ProviderId, string> {
   try {
@@ -31,7 +45,7 @@ function providerMap(value: string): Record<ProviderId, string> {
   } catch { return { gemini: "", openai: "" }; }
 }
 
-function revisionModels(): { models: ModelDescriptor[]; selected: string } {
+function availableModels(): { models: ModelDescriptor[]; selected: string } {
   const provider: ProviderId = $aiSelectedProvider.get() === "openai" ? "openai" : "gemini";
   let models: ModelDescriptor[] = [];
   try {
@@ -48,26 +62,91 @@ function revisionModels(): { models: ModelDescriptor[]; selected: string } {
   return { models, selected };
 }
 
-function RevisionEditor({ currentModelName, onSubmit, onRestore }: { currentModelName?: string; onSubmit: (instructions: string, model: ModelDescriptor) => void; onRestore: () => void }) {
-  const available = revisionModels();
-  const initialModel = available.models.some((model) => model.name === currentModelName) ? currentModelName! : available.selected || available.models[0]?.name || "";
-  const [draft, setDraft] = useState("");
+export function getDefaultAIRefinementRequest(): Pick<AIRefinementComposerRequest, "instructions" | "model"> | null {
+  const available = availableModels();
+  const model = available.models.find((item) => item.name === available.selected) ?? available.models[0];
+  if (!model) return null;
+  const preset = resolveAIRefinementPreset($aiRefinementPresets.get(), $aiDefaultRefinementPreset.get());
+  return { instructions: preset.instructions, model };
+}
+
+function Composer(options: ComposerOptions) {
+  const available = useMemo(availableModels, []);
+  const customJson = $aiRefinementPresets.get();
+  const presets = useMemo(() => allAIRefinementPresets(customJson), [customJson]);
+  const defaultPreset = resolveAIRefinementPreset(customJson, $aiDefaultRefinementPreset.get());
+  const [defaultPresetId, setDefaultPresetId] = useState(defaultPreset.id);
+  const [selectedPresetId, setSelectedPresetId] = useState(defaultPreset.id);
+  const [draft, setDraft] = useState(defaultPreset.instructions);
+  const [presetName, setPresetName] = useState(defaultPreset.builtIn ? "" : defaultPreset.name);
+  const initialModel = available.models.some((model) => model.name === options.currentModelName)
+    ? options.currentModelName!
+    : available.selected || available.models[0]?.name || "";
   const [modelName, setModelName] = useState(initialModel);
+  const [meaning, setMeaning] = useState(options.initialLayer === "meaning" && options.meaningAvailable);
+  const [sound, setSound] = useState(options.initialLayer === "sound" && options.soundAvailable);
   const model = available.models.find((item) => item.name === modelName);
-  return <div className="sl-ai-steering-editor sl-ai-revision-editor">
-    <label>What should change?<textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} placeholder="Keep the cultural reference, make the chorus less literal, or fix the mixed-language phrase." autoFocus /></label>
+  const selectedPreset = presets.find((preset) => preset.id === selectedPresetId);
+  const selectedIsCurrent = selectedPreset?.instructions === draft.trim();
+
+  const selectPreset = (id: string) => {
+    const preset = resolveAIRefinementPreset($aiRefinementPresets.get(), id);
+    setSelectedPresetId(preset.id);
+    setDraft(preset.instructions);
+    setPresetName(preset.builtIn ? "" : preset.name);
+  };
+
+  const savePreset = () => {
+    const name = presetName.trim();
+    const instructions = draft.trim();
+    if (!name || !instructions) return;
+    const existing = selectedPreset && !selectedPreset.builtIn ? selectedPreset.id : undefined;
+    const id = existing ?? `custom-${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`}`;
+    const saved = saveCustomAIRefinementPreset($aiRefinementPresets.get(), { id, name, instructions });
+    $aiRefinementPresets.set(saved.json);
+    setSelectedPresetId(saved.preset.id);
+    setPresetName(saved.preset.name);
+  };
+
+  const deletePreset = () => {
+    if (!selectedPreset || selectedPreset.builtIn) return;
+    $aiRefinementPresets.set(deleteCustomAIRefinementPreset($aiRefinementPresets.get(), selectedPreset.id));
+    if (defaultPresetId === selectedPreset.id) {
+      $aiDefaultRefinementPreset.set(DEFAULT_AI_REFINEMENT_PRESET_ID);
+      setDefaultPresetId(DEFAULT_AI_REFINEMENT_PRESET_ID);
+    }
+    selectPreset(DEFAULT_AI_REFINEMENT_PRESET_ID);
+  };
+
+  return <div className="sl-ai-steering-editor sl-ai-request-composer">
+    <label>Preset<select value={selectedPresetId} onChange={(event) => selectPreset(event.currentTarget.value)}>{presets.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}</select></label>
+    <label>Steering<textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} placeholder="Describe what the model should preserve, fix, or emphasize." autoFocus /></label>
+    <div className="sl-ai-preset-editor">
+      <input value={presetName} onChange={(event) => setPresetName(event.currentTarget.value)} placeholder="Preset name" />
+      <button type="button" className="sl-sp-btn" disabled={!presetName.trim() || !draft.trim()} onClick={savePreset}>Save preset</button>
+      <button type="button" className="sl-sp-btn" disabled={!selectedPreset || selectedPreset.builtIn} onClick={deletePreset}>Delete preset</button>
+      <button type="button" className="sl-sp-btn" disabled={!selectedPreset || !selectedIsCurrent || defaultPresetId === selectedPreset.id} onClick={() => { if (selectedPreset) { $aiDefaultRefinementPreset.set(selectedPreset.id); setDefaultPresetId(selectedPreset.id); } }}>Use for single click</button>
+    </div>
+    <fieldset>
+      <legend>Output</legend>
+      <label><input type="checkbox" checked={meaning} disabled={!options.meaningAvailable} onChange={(event) => setMeaning(event.currentTarget.checked)} />Translation</label>
+      <label><input type="checkbox" checked={sound} disabled={!options.soundAvailable} onChange={(event) => setSound(event.currentTarget.checked)} />Pronunciation / transliteration</label>
+    </fieldset>
     <label>Model<select value={modelName} onChange={(event) => setModelName(event.currentTarget.value)}>{available.models.map((item) => <option value={item.name} key={item.name}>{item.name.replace(/^models\//, "")}</option>)}</select></label>
-    <div>
-      <button type="button" className="sl-sp-btn" onClick={() => { onRestore(); PopupModal.hide(); }}>Restore baseline</button>
+    <div className="sl-ai-restore-actions">
+      {options.meaningRefined && <button type="button" className="sl-sp-btn" onClick={() => { options.onRestoreMeaning(); PopupModal.hide(); }}>Restore translation</button>}
+      {options.soundRefined && <button type="button" className="sl-sp-btn" onClick={() => { options.onRestoreSound(); PopupModal.hide(); }}>Restore pronunciation</button>}
+    </div>
+    <div className="sl-ai-composer-actions">
       <button type="button" className="sl-sp-btn" onClick={() => PopupModal.hide()}>Cancel</button>
-      <button type="button" className="sl-sp-btn" disabled={!draft.trim() || !model} onClick={() => { if (model) onSubmit(draft, model); PopupModal.hide(); }}>Refine again</button>
+      <button type="button" className="sl-sp-btn" disabled={!draft.trim() || !model || (!meaning && !sound)} onClick={() => { if (model) options.onSubmit({ instructions: draft.trim(), model, meaning, sound }); PopupModal.hide(); }}>Refine</button>
     </div>
   </div>;
 }
 
-export function openAIRevisionEditor(options: { currentModelName?: string; onSubmit: (instructions: string, model: ModelDescriptor) => void; onRestore: () => void }): void {
+export function openAIRefinementComposer(options: ComposerOptions): void {
   const container = document.createElement("div");
   const root = ReactDOM.createRoot(container);
-  flushSync(() => root.render(<RevisionEditor {...options} />));
-  PopupModal.display({ title: "Refine AI Output", content: container, onClose: () => root.unmount() });
+  flushSync(() => root.render(<Composer {...options} />));
+  PopupModal.display({ title: "AI Refinement", content: container, onClose: () => root.unmount() });
 }

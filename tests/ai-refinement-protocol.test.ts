@@ -4,6 +4,7 @@ import {
   buildDocumentDigest,
   buildConfigId,
   buildSystemPrompt,
+  AI_ITERATION_PROMPT_VERSION,
   AI_PROMPT_VERSION,
   canonicalSerialize,
   classifyRefinementLine,
@@ -20,13 +21,18 @@ const model = { inputTokenLimit: 32_768, outputTokenLimit: 8_192 };
 
 test("initial prompt stays one-shot while iterative refinement carries only latest accepted output", () => {
   assert.equal(AI_PROMPT_VERSION, 3);
+  assert.equal(AI_ITERATION_PROMPT_VERSION, 2);
   const initial = buildSystemPrompt("meaning", "en");
   const repair = buildSystemPrompt("meaning", "en", undefined, true);
   const iteration = buildSystemPrompt("meaning", "en", "Make the tone warmer.", false, true);
   assert.doesNotMatch(initial, /previous accepted output/);
   assert.match(repair, /^The prior response violated/);
   assert.match(iteration, /^Additional instructions: Make the tone warmer\./);
-  assert.match(iteration, /previous accepted output in p/);
+  assert.match(iteration, /instructions as the quality target/);
+  assert.match(iteration, /re-evaluate the complete accepted document/);
+  assert.match(iteration, /even when the instructions do not name that exact line/);
+  assert.match(iteration, /Retain wording that already meets the target/);
+  assert.match(iteration, /Do not make text more literal, formal, mechanical/);
 });
 
 test("canonical identity sorts keys, normalizes NFC, hashes to lowercase SHA-256", async () => {

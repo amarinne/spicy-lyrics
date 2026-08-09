@@ -796,13 +796,21 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
   }
 }
 
-sl-generic-modal .sl-ai-steering-editor { display: flex; flex-direction: column; gap: 12px; min-width: 360px; }
+sl-generic-modal .sl-ai-steering-editor { display: flex; flex-direction: column; gap: 12px; min-width: min(520px, 82vw); }
 sl-generic-modal .sl-ai-steering-editor p { margin: 0; color: var(--color-text-secondary); }
 sl-generic-modal .sl-ai-steering-editor textarea { min-height: 120px; resize: vertical; padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
-sl-generic-modal .sl-ai-steering-editor > div { display: flex; justify-content: flex-end; gap: 8px; }
-sl-generic-modal .sl-ai-revision-editor label { display: flex; flex-direction: column; gap: 6px; color: var(--color-text-secondary); }
-sl-generic-modal .sl-ai-revision-editor label textarea { color: var(--color-text-primary); }
-sl-generic-modal .sl-ai-revision-editor select { padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
+sl-generic-modal .sl-ai-request-composer label { display: flex; flex-direction: column; gap: 6px; color: var(--color-text-secondary); }
+sl-generic-modal .sl-ai-request-composer label textarea { color: var(--color-text-primary); }
+sl-generic-modal .sl-ai-request-composer select,
+sl-generic-modal .sl-ai-request-composer input[type="text"],
+sl-generic-modal .sl-ai-request-composer .sl-ai-preset-editor input { padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
+sl-generic-modal .sl-ai-request-composer fieldset { display: flex; gap: 18px; margin: 0; padding: 10px 12px; border: 1px solid var(--hairline); border-radius: var(--radius-sm); }
+sl-generic-modal .sl-ai-request-composer fieldset label { flex-direction: row; align-items: center; color: var(--color-text-primary); }
+sl-generic-modal .sl-ai-request-composer legend { padding: 0 4px; color: var(--color-text-secondary); }
+sl-generic-modal .sl-ai-request-composer .sl-ai-preset-editor { display: grid; grid-template-columns: minmax(150px, 1fr) auto auto; gap: 8px; }
+sl-generic-modal .sl-ai-request-composer .sl-ai-preset-editor .sl-sp-btn:last-child { grid-column: 1 / -1; justify-self: start; }
+sl-generic-modal .sl-ai-request-composer .sl-ai-restore-actions,
+sl-generic-modal .sl-ai-request-composer .sl-ai-composer-actions { display: flex; justify-content: flex-end; gap: 8px; }
 sl-generic-modal .sl-lyrics-source-diagnostics { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
 sl-generic-modal .sl-lyrics-source-diagnostics > div { display: flex; justify-content: space-between; gap: 16px; }
 sl-generic-modal .sl-lyrics-source-diagnostics small { color: var(--color-text-secondary); text-align: right; }

@@ -84,6 +84,28 @@ test("accepted output can be revised with the latest output, a new note, and a d
   assert.equal(reopened.provider.calls.length, 0);
 });
 
+test("an initial request can add one-off preset steering and select a model without changing global config", async () => {
+  const nextModel = { ...model, name: "fake-model-2" };
+  const provider = new FakeRefinementProvider([(request, runConfig) => {
+    assert.equal(runConfig.iteration, false);
+    assert.equal(runConfig.model.name, "fake-model-2");
+    assert.equal(runConfig.instructions, "Always preserve names.\nKeep mixed-language phrases natural.");
+    assert.equal(request.items[0].p, undefined);
+    return { ok: true, items: [{ id: "S0", t: "contextual AI" }], usage: { input: 5, output: 2 }, finish: "stop", raw: { bytes: 24 } };
+  }]);
+  const cache = new MemoryRefinementCache();
+  const customConfig = { ...config, instructions: "Always preserve names." };
+  const { coordinator } = harness(provider, cache, async () => customConfig);
+  const value = baseline();
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test", { instructions: "Keep mixed-language phrases natural.", model: nextModel });
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(coordinator.getState("spotify:track:test").modelName, "fake-model-2");
+  assert.equal(cache.snapshot()[0].modelName, "fake-model-2");
+  assert.equal(customConfig.model.name, "fake-model");
+  assert.equal(customConfig.instructions, "Always preserve names.");
+});
+
 test("explicit retry after restart resets only failed chunk attempt caps and preserves paid accounting", async () => {
   const firstProvider = new FakeRefinementProvider([
     { ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
