@@ -57,21 +57,29 @@ function staticDocument(lines: unknown[], source: string, label: string): any | 
 }
 
 function lineDocument(rows: ReadonlyArray<{ text: unknown; startTimeMs: unknown; endTimeMs?: unknown }>, durationMs: number, source: string, label: string): any | null {
-  const prepared = rows.flatMap((row) => {
+  const prepared: Array<{ text: string; startTimeMs: number; endTimeMs?: number }> = [];
+  for (const row of rows) {
     const text = clean(row.text);
+    if (!text) continue;
     const startTimeMs = Number(row.startTimeMs);
     const endTimeMs = row.endTimeMs === undefined ? undefined : Number(row.endTimeMs);
-    return text && Number.isFinite(startTimeMs) ? [{ text, startTimeMs, endTimeMs }] : [];
-  }).sort((left, right) => left.startTimeMs - right.startTimeMs);
+    if (!Number.isFinite(startTimeMs) || startTimeMs < 0 || (endTimeMs !== undefined && (!Number.isFinite(endTimeMs) || endTimeMs < startTimeMs))) return null;
+    const previous = prepared.at(-1);
+    if (previous && startTimeMs <= previous.startTimeMs) return null;
+    if (durationMs > 0 && startTimeMs > durationMs + 15_000) return null;
+    prepared.push({ text, startTimeMs, endTimeMs });
+  }
   if (!prepared.length) return null;
   const durationSeconds = Math.max(0, durationMs / 1000);
   const Content = prepared.map((row, index) => {
-    const start = Math.max(0, row.startTimeMs / 1000);
+    const start = row.startTimeMs / 1000;
     const nextStart = prepared[index + 1]?.startTimeMs;
     const inferredEnd = nextStart === undefined ? Math.max(durationSeconds, start + 4) : nextStart / 1000;
     const suppliedEnd = Number.isFinite(row.endTimeMs) ? Number(row.endTimeMs) / 1000 : inferredEnd;
-    return { Type: "Vocal", Text: row.text, StartTime: start, EndTime: Math.max(start, suppliedEnd), OppositeAligned: false };
+    if (suppliedEnd < start || (durationMs > 0 && suppliedEnd * 1000 > durationMs + 15_000)) return null;
+    return { Type: "Vocal", Text: row.text, StartTime: start, EndTime: suppliedEnd, OppositeAligned: false };
   });
+  if (Content.some((line) => line === null)) return null;
   return { Type: "Line", StartTime: Content[0].StartTime, EndTime: Content.at(-1)?.EndTime, Content, source, sourceDisplayName: label };
 }
 

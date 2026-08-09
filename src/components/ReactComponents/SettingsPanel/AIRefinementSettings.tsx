@@ -3,7 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AI_CONSENT_VERSION, deleteProviderCredential, loadProviderCredential, saveProviderCredential } from "../../../utils/Lyrics/AIRefinement/Credentials.ts";
 import { normalizeOpenAIBaseUrl } from "../../../utils/Lyrics/AIRefinement/OpenAIProvider.ts";
 import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCaptures, downloadProviderCapture, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, listProviderCaptures, loadLatestProviderCapture, selectProviderCapture, subscribeProviderCapture, type ProviderCaptureSummary } from "../../../utils/Lyrics/AIRefinement/DebugCapture.ts";
-import { listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
+import { downloadRefinementCacheRecord, listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
 import { geminiRefinementProvider, notifyAIRefinementConfigChanged, notifyAIRefinementCredentialChanged, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
 import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider } from "../../../utils/stores.ts";
@@ -301,7 +301,7 @@ export default function AIRefinementSettings() {
             <span>{captureMetadata.source?.label ?? "Unknown source"} · {captureMetadata.source?.format ?? "Unknown format"}</span>
           </div>}
           {captureMetadata?.systemPrompt && <details className="sl-ai-system-prompt"><summary>System prompt</summary><pre>{captureMetadata.systemPrompt}</pre></details>}
-          <div className="sl-ai-comparison-head"><span>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Google baseline"}</span><span>{captureMetadata?.layer === "sound" ? "AI sound" : "AI candidate"}</span></div>
+          <div className="sl-ai-comparison-head"><span>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Before AI"}</span><span>{captureMetadata?.layer === "sound" ? "AI sound" : "AI output"}</span></div>
           {getProviderComparisonRows().map((row) => <div className="sl-ai-comparison-row" key={row.id}><span><small>{row.id}</small>{row.baseline || "—"}</span><span>{row.ai || "—"}</span></div>)}
         </div>}
       </section>
@@ -312,8 +312,13 @@ export default function AIRefinementSettings() {
         </div>
         <div className="sl-ai-cache-inventory">
           {cacheInventory.length ? cacheInventory.map((item) => <div className="sl-ai-cache-item" key={item.key}>
-            <span>{item.trackLabel ?? item.trackUri}</span>
-            <small>{item.layer === "sound" ? "Sound" : "Meaning"} · {item.modelName} · {item.status} · {item.tokens.input + item.tokens.output} tokens · {new Date(item.lastAccessedAt).toLocaleString()}</small>
+            <div><span>{item.trackLabel ?? item.trackUri}</span>
+            <small>{item.layer === "sound" ? "Sound" : "Meaning"} · {item.modelName} · {item.status} · {item.tokens.input + item.tokens.output} tokens · {new Date(item.lastAccessedAt).toLocaleString()}</small></div>
+            <button className="sl-sp-btn" type="button" onClick={async () => {
+              setStatus("Choose where to save the AI document…");
+              try { const filename = await downloadRefinementCacheRecord(item.key); setStatus(filename ? `Saved ${filename}` : "Save cancelled"); }
+              catch { setStatus("AI document could not be saved"); }
+            }}>Save</button>
           </div>) : <span className="sl-ai-note">No saved AI results.</span>}
         </div>
       </section>

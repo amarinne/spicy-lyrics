@@ -21,8 +21,7 @@ export function parseLrcDocument(text: string): ParsedLrc {
       if (content && !METADATA.test(rawLine)) plain.push(content);
       continue;
     }
-    for (const startTimeMs of times) if (content) synced.push({ text: content, startTimeMs: Math.max(0, startTimeMs) });
+    for (const startTimeMs of times) if (content) synced.push({ text: content, startTimeMs });
   }
-  synced.sort((left, right) => left.startTimeMs - right.startTimeMs);
   return { synced, plain };
 }

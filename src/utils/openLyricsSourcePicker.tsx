@@ -35,6 +35,11 @@ export async function applyTrackSourceOverride(trackUri: string, override: Track
 
 function Picker({ trackUri }: { trackUri: string }) {
   const override = getTrackSourceOverride($lyricsSourceOverrides.get(), trackUri);
+  let diagnostics: any = null;
+  try {
+    const current = JSON.parse($currentLyricsData.get());
+    if (SpotifyPlayer.GetUri() === trackUri && current?.uri === trackUri) diagnostics = current?.SelectionDiagnostics ?? null;
+  } catch {}
   return <div className="sl-lyrics-source-picker">
     <div className="sl-lyrics-source-options">
       {choices.map((choice) => <button
@@ -48,6 +53,12 @@ function Picker({ trackUri }: { trackUri: string }) {
         }}
       >{choice.label}</button>)}
     </div>
+    {!!diagnostics?.candidates?.length && <div className="sl-lyrics-source-diagnostics">
+      {diagnostics.candidates.map((candidate: any) => <div key={candidate.provider}>
+        <span>{choices.find((choice) => choice.value === candidate.provider)?.label ?? candidate.provider}</span>
+        <small>{candidate.rejected ? "Rejected" : `${candidate.selectionScore} score`} · {candidate.reasons?.join(" · ")}</small>
+      </div>)}
+    </div>}
   </div>;
 }
 

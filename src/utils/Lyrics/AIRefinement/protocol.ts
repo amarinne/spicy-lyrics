@@ -4,6 +4,7 @@ import { AI_CHUNK_PLAN_VERSION, AI_MAX_DOCUMENT_ROWS, AI_MAX_DOCUMENT_SOURCE_BYT
 
 export const AI_SYSTEM_PROMPT = "Translate the full lyric document naturally and in character, using optional title, artist, and album metadata only as reference context. Detect language per phrase, not per line or document: in mixed-language lines, translate every segment that is not already natural in the target language, while preserving names and intentional code-switching where that reads better. Resolve cross-line syntax, recurring motifs, slang, idioms, cultural references, tone, and register consistently. Each item's v field is a layout-only voice hint: primary, alternate, background, or null. Use it for voice continuity, but never invent singer identity, gender, relationships, or pronouns unsupported by the text or metadata. Return JSON only with shape {\"items\":[{\"id\":string,\"t\":string}]}. Return every requested id exactly once. Translate rather than romanize. Respect ordinary/adlib class. Preserve the exact ' / ' delimiter count and ordered segment count. Do not add ids, omit ids, merge rows, split rows, number output, or use Markdown. If refusing one item, return its source unchanged.";
 export const AI_SOUND_SYSTEM_PROMPT = "Write the pronunciation of the full lyric document in the requested target orthography, using optional title, artist, and album metadata only as reference context. Detect language per phrase: handle every segment of a mixed-language line independently, preserve words already readable in the target orthography, and keep names, code-switching, dialect, and repeated phrases consistent across the song. Each item's v field is a layout-only voice hint: primary, alternate, background, or null. Use it for voice continuity, but never invent singer identity or gender. Do not translate meaning. Return JSON only with shape {\"items\":[{\"id\":string,\"t\":string}]}. Return every requested id exactly once. Preserve the exact ' / ' delimiter count and ordered segment count. Do not add ids, omit ids, merge rows, split rows, number output, or use Markdown.";
+export const AI_ITERATION_SYSTEM_PROMPT = "Revise each item's previous accepted output in p according to the additional instructions. Keep s as the canonical source authority. Return a complete replacement document, not a patch, critique, explanation, or continuation. Do not ask questions. Do not preserve a previous wording when the requested change requires replacing it.";
 export const AI_REPAIR_PROMPT = "The prior response violated the JSON or item contract. Return the complete chunk again, satisfying it exactly.";
 export const EMPTY_LYRIC_CONTEXT: LyricContext = { title: null, artists: [], album: null };
 function normalizeContextText(value: unknown): string | null { const text = typeof value === "string" ? value.normalize("NFC").trim().replace(/\s+/g, " ") : ""; return text || null; }
@@ -15,55 +16,58 @@ export function normalizeLyricContext(value?: Partial<LyricContext> | null): Lyr
   };
 }
 export function normalizeSteeringInstructions(value?: string): string { return (value ?? "").normalize("NFC").replace(/\r\n?/g, "\n").split("\n").map((line) => line.trimEnd()).join("\n").trim(); }
-export function buildSystemPrompt(layer: DerivedLayer, target: string, instructions?: string, repair = false): string {
+export function buildSystemPrompt(layer: DerivedLayer, target: string, instructions?: string, repair = false, iteration = false): string {
   const steering = normalizeSteeringInstructions(instructions);
   const contract = layer === "sound" ? `${AI_SOUND_SYSTEM_PROMPT} Target orthography: ${target}.` : AI_SYSTEM_PROMPT;
-  return `${steering ? `Additional instructions: ${steering} ` : ""}${repair ? `${AI_REPAIR_PROMPT} ` : ""}${contract}`;
+  return `${steering ? `Additional instructions: ${steering} ` : ""}${iteration ? `${AI_ITERATION_SYSTEM_PROMPT} ` : ""}${repair ? `${AI_REPAIR_PROMPT} ` : ""}${contract}`;
 }
 
 export async function buildDocumentDigest(rows: ReadonlyArray<EnumeratedLine>, context: Partial<LyricContext> | null = null): Promise<string> {
   return sha256Hex({ context: normalizeLyricContext(context), rows: rows.map(({ id, class: lineClass, sendDisposition, sourceText, voice, allowUnchanged }) => ({ id, class: lineClass, sendDisposition, sourceText, voice, allowUnchanged })) });
 }
-export async function buildConfigId(value: { layer?: DerivedLayer; provider: string; providerVersion: string; endpoint?: string | null; modelName: string; targetLang: string; sourceLanguage?: string | null; soundMode?: "whole_line_v1" | null; instructions?: string; promptVersion: number; temperature: 0; contextMode: "document_or_v1_chunks" }): Promise<string> { return sha256Hex({ ...value, layer: value.layer ?? "meaning", endpoint: value.endpoint ?? null, sourceLanguage: value.sourceLanguage ?? null, soundMode: value.soundMode ?? null, instructions: normalizeSteeringInstructions(value.instructions) }); }
-function requestJson(context: LyricContext, target: string, items: ReadonlyArray<ProviderRequestItem>): string { return JSON.stringify({ context, target, items: items.map(({ id, c, v, s }) => ({ id, c, v, s })) }); }
+export async function buildConfigId(value: { layer?: DerivedLayer; provider: string; providerVersion: string; endpoint?: string | null; modelName: string; targetLang: string; sourceLanguage?: string | null; soundMode?: "whole_line_v1" | null; instructions?: string; promptVersion: number; iterationPromptVersion?: number | null; parentRecordKey?: string | null; parentOutputDigest?: string | null; revisionInstructions?: string | null; temperature: 0; contextMode: "document_or_v1_chunks" }): Promise<string> { return sha256Hex({ ...value, layer: value.layer ?? "meaning", endpoint: value.endpoint ?? null, sourceLanguage: value.sourceLanguage ?? null, soundMode: value.soundMode ?? null, instructions: normalizeSteeringInstructions(value.instructions), iterationPromptVersion: value.iterationPromptVersion ?? null, parentRecordKey: value.parentRecordKey ?? null, parentOutputDigest: value.parentOutputDigest ?? null, revisionInstructions: value.revisionInstructions ? normalizeSteeringInstructions(value.revisionInstructions) : null }); }
+function requestJson(context: LyricContext, target: string, items: ReadonlyArray<ProviderRequestItem>): string { return JSON.stringify({ context, target, items: items.map(({ id, c, v, s, p }) => p === undefined ? ({ id, c, v, s }) : ({ id, c, v, s, p })) }); }
 type PlannableItem = { request: ProviderRequestItem; allowUnchanged: boolean };
-function createChunk(id: string, context: LyricContext, target: string, entries: ReadonlyArray<PlannableItem>, model: ModelLimits, instructions?: string, layer: DerivedLayer = "meaning"): PlannedChunk {
+function createChunk(id: string, context: LyricContext, target: string, entries: ReadonlyArray<PlannableItem>, model: ModelLimits, instructions?: string, layer: DerivedLayer = "meaning", iteration = false): PlannedChunk {
   const items = entries.map((entry) => entry.request);
   const json = requestJson(context, target, items);
-  const systemPrompt = buildSystemPrompt(layer, target, instructions);
-  const sourceUtf8Bytes = items.reduce((sum, item) => sum + utf8Bytes(item.s), 0);
+  const systemPrompt = buildSystemPrompt(layer, target, instructions, false, iteration);
+  const sourceUtf8Bytes = items.reduce((sum, item) => sum + utf8Bytes(item.s) + utf8Bytes(item.p ?? ""), 0);
   const estimatedOutputTokens = Math.ceil(sourceUtf8Bytes / 2);
   const estimatedInputTokens = Math.ceil(utf8Bytes(systemPrompt + json) / 2);
   if (utf8Bytes(systemPrompt + json) > AI_MAX_REQUEST_BYTES || estimatedInputTokens > model.inputTokenLimit || estimatedOutputTokens > model.outputTokenLimit) throw new RangeError("oversized");
   return { id, context, items, allowUnchangedIds: entries.filter((entry) => entry.allowUnchanged).map((entry) => entry.request.id), requestJson: json, sourceUtf8Bytes, estimatedInputTokens, estimatedOutputTokens };
 }
 
-export function planChunks(rows: ReadonlyArray<EnumeratedLine>, target: string, model: ModelLimits, instructions?: string, layer: DerivedLayer = "meaning", rawContext: Partial<LyricContext> | null = null): ChunkPlan {
+export function planChunks(rows: ReadonlyArray<EnumeratedLine>, target: string, model: ModelLimits, instructions?: string, layer: DerivedLayer = "meaning", rawContext: Partial<LyricContext> | null = null, previousById: Readonly<Record<string, string>> | null = null): ChunkPlan {
   const context = normalizeLyricContext(rawContext);
   if (rows.length > AI_MAX_DOCUMENT_ROWS) throw new RangeError("oversized");
   const canonicalSourceUtf8Bytes = rows.reduce((sum, item) => sum + utf8Bytes(item.sourceText), 0);
   if (canonicalSourceUtf8Bytes > AI_MAX_DOCUMENT_SOURCE_BYTES) throw new RangeError("oversized");
   const sent = rows.filter((line) => line.sendDisposition === "sent").map((line) => {
     if (utf8Bytes(line.sourceText) > AI_MAX_SOURCE_ITEM_BYTES) throw new RangeError("oversized");
-    return { request: { id: line.id, c: line.class as "ordinary" | "adlib", v: line.voice ?? null, s: line.sourceText }, allowUnchanged: line.allowUnchanged };
+    const previous = previousById?.[line.id];
+    if (previousById && typeof previous !== "string") throw new TypeError("previous_output_missing");
+    if (previous !== undefined && utf8Bytes(previous) > AI_MAX_TRANSLATED_ITEM_BYTES) throw new RangeError("oversized");
+    return { request: { id: line.id, c: line.class as "ordinary" | "adlib", v: line.voice ?? null, s: line.sourceText, ...(previous === undefined ? {} : { p: previous }) }, allowUnchanged: line.allowUnchanged };
   });
   if (!sent.length) return { version: AI_CHUNK_PLAN_VERSION, chunks: [], enumerableRows: rows.length, canonicalSourceUtf8Bytes };
-  const sentBytes = sent.reduce((sum, item) => sum + utf8Bytes(item.request.s), 0);
+  const sentBytes = sent.reduce((sum, item) => sum + utf8Bytes(item.request.s) + utf8Bytes(item.request.p ?? ""), 0);
   if (sent.length <= 128 && sentBytes <= 16 * 1024 && Math.ceil(sentBytes / 2) <= 6_144) {
-    try { return { version: AI_CHUNK_PLAN_VERSION, chunks: [createChunk("C0", context, target, sent, model, instructions, layer)], enumerableRows: rows.length, canonicalSourceUtf8Bytes }; } catch (error) { if (!(error instanceof RangeError)) throw error; }
+    try { return { version: AI_CHUNK_PLAN_VERSION, chunks: [createChunk("C0", context, target, sent, model, instructions, layer, !!previousById)], enumerableRows: rows.length, canonicalSourceUtf8Bytes }; } catch (error) { if (!(error instanceof RangeError)) throw error; }
   }
   const chunks: PlannedChunk[] = [];
   let current: typeof sent = [];
   let currentBytes = 0;
-  const close = () => { if (!current.length) return; chunks.push(createChunk(`C${chunks.length}`, context, target, current, model, instructions, layer)); current = []; currentBytes = 0; };
+  const close = () => { if (!current.length) return; chunks.push(createChunk(`C${chunks.length}`, context, target, current, model, instructions, layer, !!previousById)); current = []; currentBytes = 0; };
   for (const item of sent) {
-    const itemBytes = utf8Bytes(item.request.s);
+    const itemBytes = utf8Bytes(item.request.s) + utf8Bytes(item.request.p ?? "");
     const candidate = [...current, item];
     let fits = candidate.length <= 64 && currentBytes + itemBytes <= 8 * 1024;
-    if (fits) { try { createChunk("probe", context, target, candidate, model, instructions, layer); } catch { fits = false; } }
+    if (fits) { try { createChunk("probe", context, target, candidate, model, instructions, layer, !!previousById); } catch { fits = false; } }
     if (!fits) close();
     current.push(item); currentBytes += itemBytes;
-    try { createChunk("probe", context, target, current, model, instructions, layer); } catch { throw new RangeError("oversized"); }
+    try { createChunk("probe", context, target, current, model, instructions, layer, !!previousById); } catch { throw new RangeError("oversized"); }
   }
   close();
   return { version: AI_CHUNK_PLAN_VERSION, chunks, enumerableRows: rows.length, canonicalSourceUtf8Bytes };

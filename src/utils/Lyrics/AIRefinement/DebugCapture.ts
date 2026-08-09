@@ -27,6 +27,7 @@ export type DurableProviderCapture = {
   layer: "meaning" | "sound";
   source?: LyricsSourceEvidence;
   baseline: Array<{ id: string; baseline: string }>;
+  accepted?: Record<string, string>;
   exchanges: ProviderExchangeCapture[];
 };
 
@@ -148,7 +149,7 @@ export function captureProviderBaseline(trackUri: string, trackLabel: string | n
   const activeCapture = {
     id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri, trackLabel, layer,
     source: source ? structuredClone(source) : undefined,
-    baseline: rows.map((row) => ({ id: row.id, baseline: row.baselineTranslatedText ?? "" })), exchanges: [],
+    baseline: rows.map((row) => ({ id: row.id, baseline: row.baselineTranslatedText ?? "" })), accepted: {}, exchanges: [],
   };
   activeCaptures.set(activeCapture.id, activeCapture);
   selectedCapture = activeCapture;
@@ -156,11 +157,22 @@ export function captureProviderBaseline(trackUri: string, trackLabel: string | n
   return activeCapture.id;
 }
 
+export function captureProviderAcceptedItems(captureId: string | null, items: ReadonlyArray<{ id: string; t: string }>): void {
+  if (!captureId) return;
+  const activeCapture = activeCaptures.get(captureId);
+  if (!activeCapture) return;
+  activeCapture.accepted = { ...activeCapture.accepted };
+  for (const item of items) activeCapture.accepted[item.id] = item.t;
+  activeCapture.updatedAt = Date.now();
+  if (selectedCapture?.id === captureId) selectedCapture = activeCapture;
+  persist(activeCapture); notify();
+}
+
 export function captureProviderExchange(captureId: string | null, exchange: ProviderExchangeCapture): void {
   if (!captureId) return;
   const activeCapture = activeCaptures.get(captureId);
   if (!activeCapture) return;
-  activeCapture.exchanges = [...activeCapture.exchanges.slice(-3), structuredClone(exchange)];
+  activeCapture.exchanges = [...activeCapture.exchanges, structuredClone(exchange)];
   activeCapture.updatedAt = Date.now();
   if (selectedCapture?.id === captureId) selectedCapture = activeCapture;
   persist(activeCapture); notify();
@@ -222,25 +234,9 @@ export async function downloadAllProviderCaptures(): Promise<{ filename: string;
   return saved ? { filename: saved, count: records.length } : null;
 }
 
-function latestAIItems(): Array<{ id?: unknown; t?: unknown }> {
-  for (const exchange of [...(displayedCapture()?.exchanges ?? [])].reverse()) {
-    const response = exchange.response as any;
-    const content = response?.choices?.[0]?.message?.content
-      ?? response?.candidates?.[0]?.content?.parts?.map((part: any) => typeof part?.text === "string" ? part.text : "").join("");
-    if (typeof content !== "string") continue;
-    try {
-      const trimmed = content.trim();
-      const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
-      const parsed = JSON.parse(fenced ? fenced[1] : trimmed);
-      if (Array.isArray(parsed?.items)) return parsed.items;
-    } catch {}
-  }
-  return [];
-}
-
 export function getProviderComparisonRows(): ProviderComparisonRow[] {
   const shown = displayedCapture();
-  const byId = new Map(latestAIItems().filter((item) => typeof item?.id === "string" && typeof item?.t === "string").map((item) => [item.id as string, item.t as string]));
+  const byId = new Map(Object.entries(shown?.accepted ?? {}));
   return (shown?.baseline ?? []).map((row) => ({ id: row.id, baseline: row.baseline, ai: byId.get(row.id) ?? "" }));
 }
 

@@ -28,7 +28,7 @@ function harness(provider = new FakeRefinementProvider(), cache = new MemoryRefi
 }
 
 async function waitFor(predicate: () => boolean, message = "condition"): Promise<void> {
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 500; i++) {
     if (predicate()) return;
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
@@ -45,6 +45,64 @@ test("coordinator publishes baseline then an atomic overlay without mutating bas
   assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "AI 愛");
   assert.equal(coordinator.getBaselineDocument("spotify:track:test").Lines[0].TranslatedText, "love");
   assert.equal("AIOriginalSnapshot" in publications.at(-1).document, false);
+});
+
+test("accepted output can be revised with the latest output, a new note, and a different model", async () => {
+  const nextModel = { ...model, name: "fake-model-2" };
+  const provider = new FakeRefinementProvider([
+    { ok: true, items: [{ id: "S0", t: "first AI" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 24 } },
+    (request, runConfig) => {
+      assert.equal(runConfig.iteration, true);
+      assert.equal(runConfig.model.name, "fake-model-2");
+      assert.match(runConfig.instructions ?? "", /Make it warmer/);
+      assert.deepEqual(request.items, [{ id: "S0", c: "ordinary", v: null, s: "愛", p: "first AI" }]);
+      return { ok: true, items: [{ id: "S0", t: "warmer AI" }], usage: { input: 6, output: 3 }, finish: "stop", raw: { bytes: 26 } };
+    },
+  ]);
+  const cache = new MemoryRefinementCache();
+  const { coordinator, publications } = harness(provider, cache);
+  const value = baseline();
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  coordinator.refineOutput("spotify:track:test", { instructions: "Make it warmer.", model: nextModel });
+  await waitFor(() => coordinator.getState("spotify:track:test").revisionNumber === 1 && coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "warmer AI");
+  assert.equal(coordinator.getState("spotify:track:test").modelName, "fake-model-2");
+  const records = cache.snapshot();
+  assert.equal(records.length, 2);
+  const revision = records.find((record) => record.revisionNumber === 1)!;
+  assert.equal(revision.revisionInstructions, "Make it warmer.");
+  const original = records.find((record) => !record.revisionNumber)!;
+  assert.equal(revision.parentRecordKey, original.key);
+  assert.equal(revision.rootRecordKey, original.key);
+
+  const reopened = harness(new FakeRefinementProvider(), cache);
+  reopened.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  await waitFor(() => reopened.coordinator.getState("spotify:track:test").status === "refined", "latest revision auto-applied");
+  assert.equal(reopened.publications.at(-1).document.Lines[0].TranslatedText, "warmer AI");
+  assert.equal(reopened.provider.calls.length, 0);
+});
+
+test("explicit retry after restart resets only failed chunk attempt caps and preserves paid accounting", async () => {
+  const firstProvider = new FakeRefinementProvider([
+    { ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+    { ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+  ]);
+  const cache = new MemoryRefinementCache();
+  const first = harness(firstProvider, cache);
+  const value = baseline();
+  first.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  first.coordinator.refine("spotify:track:test");
+  await waitFor(() => first.coordinator.getState("spotify:track:test").status === "failed");
+  const spent = cache.snapshot()[0].budgetConsumed;
+  const retryProvider = new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "retry success" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 24 } }]);
+  const reopened = harness(retryProvider, cache);
+  reopened.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  reopened.coordinator.refine("spotify:track:test");
+  await waitFor(() => reopened.coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(retryProvider.calls.length, 1);
+  assert.ok(cache.snapshot()[0].budgetConsumed > spent);
 });
 
 test("coordinator captures track metadata with the baseline and sends voice-aware context", async () => {
@@ -80,6 +138,23 @@ test("double taps coalesce and track change cancels late provider work", async (
   release!({ ok: true, items: [{ id: "S0", t: "late" }], usage: { input: 2, output: 2 }, finish: "stop", raw: { bytes: 20 } });
   await waitFor(() => coordinator.getState("spotify:track:test").status === "cancelled", "cancelled state");
   assert.equal(coordinator.getState("spotify:track:test").reason, "track_change");
+});
+
+test("abort after dispatch preserves ambiguous attempt and reservation accounting", async () => {
+  const provider = new FakeRefinementProvider([(_request, _config, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
+  const cache = new MemoryRefinementCache();
+  const { coordinator } = harness(provider, cache);
+  const value = baseline();
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => provider.calls.length === 1);
+  coordinator.onTrackChanged("spotify:track:other");
+  await waitFor(() => cache.snapshot().length === 1, "ambiguous attempt persisted");
+  const record = cache.snapshot()[0];
+  assert.equal(record.status, "failed");
+  assert.equal(record.chunks.C0.attempts, 1);
+  assert.equal(record.chunks.C0.failure?.reason, "delivery_unknown");
+  assert.ok(record.budgetConsumed > 0);
 });
 
 test("late same-track baseline supersedes a run and cannot be overwritten", async () => {

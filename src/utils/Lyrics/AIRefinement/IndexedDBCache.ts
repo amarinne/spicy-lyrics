@@ -12,6 +12,35 @@ export async function listRefinementCacheInventory(): Promise<RefinementCacheInv
   return records.sort((left, right) => right.lastAccessedAt - left.lastAccessedAt).map(({ key, trackUri, trackLabel, layer, providerId, modelName, status, tokens, lastAccessedAt, bytes }) => ({ key, trackUri, trackLabel, layer: layer ?? "meaning", providerId, modelName, status, tokens, lastAccessedAt, bytes }));
 }
 
+async function saveJson(filename: string, contents: string): Promise<string | null> {
+  const picker = (window as any).showSaveFilePicker as ((options: unknown) => Promise<any>) | undefined;
+  if (picker) {
+    try {
+      const handle = await picker({ suggestedName: filename, types: [{ description: "AI lyric document", accept: { "application/json": [".json"] } }] });
+      const writable = await handle.createWritable();
+      await writable.write(contents); await writable.close();
+      return filename;
+    } catch (error) {
+      if ((error as any)?.name === "AbortError") return null;
+      throw error;
+    }
+  }
+  const blob = new Blob([contents], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = url; anchor.download = filename; anchor.click();
+  queueMicrotask(() => URL.revokeObjectURL(url));
+  return filename;
+}
+
+export async function downloadRefinementCacheRecord(key: string): Promise<string | null> {
+  const record = await (await dbPromise).get(ObjectStores.AIRefinements, key) as RefinementRecord | undefined;
+  if (!record) return null;
+  const model = record.modelName.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "model";
+  const filename = `spicy-ai-document-${model}-${new Date(record.createdAt).toISOString().replace(/[:.]/g, "-")}.json`;
+  return saveJson(filename, JSON.stringify({ schema: 1, exportedAt: new Date().toISOString(), record }, null, 2));
+}
+
 export class IndexedDBRefinementCache implements RefinementCache {
   private pinned = new Set<string>();
   async get(key: string): Promise<RefinementRecord | undefined> {
@@ -40,6 +69,10 @@ export class IndexedDBRefinementCache implements RefinementCache {
   async listByTrackConfig(trackUri: string, configId: string): Promise<RefinementRecord[]> {
     const db = await dbPromise;
     return await db.getAllFromIndex(ObjectStores.AIRefinements, "byTrackConfig", [trackUri, configId]) as RefinementRecord[];
+  }
+  async listByTrack(trackUri: string): Promise<RefinementRecord[]> {
+    const records = await (await dbPromise).getAll(ObjectStores.AIRefinements) as RefinementRecord[];
+    return records.filter((record) => record.trackUri === trackUri);
   }
   pin(key: string): void { this.pinned.add(key); }
   unpin(key: string): void { this.pinned.delete(key); void this.evict(); }

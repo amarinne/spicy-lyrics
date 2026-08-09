@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeOpenAIBaseUrl, OpenAIRefinementProvider } from "../src/utils/Lyrics/AIRefinement/OpenAIProvider.ts";
-import { captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { captureProviderAcceptedItems, captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { EMPTY_LYRIC_CONTEXT } from "../src/utils/Lyrics/AIRefinement/protocol.ts";
 
 const lyricContext = { title: "Song", artists: ["Artist"], album: "Album" };
@@ -68,6 +68,8 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
   assert.equal(body.temperature, 0);
   assert.equal(body.max_tokens, 64);
   assert.deepEqual(JSON.parse(body.messages[1].content), { context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] });
+  assert.deepEqual(body.messages.map((message: { role: string }) => message.role), ["system", "user"]);
+  assert.equal(body.messages.some((message: { role: string }) => message.role === "assistant"), false);
   assert.match(body.messages[0].content, /^Additional instructions: Preserve honorifics\./);
   assert.match(body.messages[0].content, /source unchanged\.$/);
 });
@@ -97,6 +99,7 @@ test("explicit debug capture keeps payloads and raw responses in memory without 
   const provider = new OpenAIRefinementProvider("https://proxy.example.test/v1", async () => new Response(JSON.stringify({ choices: [{ message: { content: '{"items":[{"id":"S0","t":"hello"}]}' }, finish_reason: "stop" }] }), { status: 200 }));
   const model = { name: "model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
   await provider.translateChunk({ context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "S0", c: "ordinary", v: null, s: "private source" }] }, { providerVersion: "1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: 3, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64, captureId: getActiveProviderCaptureId() }, new AbortController().signal);
+  captureProviderAcceptedItems(getActiveProviderCaptureId(), [{ id: "S0", t: "hello" }]);
   const state = getProviderCaptureState();
   assert.equal(state.exchanges.length, 1);
   const serialized = JSON.stringify(state.exchanges[0]);
@@ -120,6 +123,36 @@ test("capture rolls to a new durable record when refinement moves to another son
   assert.equal(second.enabled, true);
   assert.equal(second.exchanges.length, 0);
   assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "second baseline", ai: "" }]);
+  clearProviderCapture();
+});
+
+test("capture preserves every paid exchange but compares only validated multi-chunk rows", () => {
+  clearProviderCapture();
+  captureProviderBaseline("spotify:track:long", "Long Track", [
+    { id: "S0", baselineTranslatedText: "zero" }, { id: "S1", baselineTranslatedText: "one" },
+  ]);
+  const captureId = getActiveProviderCaptureId();
+  for (let index = 0; index < 6; index++) captureProviderExchange(captureId, {
+    schema: 1, capturedAt: new Date(index).toISOString(), providerId: "openai", endpoint: "https://proxy.example.test/v1", model: "model-a", repair: index > 1, status: 200, request: {},
+    response: { choices: [{ message: { content: JSON.stringify({ items: [{ id: index % 2 ? "S1" : "S0", t: `AI ${index}` }] }) } }] },
+  });
+  captureProviderAcceptedItems(captureId, [{ id: "S0", t: "accepted zero" }, { id: "S1", t: "accepted one" }]);
+  assert.equal(getProviderCaptureState().exchanges.length, 6);
+  assert.deepEqual(getProviderComparisonRows(), [
+    { id: "S0", baseline: "zero", ai: "accepted zero" }, { id: "S1", baseline: "one", ai: "accepted one" },
+  ]);
+  clearProviderCapture();
+});
+
+test("bounded non-2xx response bodies remain private but inspectable in capture", async () => {
+  clearProviderCapture();
+  captureProviderBaseline("spotify:track:test", "Track", [{ id: "S0", baselineTranslatedText: "baseline" }]);
+  const provider = new OpenAIRefinementProvider("https://proxy.example.test/v1", async () => new Response(JSON.stringify({ error: { message: "model rejected request" } }), { status: 400 }));
+  const model = { name: "model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
+  const result = await provider.translateChunk({ context: EMPTY_LYRIC_CONTEXT, target: "en", items: [{ id: "S0", c: "ordinary", v: null, s: "source" }] }, { providerVersion: "1", model, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: 3, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64, captureId: getActiveProviderCaptureId() }, new AbortController().signal);
+  assert.equal(result.ok, false);
+  assert.match(JSON.stringify(getProviderCaptureState().exchanges[0].response), /model rejected request/);
+  assert.doesNotMatch(JSON.stringify(getProviderCaptureState()), /private-key|authorization/i);
   clearProviderCapture();
 });
 

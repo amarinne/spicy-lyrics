@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { captureProviderBaseline, clearProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { captureProviderAcceptedItems, captureProviderBaseline, clearProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderComparisonRows } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { GeminiRefinementProvider } from "../src/utils/Lyrics/AIRefinement/GeminiProvider.ts";
 import { EMPTY_LYRIC_CONTEXT } from "../src/utils/Lyrics/AIRefinement/protocol.ts";
 
@@ -40,7 +40,7 @@ test("Gemini discovery paginates with a header-only key and filters incompatible
   }
 });
 
-test("Gemini discovery maps authentication and server failures without reading bodies", async () => {
+test("Gemini discovery maps authentication and server failures with bounded bodies", async () => {
   for (const [status, kind] of [[401, "auth"], [403, "auth"], [429, "rate_limited"], [500, "delivery_unknown"], [400, "request_rejected"]] as const) {
     const provider = new GeminiRefinementProvider(async () => new Response("sensitive provider body", { status }));
     const result = await provider.listModels({ secret: "key" }, new AbortController().signal);
@@ -88,6 +88,7 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
   assert.deepEqual(result.items, [{ id: "S0", t: "love" }]);
   assert.deepEqual(result.usage, { input: 12, output: 3 });
   assert.equal(result.finish, "stop");
+  captureProviderAcceptedItems(getActiveProviderCaptureId(), result.items);
   assert.equal(requests.length, 1);
   assert.match(requests[0].url, /v1beta\/models\/gemini-2\.5-flash:generateContent$/);
   assert.doesNotMatch(requests[0].url, /private-key|key=/);
@@ -96,6 +97,7 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
   assert.equal(requests[0].body.generationConfig.responseSchema.properties.items.type, "ARRAY");
   assert.deepEqual(JSON.parse(requests[0].body.contents[0].parts[0].text), { context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] });
   assert.match(requests[0].body.systemInstruction.parts[0].text, /Return every requested id exactly once/);
+  assert.deepEqual(requests[0].body.contents.map((content: { role: string }) => content.role), ["user"]);
   assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "baseline", ai: "love" }]);
   assert.equal(getProviderCaptureMetadata()?.providerId, "gemini");
   assert.match(getProviderCaptureMetadata()?.systemPrompt ?? "", /Return every requested id exactly once/);

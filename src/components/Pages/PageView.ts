@@ -86,7 +86,7 @@ import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experime
 import { aiRefinementCoordinator, aiSoundCoordinator, invalidateAIRefinementBaseline, syncAIRefinementBackends } from "../../utils/Lyrics/AIRefinement/singleton.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
-import { openAISteeringEditor } from "../../utils/openAISteeringEditor.tsx";
+import { openAIRevisionEditor, openAISteeringEditor } from "../../utils/openAISteeringEditor.tsx";
 
 const pageLogger = new Logger("Page View");
 const controlsLogger = new Logger("View Controls");
@@ -561,9 +561,7 @@ function AppendViewControls(ReAppend: boolean = false) {
                 aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
                   || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
                   ? Icons.Spinner.replaceAll("{SIZE}", "20")
-                  : aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined"
-                    ? Icons.AIRestore
-                    : Icons.AIRefine
+                  : Icons.AIRefine
               }</button>`
             : ""
         }
@@ -808,7 +806,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       const state = trackUri ? aiRefinementCoordinator.getState(trackUri) : { status: "idle" as const };
       if (!isPip) {
         const label = state.status === "refined"
-          ? "Restore baseline"
+          ? `Refine AI output${state.revisionNumber ? ` · revision ${state.revisionNumber}` : ""}`
           : state.status === "refining" || state.status === "requested"
             ? `Refining ${state.done ?? 0}/${state.total ?? 0}`
             : state.status === "failed"
@@ -818,8 +816,11 @@ function AppendViewControls(ReAppend: boolean = false) {
       }
       refinementToggle.addEventListener("click", () => {
         if (!trackUri || state.status === "refining" || state.status === "requested") return;
-        if (state.status === "refined") aiRefinementCoordinator.restoreBaseline(trackUri);
-        else aiRefinementCoordinator.refine(trackUri);
+        if (state.status === "refined") openAIRevisionEditor({
+          currentModelName: state.modelName,
+          onSubmit: (instructions, model) => aiRefinementCoordinator.refineOutput(trackUri, { instructions, model }),
+          onRestore: () => aiRefinementCoordinator.restoreBaseline(trackUri),
+        }); else aiRefinementCoordinator.refine(trackUri);
       });
       refinementToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();

@@ -2,6 +2,7 @@ export const AI_REFINEMENT_SCHEMA = 1;
 export const AI_SOUND_REFINEMENT_SCHEMA = 2;
 export const AI_ORIGINAL_SNAPSHOT_SCHEMA = 1;
 export const AI_PROMPT_VERSION = 3;
+export const AI_ITERATION_PROMPT_VERSION = 1;
 export const AI_CHUNK_PLAN_VERSION = 3;
 export const AI_TOKEN_BUDGET = 12_000;
 export const AI_MAX_DOCUMENT_ROWS = 512;
@@ -17,7 +18,7 @@ export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
 export type RefinementSchema = typeof AI_REFINEMENT_SCHEMA | typeof AI_SOUND_REFINEMENT_SCHEMA;
 export type VoiceHint = "primary" | "alternate" | "background";
 export type LyricContext = { title: string | null; artists: string[]; album: string | null };
-export type ProviderRequestItem = { id: string; c: "ordinary" | "adlib"; v: VoiceHint | null; s: string };
+export type ProviderRequestItem = { id: string; c: "ordinary" | "adlib"; v: VoiceHint | null; s: string; p?: string };
 export type ProviderRequest = { context: LyricContext; target: string; items: ReadonlyArray<ProviderRequestItem> };
 
 export type RefinementLineClass = "ordinary" | "adlib" | "structural";
@@ -62,6 +63,7 @@ export type ProviderConfig = {
   contextMode: "document_or_v1_chunks";
   credential: Readonly<ProviderCredential>;
   repair: boolean;
+  iteration?: boolean;
   maxOutputTokens: number;
   captureId?: string | null;
 };
@@ -122,6 +124,11 @@ export type RefinementRecord = {
   modelName: string;
   targetLang: string;
   layer?: DerivedLayer;
+  parentRecordKey?: string;
+  rootRecordKey?: string;
+  parentOutputDigest?: string;
+  revisionInstructions?: string;
+  revisionNumber?: number;
   createdAt: number;
   lastAccessedAt: number;
   bytes: number;
@@ -140,6 +147,7 @@ export interface RefinementCache {
   deleteTrack(trackUri: string): Promise<void>;
   clear(): Promise<void>;
   listByTrackConfig(trackUri: string, configId: string): Promise<RefinementRecord[]>;
+  listByTrack(trackUri: string): Promise<RefinementRecord[]>;
   pin(key: string): void;
   unpin(key: string): void;
 }

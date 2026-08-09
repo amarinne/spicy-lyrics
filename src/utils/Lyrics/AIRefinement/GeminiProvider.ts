@@ -139,7 +139,7 @@ export class GeminiRefinementProvider implements RefinementProvider {
   private async translateChunkInternal(request: ProviderRequest, config: Readonly<ProviderConfig>, signal: AbortSignal, captureEnabled: boolean): Promise<ProviderResult> {
     const endpoint = `${MODELS_ENDPOINT.replace(/\/models$/, "")}/${config.model.name}:generateContent`;
     const providerRequest = {
-      systemInstruction: { parts: [{ text: buildSystemPrompt(config.layer ?? "meaning", config.targetLang, config.instructions, config.repair) }] },
+      systemInstruction: { parts: [{ text: buildSystemPrompt(config.layer ?? "meaning", config.targetLang, config.instructions, config.repair, config.iteration) }] },
       contents: [{ role: "user", parts: [{ text: JSON.stringify(request) }] }],
       generationConfig: {
         temperature: 0,

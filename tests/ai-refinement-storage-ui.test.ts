@@ -51,8 +51,8 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /trackLabel \?\? item\.trackUri/);
   assert.match(ui, /item\.model/);
   assert.match(ui, /item\.attempts/);
-  assert.match(ui, /Google baseline/);
-  assert.match(ui, /AI candidate/);
+  assert.match(ui, /Before AI/);
+  assert.match(ui, /AI output/);
   assert.match(ui, /System prompt/);
   assert.match(ui, /AI Instructions/);
   assert.equal((ui.match(/label="AI Instructions"/g) ?? []).length, 1);
@@ -65,6 +65,13 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   const page = read("src/components/Pages/PageView.ts");
   assert.match(page, /contextmenu/);
   assert.match(page, /openAISteeringEditor/);
+  assert.match(page, /openAIRevisionEditor/);
+  assert.match(page, /refineOutput/);
+  const revisionEditor = read("src/utils/openAISteeringEditor.tsx");
+  assert.match(revisionEditor, /What should change\?/);
+  assert.match(revisionEditor, /Refine again/);
+  assert.match(revisionEditor, /Restore baseline/);
+  assert.match(revisionEditor, /revisionModels/);
   const lyricsUi = read("src/components/ReactComponents/SettingsPanel/LyricsSection.tsx");
   assert.match(lyricsUi, /Translation Backend/);
   assert.match(lyricsUi, /Google Translate/);
@@ -73,7 +80,11 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(lyricsUi, /Target Orthography/);
   assert.match(lyricsUi, /AI automatic/);
   assert.match(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
+  assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /SelectionDiagnostics/);
+  assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /current\?\.uri === trackUri/);
+  assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /selectionScore/);
   assert.match(ui, /Saved AI Results/);
+  assert.match(ui, /downloadRefinementCacheRecord/);
   assert.match(ui, /probeControllerRef/);
   assert.match(ui, /configuration_changed/);
   assert.match(ui, /notifyAIRefinementCredentialChanged/);

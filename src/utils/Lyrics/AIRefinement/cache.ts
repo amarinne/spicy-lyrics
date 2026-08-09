@@ -39,6 +39,9 @@ export class MemoryRefinementCache implements RefinementCache {
   async listByTrackConfig(trackUri: string, configId: string): Promise<RefinementRecord[]> {
     return Array.from(this.records.values()).filter((record) => record.trackUri === trackUri && record.configId === configId).map((record) => structuredClone(record));
   }
+  async listByTrack(trackUri: string): Promise<RefinementRecord[]> {
+    return Array.from(this.records.values()).filter((record) => record.trackUri === trackUri).map((record) => structuredClone(record));
+  }
   pin(key: string): void { this.pinned.add(key); }
   unpin(key: string): void { this.pinned.delete(key); this.evict(); }
   snapshot(): RefinementRecord[] { return Array.from(this.records.values()).map((record) => structuredClone(record)); }

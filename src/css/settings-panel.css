@@ -25,6 +25,8 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
   .sl-ai-subsection-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
   .sl-ai-history-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3); width: 100%; }
   .sl-ai-history-actions { flex: 2 1 24rem; align-items: center; }
+  .sl-ai-cache-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .sl-ai-cache-item > div { display: flex; flex-direction: column; min-width: 0; }
   .sl-ai-capture-picker { display: flex; flex: 1 1 18rem; flex-direction: column; min-width: 0; gap: 6px; }
   .sl-ai-capture-picker > span { color: var(--color-text-secondary); font-size: var(--text-caption-size); }
   .sl-ai-capture-picker .sl-sp-select { width: 100%; max-width: none; }
@@ -798,6 +800,12 @@ sl-generic-modal .sl-ai-steering-editor { display: flex; flex-direction: column;
 sl-generic-modal .sl-ai-steering-editor p { margin: 0; color: var(--color-text-secondary); }
 sl-generic-modal .sl-ai-steering-editor textarea { min-height: 120px; resize: vertical; padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
 sl-generic-modal .sl-ai-steering-editor > div { display: flex; justify-content: flex-end; gap: 8px; }
+sl-generic-modal .sl-ai-revision-editor label { display: flex; flex-direction: column; gap: 6px; color: var(--color-text-secondary); }
+sl-generic-modal .sl-ai-revision-editor label textarea { color: var(--color-text-primary); }
+sl-generic-modal .sl-ai-revision-editor select { padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
+sl-generic-modal .sl-lyrics-source-diagnostics { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+sl-generic-modal .sl-lyrics-source-diagnostics > div { display: flex; justify-content: space-between; gap: 16px; }
+sl-generic-modal .sl-lyrics-source-diagnostics small { color: var(--color-text-secondary); text-align: right; }
 
 /* Small offsets — the panel is telling you which way you moved, not putting on
    a show. Opacity carries most of the swap; the shift just gives it direction. */

@@ -6,6 +6,7 @@ import { captureProviderExchange } from "./DebugCapture.ts";
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
+const MAX_RAW_MODELS = 500;
 const EXCLUDED_MODEL = /(?:embedding|moderation|image|dall-e|audio|transcribe|tts|whisper|realtime|search|computer|codex)/i;
 
 export function normalizeOpenAIBaseUrl(value: string): string {
@@ -100,6 +101,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
     if (response.status < 200 || response.status >= 300) return { ok: false, failure: mapHttpFailure(response.status) };
     const rawModels = (response.body as any)?.data;
     if (!Array.isArray(rawModels)) return { ok: false, failure: { kind: "protocol", detail: "models_not_array" } };
+    if (rawModels.length > MAX_RAW_MODELS) return { ok: false, failure: { kind: "protocol", detail: "model_cap_exceeded" } };
     const models = rawModels.map(descriptor).filter((model): model is ModelDescriptor => model !== null)
       .sort((left, right) => left.name.localeCompare(right.name));
     return { ok: true, models };
@@ -137,7 +139,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
       const providerRequest = {
         model: config.model.name,
         messages: [
-          { role: "system", content: buildSystemPrompt(config.layer ?? "meaning", config.targetLang, config.instructions, config.repair) },
+          { role: "system", content: buildSystemPrompt(config.layer ?? "meaning", config.targetLang, config.instructions, config.repair, config.iteration) },
           { role: "user", content: JSON.stringify(request) },
         ],
         response_format: { type: "json_object" },

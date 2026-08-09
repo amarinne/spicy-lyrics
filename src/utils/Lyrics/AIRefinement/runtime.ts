@@ -32,6 +32,7 @@ export async function executeChunk(args: {
   budgetAlreadyConsumed: number;
   previous?: RefinementChunkRecord;
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
+  deadlineMs?: number;
 }): Promise<ChunkExecution> {
   const wait = args.wait ?? abortableWait;
   const previous = args.previous;
@@ -47,12 +48,30 @@ export async function executeChunk(args: {
       return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     }
     const reservation = args.chunk.estimatedInputTokens + maxOutputTokens;
+    if (args.signal.aborted) throw args.signal.reason;
     record.attempts++;
-    const result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, args.signal);
+    const callController = new AbortController();
+    const abortCall = () => callController.abort(args.signal.reason);
+    args.signal.addEventListener("abort", abortCall, { once: true });
+    const deadline = setTimeout(() => callController.abort("timeout"), args.deadlineMs ?? 60_000);
+    let result;
+    try {
+      result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, callController.signal);
+    } catch {
+      totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
+      const failure = { reason: "delivery_unknown" } as const; record.status = "failed"; record.failure = failure;
+      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+    } finally {
+      clearTimeout(deadline); args.signal.removeEventListener("abort", abortCall);
+    }
     if (!result.ok) {
       if (result.failure.kind === "rate_limited" && record.attempts < AI_MAX_ATTEMPTS) {
         totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
-        await wait(Math.min(result.failure.retryAfterMs ?? 1000, 30_000), args.signal);
+        try { await wait(Math.min(result.failure.retryAfterMs ?? 1000, 30_000), args.signal); }
+        catch {
+          const failure = { reason: "rate_limited" } as const; record.status = "failed"; record.failure = failure;
+          return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+        }
         continue;
       }
       totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;

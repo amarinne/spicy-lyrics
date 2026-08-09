@@ -4,6 +4,7 @@ import {
   buildDocumentDigest,
   buildConfigId,
   buildSystemPrompt,
+  AI_PROMPT_VERSION,
   canonicalSerialize,
   classifyRefinementLine,
   enumerateRefinementLines,
@@ -16,6 +17,17 @@ import {
 } from "../src/utils/Lyrics/AIRefinement/index.ts";
 
 const model = { inputTokenLimit: 32_768, outputTokenLimit: 8_192 };
+
+test("initial prompt stays one-shot while iterative refinement carries only latest accepted output", () => {
+  assert.equal(AI_PROMPT_VERSION, 3);
+  const initial = buildSystemPrompt("meaning", "en");
+  const repair = buildSystemPrompt("meaning", "en", undefined, true);
+  const iteration = buildSystemPrompt("meaning", "en", "Make the tone warmer.", false, true);
+  assert.doesNotMatch(initial, /previous accepted output/);
+  assert.match(repair, /^The prior response violated/);
+  assert.match(iteration, /^Additional instructions: Make the tone warmer\./);
+  assert.match(iteration, /previous accepted output in p/);
+});
 
 test("canonical identity sorts keys, normalizes NFC, hashes to lowercase SHA-256", async () => {
   assert.equal(canonicalSerialize({ b: "e\u0301", a: [2, null] }), '{"a":[2,null],"b":"é"}');
@@ -82,6 +94,19 @@ test("provider, custom endpoint, and normalized steering are part of config iden
   assert.notEqual(steered, await buildConfigId({ ...base, provider: "openai", endpoint: "https://api.openai.com/v1", instructions: "Preserve\nhonorifics." }));
   assert.equal(await buildConfigId({ ...base, provider: "openai", instructions: "e\u0301" }), await buildConfigId({ ...base, provider: "openai", instructions: "é" }));
   assert.notEqual(direct, await buildConfigId({ ...base, layer: "sound", provider: "openai", targetLang: "Latin" }));
+});
+
+test("iterative request identity and payload include only the latest accepted output", async () => {
+  const base = { provider: "openai", providerVersion: "1", modelName: "model", targetLang: "en", promptVersion: 3, temperature: 0 as const, contextMode: "document_or_v1_chunks" as const };
+  const first = await buildConfigId({ ...base, iterationPromptVersion: 1, parentRecordKey: "parent-a", parentOutputDigest: "digest-a", revisionInstructions: "Make it warmer." });
+  const changedModel = await buildConfigId({ ...base, modelName: "model-2", iterationPromptVersion: 1, parentRecordKey: "parent-a", parentOutputDigest: "digest-a", revisionInstructions: "Make it warmer." });
+  const changedParent = await buildConfigId({ ...base, iterationPromptVersion: 1, parentRecordKey: "parent-b", parentOutputDigest: "digest-b", revisionInstructions: "Make it warmer." });
+  assert.notEqual(first, changedModel);
+  assert.notEqual(first, changedParent);
+  const rows = enumerateRefinementLines({ Type: "Static", Language: "jpn", Lines: [{ Text: "愛" }] }, "en");
+  const plan = planChunks(rows, "en", model, "Make it warmer.", "meaning", null, { S0: "first AI" });
+  assert.deepEqual(JSON.parse(plan.chunks[0].requestJson).items, [{ id: "S0", c: "ordinary", v: null, s: "愛", p: "first AI" }]);
+  assert.throws(() => planChunks(rows, "en", model, "Change it.", "meaning", null, {}), /previous_output_missing/);
 });
 
 test("Sound config identity includes source language, target orthography, and whole-line mode", async () => {

@@ -28,6 +28,17 @@ test("Spotify synced and unsynced responses normalize with provenance", () => {
   assert.deepEqual(plain.lyrics.Lines.map((line: any) => line.Text), ["Hello", "World"]);
 });
 
+test("source timing faults are rejected before normalization can sort or clamp them", () => {
+  for (const lines of [
+    [{ words: "Negative", startTimeMs: -1 }, { words: "Next", startTimeMs: 1000 }],
+    [{ words: "Later", startTimeMs: 3000 }, { words: "Earlier", startTimeMs: 1000 }],
+    [{ words: "Duplicate", startTimeMs: 1000 }, { words: "Duplicate 2", startTimeMs: 1000 }],
+    [{ words: "Beyond duration", startTimeMs: info.durationMs + 16_000 }],
+  ]) assert.equal(sources.normalizeSpotifyLyrics({ lyrics: { syncType: "LINE_SYNCED", lines } }, info), null);
+  assert.equal(sources.normalizeLrclibLyrics({ syncedLyrics: "[offset:-2000]\n[00:01.00]Negative", trackName: "Song", artistName: "Artist", duration: 180 }, info), null);
+  assert.equal(sources.normalizeLrclibLyrics({ syncedLyrics: "[00:03.00]Later\n[00:01.00]Earlier", trackName: "Song", artistName: "Artist", duration: 180 }, info), null);
+});
+
 test("LRCLIB synced, plain, and instrumental responses normalize", () => {
   const synced = sources.normalizeLrclibLyrics({ syncedLyrics: "[00:01.00]Hello\n[00:03.50]World", trackName: "Song", artistName: "Artist", duration: 180 }, info)!;
   assert.equal(synced.lyrics.Type, "Line");

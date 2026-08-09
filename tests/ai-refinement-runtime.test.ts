@@ -29,6 +29,7 @@ test("full-chunk repair uses byte-identical membership and caps attempts at two"
   assert.equal(result.record.repairs, 1);
   assert.deepEqual(provider.calls[0].request, provider.calls[1].request);
   assert.equal(provider.calls[1].config.repair, true);
+  assert.equal(provider.calls.length, 2);
 });
 
 test("delivery_unknown, truncation and safety are terminal without retry", async () => {
@@ -45,6 +46,16 @@ test("delivery_unknown, truncation and safety are terminal without retry", async
   }
 });
 
+test("provider calls have a deadline and conservatively account an ambiguous timeout", async () => {
+  const provider = new FakeRefinementProvider([(_request, _config, signal) => new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))]);
+  const result = await executeChunk({ provider, chunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0, deadlineMs: 1 });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.failure.reason, "delivery_unknown");
+  assert.equal(result.record.attempts, 1);
+  assert.equal(result.record.usageEstimated, true);
+  assert.ok(result.budgetConsumed > 0);
+});
+
 test("429 retries once, caps wait, and counts absent usage conservatively", async () => {
   const waits: number[] = [];
   const provider = new FakeRefinementProvider([
@@ -56,6 +67,22 @@ test("429 retries once, caps wait, and counts absent usage conservatively", asyn
   assert.equal(result.record.attempts, 2);
   assert.equal(result.record.usageEstimated, true);
   assert.ok(result.budgetConsumed > 1_000);
+});
+
+test("cancelling during Retry-After returns the charged attempt instead of losing it", async () => {
+  const provider = new FakeRefinementProvider([{ ok: false, failure: { kind: "rate_limited", retryAfterMs: 30_000 } }]);
+  const result = await executeChunk({ provider, chunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0, wait: async () => { throw new Error("cancelled"); } });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.failure.reason, "rate_limited");
+  assert.equal(result.record.attempts, 1);
+  assert.ok(result.budgetConsumed > 0);
+});
+
+test("a pre-aborted run cannot dispatch through a fresh child signal", async () => {
+  const provider = new FakeRefinementProvider();
+  const controller = new AbortController(); controller.abort("track_change");
+  await assert.rejects(() => executeChunk({ provider, chunk, config, signal: controller.signal, budgetAlreadyConsumed: 0 }));
+  assert.equal(provider.calls.length, 0);
 });
 
 test("completed chunks cannot be resent", async () => {
