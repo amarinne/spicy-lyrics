@@ -235,6 +235,24 @@ body.player-floating:has(.glassify-bg) #SpicyLyricsPage:not(.Fullscreen) .ViewCo
   scale: 1.15;
 }
 
+#SpicyLyricsPage .ViewControls .ViewControl.AIRefined {
+  color: #1ed760;
+  background: rgba(30, 215, 96, 0.16);
+  box-shadow:
+    0 10px 28px -8px rgba(30, 215, 96, 0.42),
+    inset 0 1px 0 rgba(200, 255, 218, 0.34),
+    inset 0 0 0 1px rgba(30, 215, 96, 0.36);
+}
+
+#SpicyLyricsPage .ViewControls .ViewControl.AIRefined:hover {
+  color: #43e57c;
+  background: rgba(30, 215, 96, 0.24);
+  box-shadow:
+    0 12px 32px -8px rgba(30, 215, 96, 0.52),
+    inset 0 1px 0 rgba(220, 255, 231, 0.42),
+    inset 0 0 0 1px rgba(67, 229, 124, 0.48);
+}
+
 /* #SpicyLyricsPage:not(.Fullscreen, .NowBarSide__Right) .ViewControls:hover {
   opacity: 1 !important;
   left: var(--ControlsHoverOffset) !important;

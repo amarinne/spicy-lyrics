@@ -535,7 +535,7 @@ function AppendViewControls(ReAppend: boolean = false) {
         </button>
         ${
           $soundBackend.get() !== "deterministic"
-            ? `<button id="AISoundToggle" class="ViewControl">${
+            ? `<button id="AISoundToggle" class="ViewControl${aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">${
                 aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
                   || aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
                   ? Icons.Spinner.replaceAll("{SIZE}", "20")
@@ -555,7 +555,7 @@ function AppendViewControls(ReAppend: boolean = false) {
         </button>
         ${
           $meaningBackend.get() !== "google"
-            ? `<button id="AIRefinementToggle" class="ViewControl">${
+            ? `<button id="AIRefinementToggle" class="ViewControl${aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">${
                 aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
                   || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
                   ? Icons.Spinner.replaceAll("{SIZE}", "20")

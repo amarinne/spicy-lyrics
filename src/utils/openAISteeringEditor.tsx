@@ -148,5 +148,5 @@ export function openAIRefinementComposer(options: ComposerOptions): void {
   const container = document.createElement("div");
   const root = ReactDOM.createRoot(container);
   flushSync(() => root.render(<Composer {...options} />));
-  PopupModal.display({ title: "AI Refinement", content: container, onClose: () => root.unmount() });
+  PopupModal.display({ title: "AI Refinement", content: container, isLarge: true, onClose: () => root.unmount() });
 }

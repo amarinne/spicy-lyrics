@@ -68,6 +68,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(page, /contextmenu/);
   assert.match(page, /openAIRefinementComposer/);
   assert.match(page, /getDefaultAIRefinementRequest/);
+  assert.match(page, /AIRefined/);
   assert.match(page, /refineOutput/);
   assert.match(page, /request\.meaning && request\.sound/);
   assert.match(page, /aiRefinementCoordinator\.subscribe/);
@@ -81,6 +82,14 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(composer, /Restore pronunciation/);
   assert.match(composer, /availableModels/);
   assert.match(composer, /type="checkbox"/);
+  assert.match(composer, /isLarge: true/);
+  const defaultCss = read("src/css/default.css");
+  assert.match(defaultCss, /ViewControl\.AIRefined/);
+  assert.match(defaultCss, /#1ed760/);
+  const settingsCss = read("src/css/settings-panel.css");
+  assert.match(settingsCss, /sl-modal-container-large:has\(\.sl-ai-request-composer\)/);
+  assert.match(settingsCss, /select option \{ background: #fff; color: #111; \}/);
+  assert.match(settingsCss, /flex-wrap: wrap/);
   const lyricsUi = read("src/components/ReactComponents/SettingsPanel/LyricsSection.tsx");
   assert.match(lyricsUi, /Translation Backend/);
   assert.match(lyricsUi, /Google Translate/);
