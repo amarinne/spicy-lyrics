@@ -123,6 +123,7 @@ export type RefinementRecord = {
   providerVersion: string;
   modelName: string;
   targetLang: string;
+  sourceLanguage?: string;
   layer?: DerivedLayer;
   parentRecordKey?: string;
   rootRecordKey?: string;

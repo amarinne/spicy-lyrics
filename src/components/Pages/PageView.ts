@@ -798,6 +798,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       const trackUri = SpotifyPlayer.GetUri();
       const state = trackUri ? aiSoundCoordinator.getState(trackUri) : { status: "idle" as const };
       if (!isPip) {
+        const cacheWarning = state.cacheWarning === "write_failed" ? " · not saved; retry after fixing storage" : "";
         const label = state.status === "refined"
           ? `Refine AI pronunciation${state.revisionNumber ? ` · revision ${state.revisionNumber}` : ""}`
           : state.status === "refining" || state.status === "requested"
@@ -805,7 +806,8 @@ function AppendViewControls(ReAppend: boolean = false) {
             : state.status === "failed"
               ? state.reason === "alignment_required" ? "AI sound is unavailable for syllable-timed lyrics." : `Sound failed: ${state.reason}. Click to retry.`
               : "Refine sound with AI";
-        Tooltips.AISound = Spicetify.Tippy(soundToggle, { ...Spicetify.TippyProps, content: label });
+        const warningLabel = `${label}${cacheWarning}`;
+        Tooltips.AISound = Spicetify.Tippy(soundToggle, { ...Spicetify.TippyProps, content: warningLabel });
       }
       soundToggle.addEventListener("click", () => {
         if (!trackUri || state.status === "refining" || state.status === "requested") return;
@@ -843,6 +845,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       const trackUri = SpotifyPlayer.GetUri();
       const state = trackUri ? aiRefinementCoordinator.getState(trackUri) : { status: "idle" as const };
       if (!isPip) {
+        const cacheWarning = state.cacheWarning === "write_failed" ? " · not saved; retry after fixing storage" : "";
         const label = state.status === "refined"
           ? `Refine AI output${state.revisionNumber ? ` · revision ${state.revisionNumber}` : ""}`
           : state.status === "refining" || state.status === "requested"
@@ -850,7 +853,7 @@ function AppendViewControls(ReAppend: boolean = false) {
             : state.status === "failed"
               ? `Refine failed: ${state.reason}. Click to retry.`
               : "Refine translation with AI";
-        Tooltips.AIRefinement = Spicetify.Tippy(refinementToggle, { ...Spicetify.TippyProps, content: label });
+        Tooltips.AIRefinement = Spicetify.Tippy(refinementToggle, { ...Spicetify.TippyProps, content: `${label}${cacheWarning}` });
       }
       refinementToggle.addEventListener("click", () => {
         if (!trackUri || state.status === "refining" || state.status === "requested") return;

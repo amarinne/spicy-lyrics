@@ -106,6 +106,67 @@ test("an initial request can add one-off preset steering and select a model with
   assert.equal(customConfig.instructions, "Always preserve names.");
 });
 
+test("preset-driven paid output auto-applies on revisit without another provider call", async () => {
+  const cache = new MemoryRefinementCache();
+  const paidProvider = new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "saved preset output" }], usage: { input: 5, output: 2 }, finish: "stop", raw: { bytes: 24 } }]);
+  const first = harness(paidProvider, cache);
+  const value = baseline();
+  first.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  first.coordinator.refine("spotify:track:test", { instructions: "Keep the tone intimate.", model: { ...model, name: "alternate-model" } });
+  await waitFor(() => first.coordinator.getState("spotify:track:test").status === "refined");
+
+  const revisitProvider = new FakeRefinementProvider();
+  const revisit = harness(revisitProvider, cache);
+  revisit.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  await waitFor(() => revisit.coordinator.getState("spotify:track:test").status === "refined", "preset output auto-applied");
+  assert.equal(revisit.publications.at(-1).document.Lines[0].TranslatedText, "saved preset output");
+  assert.equal(revisitProvider.calls.length, 0);
+});
+
+test("newest compatible paid document wins across preset and model identities", async () => {
+  const cache = new MemoryRefinementCache();
+  const value = baseline();
+  const first = harness(new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "older output" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } }]), cache);
+  first.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  first.coordinator.refine("spotify:track:test", { instructions: "First preset." });
+  await waitFor(() => first.coordinator.getState("spotify:track:test").status === "refined");
+  await new Promise((resolve) => setTimeout(resolve, 2));
+
+  const second = harness(new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "newer output" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } }]), cache);
+  second.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  await waitFor(() => second.coordinator.getState("spotify:track:test").status === "refined");
+  second.coordinator.refineOutput("spotify:track:test", { instructions: "Second preset.", model: { ...model, name: "new-model" } });
+  await waitFor(() => second.coordinator.getState("spotify:track:test").status === "refined" && second.coordinator.getState("spotify:track:test").modelName === "new-model");
+
+  const revisit = harness(new FakeRefinementProvider(), cache);
+  revisit.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  await waitFor(() => revisit.coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(revisit.publications.at(-1).document.Lines[0].TranslatedText, "newer output");
+  assert.equal(revisit.provider.calls.length, 0);
+});
+
+test("paid output never crosses document or target-language identity", async () => {
+  const cache = new MemoryRefinementCache();
+  const value = baseline();
+  const first = harness(new FakeRefinementProvider(), cache);
+  first.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  first.coordinator.refine("spotify:track:test", { instructions: "Saved preset." });
+  await waitFor(() => first.coordinator.getState("spotify:track:test").status === "refined");
+
+  const changedDocument = baseline("歌", "song");
+  const documentRevisit = harness(new FakeRefinementProvider(), cache);
+  documentRevisit.coordinator.acceptBaseline("spotify:track:test", changedDocument.document, "final", changedDocument.snapshot);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(documentRevisit.coordinator.getState("spotify:track:test").status, "idle");
+  assert.equal(documentRevisit.publications.at(-1).origin, "baseline");
+
+  const targetRevisit = harness(new FakeRefinementProvider(), cache, async () => ({ ...config, targetLang: "vi" }));
+  targetRevisit.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(targetRevisit.coordinator.getState("spotify:track:test").status, "idle");
+  assert.equal(targetRevisit.publications.at(-1).origin, "baseline");
+});
+
 test("explicit retry after restart resets only failed chunk attempt caps and preserves paid accounting", async () => {
   const firstProvider = new FakeRefinementProvider([
     { ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
@@ -212,6 +273,20 @@ test("Restore suppresses exact cache auto-apply until explicit Refine", async ()
   assert.equal(publications.at(-1).origin, "overlay");
 });
 
+test("Restore then Refine reuses a one-off preset and model result without rebilling", async () => {
+  const provider = new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "one-off paid output" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 24 } }]);
+  const { coordinator, publications } = harness(provider);
+  const value = baseline();
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test", { instructions: "Use this one-off style.", model: { ...model, name: "one-off-model" } });
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  coordinator.restoreBaseline("spotify:track:test");
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(provider.calls.length, 1);
+  assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "one-off paid output");
+});
+
 test("kill switch drops overlays, keeps cache, and blocks auto-apply", async () => {
   const { coordinator, cache, publications } = harness();
   const value = baseline();
@@ -263,6 +338,28 @@ test("exact Sound cache is checked before credential storage or provider work", 
   cached.acceptBaseline("spotify:track:test", source, "final", snapshot);
   await waitFor(() => cached.getState("spotify:track:test").status === "refined");
   assert.equal(credentialReads, 0);
+  assert.equal(provider.calls.length, 0);
+});
+
+test("Sound cache does not cross source-language identity", async () => {
+  const cache = new MemoryRefinementCache();
+  const soundConfig = { ...config, targetLang: "Latin" };
+  const paidProvider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "sarang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 32 } })]);
+  const paid = new AIRefinementCoordinator({ layer: "sound", cache, provider: paidProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  paid.setEnabled(true); paid.onTrackChanged("spotify:track:test");
+  const korean = { Type: "Static", Language: "kor", Lines: [{ Text: "歌" }], ProcessingPending: false, RomanizationPending: false };
+  paid.acceptBaseline("spotify:track:test", korean, "final", captureOriginalSnapshot(korean, null));
+  paid.refine("spotify:track:test");
+  await waitFor(() => paid.getState("spotify:track:test").status === "refined");
+  assert.equal(cache.snapshot()[0].sourceLanguage, "kor");
+
+  const provider = new FakeRefinementProvider();
+  const revisit = new AIRefinementCoordinator({ layer: "sound", cache, provider, getConfig: async () => soundConfig, publish: () => undefined });
+  revisit.setEnabled(true); revisit.onTrackChanged("spotify:track:test");
+  const japanese = { ...korean, Language: "jpn" };
+  revisit.acceptBaseline("spotify:track:test", japanese, "final", captureOriginalSnapshot(japanese, null));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(revisit.getState("spotify:track:test").status, "idle");
   assert.equal(provider.calls.length, 0);
 });
 
@@ -351,7 +448,7 @@ test("async config/cache preparation cannot apply an old overlay to a newer base
   assert.equal(publications.at(-1).origin, "baseline");
 });
 
-test("an older config preparation cannot overwrite or auto-apply after config change", async () => {
+test("an older config preparation cannot win, while accepted output remains authoritative after config change", async () => {
   const cache = new MemoryRefinementCache();
   const oldConfig = config;
   const paid = harness(new FakeRefinementProvider(), cache, async () => oldConfig);
@@ -368,8 +465,10 @@ test("an older config preparation cannot overwrite or auto-apply after config ch
   next.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
   next.coordinator.notifyConfigChanged();
   resolveOld!(oldConfig);
-  await new Promise((resolve) => setTimeout(resolve, 15));
-  assert.equal(next.publications.at(-1).origin, "baseline");
+  await waitFor(() => next.coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(next.publications.at(-1).origin, "overlay");
+  assert.equal(next.publications.at(-1).document.Lines[0].TranslatedText, "AI 愛");
+  assert.equal(next.provider.calls.length, 0);
 });
 
 test("baseline change during pre-dispatch config await cancels before billing", async () => {

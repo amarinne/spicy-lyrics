@@ -10,14 +10,13 @@ function record(index: number, overrides: Partial<RefinementRecord> = {}): Refin
   return value;
 }
 
-test("memory cache supports exact reads, track clears, true LRU and pinning", async () => {
+test("memory cache keeps paid records until an explicit clear", async () => {
   const cache = new MemoryRefinementCache();
-  for (let i = 0; i < 200; i++) await cache.put(record(i));
-  cache.pin(record(0).key);
-  await cache.put(record(200));
+  for (let i = 0; i <= 200; i++) await cache.put(record(i));
   const keys = new Set(cache.snapshot().map((item) => item.key));
   assert.ok(keys.has(record(0).key));
-  assert.ok(!keys.has(record(1).key));
+  assert.ok(keys.has(record(1).key));
+  assert.equal(keys.size, 201);
   await cache.deleteTrack("spotify:track:200");
   assert.equal(await cache.get(record(200).key), undefined);
 });

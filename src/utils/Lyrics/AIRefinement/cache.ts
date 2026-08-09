@@ -1,8 +1,5 @@
 import { AI_CHUNK_PLAN_VERSION, AI_REFINEMENT_SCHEMA, type RefinementCache, type RefinementRecord, type RefinementSchema } from "./types.ts";
 
-const MAX_RECORDS = 200;
-const MAX_BYTES = 16 * 1024 * 1024;
-
 export function refinementRecordKey(trackUri: string, configId: string, docDigest: string, schema: RefinementSchema = AI_REFINEMENT_SCHEMA): string {
   return `${trackUri}|${schema}|${configId}|${docDigest}|${AI_CHUNK_PLAN_VERSION}`;
 }
@@ -13,7 +10,6 @@ export function measureRecordBytes(record: RefinementRecord): number {
 
 export class MemoryRefinementCache implements RefinementCache {
   private records = new Map<string, RefinementRecord>();
-  private pinned = new Set<string>();
   public failWrites = false;
 
   async get(key: string): Promise<RefinementRecord | undefined> {
@@ -28,7 +24,6 @@ export class MemoryRefinementCache implements RefinementCache {
     const copy = structuredClone(record);
     copy.bytes = measureRecordBytes(copy);
     this.records.set(copy.key, copy);
-    this.evict();
   }
 
   async delete(key: string): Promise<void> { this.records.delete(key); }
@@ -42,21 +37,9 @@ export class MemoryRefinementCache implements RefinementCache {
   async listByTrack(trackUri: string): Promise<RefinementRecord[]> {
     return Array.from(this.records.values()).filter((record) => record.trackUri === trackUri).map((record) => structuredClone(record));
   }
-  pin(key: string): void { this.pinned.add(key); }
-  unpin(key: string): void { this.pinned.delete(key); this.evict(); }
+  pin(_key: string): void {}
+  unpin(_key: string): void {}
   snapshot(): RefinementRecord[] { return Array.from(this.records.values()).map((record) => structuredClone(record)); }
-
-  private evict(): void {
-    let records = Array.from(this.records.values());
-    let bytes = records.reduce((sum, record) => sum + record.bytes, 0);
-    while (records.length > MAX_RECORDS || bytes > MAX_BYTES) {
-      const victim = records.filter((record) => !this.pinned.has(record.key)).sort((a, b) => a.lastAccessedAt - b.lastAccessedAt || a.key.localeCompare(b.key))[0];
-      if (!victim) return;
-      this.records.delete(victim.key);
-      bytes -= victim.bytes;
-      records = records.filter((record) => record.key !== victim.key);
-    }
-  }
 }
 
 export function sumBudgetConsumed(records: ReadonlyArray<RefinementRecord>): number {
