@@ -276,34 +276,37 @@ export default function AIRefinementSettings() {
           <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={soundByteCount > AI_MAX_STEERING_BYTES || soundDraft === soundInstructions} onClick={() => { $soundSteeringInstructions.set(soundDraft); aiSoundCoordinator.notifyConfigChanged(); }}>Apply instructions</button></div>
         </div>
       </Row>
-      <Row label="Request history" description="Every paid refinement is saved locally, including lyric text, until explicitly deleted." stacked>
-        {!!captureInventory.length && <div className="sl-ai-capture-picker">
-          <span>Saved comparisons</span>
-          <Select value={captureState.captureId ?? ""} options={captureOptions} labels={captureLabels} onChange={(id) => {
-            void selectProviderCapture(id).then((selected) => {
-              if (selected) { setShowComparison(true); setStatus("Saved comparison loaded"); }
-              else setStatus("Saved comparison unavailable");
-            });
-          }} />
-        </div>}
-        <div className="sl-ai-actions">
-          <button className="sl-sp-btn" type="button" onClick={async () => {
-            setStatus("Choose where to save the capture…");
-            try {
-              const filename = await downloadProviderCapture();
-              setStatus(filename ? `Saved ${filename}` : "Save cancelled");
-            } catch { setStatus("Capture could not be saved"); }
-          }} disabled={!captureState.exchanges.length}>Save capture ({captureState.exchanges.length})</button>
-          <button className="sl-sp-btn" type="button" onClick={async () => {
-            setStatus("Choose where to save all captures…");
-            try {
-              const saved = await downloadAllProviderCaptures();
-              setStatus(saved ? `Saved ${saved.count} captures to ${saved.filename}` : "Save cancelled");
-            } catch { setStatus("Capture history could not be saved"); }
-          }} disabled={!captureInventory.length}>Save all ({captureInventory.length})</button>
-          <button className="sl-sp-btn" type="button" onClick={() => setShowComparison((shown) => !shown)} disabled={!captureState.exchanges.length}>{showComparison ? "Hide comparison" : "View comparison"}</button>
-          <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete the selected saved request/response capture?")) { void deleteProviderCapture().then((deleted) => { if (deleted) { void refreshCaptures(); setShowComparison(false); } else setStatus("Active request history cannot be deleted"); }); } }} disabled={!captureState.durable || captureState.captureId === captureState.activeCaptureId}>Delete selected</button>
-          <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete all saved request/response captures? This cannot be undone.")) { void deleteAllProviderCaptures().then((deleted) => { if (deleted) { void refreshCaptures(); setShowComparison(false); } else setStatus("Wait for the active request to finish"); }); } }} disabled={!captureInventory.length || !!captureState.activeCaptureId}>Delete all</button>
+      <section className="sl-ai-subsection">
+        <h3 className="sl-ai-subsection-title">Request History</h3>
+        <div className="sl-ai-history-toolbar">
+          {!!captureInventory.length && <div className="sl-ai-capture-picker">
+            <span>Saved Comparison</span>
+            <Select value={captureState.captureId ?? ""} options={captureOptions} labels={captureLabels} onChange={(id) => {
+              void selectProviderCapture(id).then((selected) => {
+                if (selected) { setShowComparison(true); setStatus("Saved comparison loaded"); }
+                else setStatus("Saved comparison unavailable");
+              });
+            }} />
+          </div>}
+          <div className="sl-ai-actions sl-ai-history-actions">
+            <button className="sl-sp-btn" type="button" onClick={async () => {
+              setStatus("Choose where to save the capture…");
+              try {
+                const filename = await downloadProviderCapture();
+                setStatus(filename ? `Saved ${filename}` : "Save cancelled");
+              } catch { setStatus("Capture could not be saved"); }
+            }} disabled={!captureState.exchanges.length}>Save Current</button>
+            <button className="sl-sp-btn" type="button" onClick={async () => {
+              setStatus("Choose where to save all captures…");
+              try {
+                const saved = await downloadAllProviderCaptures();
+                setStatus(saved ? `Saved ${saved.count} captures to ${saved.filename}` : "Save cancelled");
+              } catch { setStatus("Capture history could not be saved"); }
+            }} disabled={!captureInventory.length}>Save All</button>
+            <button className="sl-sp-btn" type="button" onClick={() => setShowComparison((shown) => !shown)} disabled={!captureState.exchanges.length}>{showComparison ? "Hide Comparison" : "View Comparison"}</button>
+            <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete the selected saved request/response capture?")) { void deleteProviderCapture().then((deleted) => { if (deleted) { void refreshCaptures(); setShowComparison(false); } else setStatus("Active request history cannot be deleted"); }); } }} disabled={!captureState.durable || captureState.captureId === captureState.activeCaptureId}>Delete</button>
+            <button className="sl-sp-btn" type="button" onClick={() => { if (window.confirm("Delete all saved request/response captures? This cannot be undone.")) { void deleteAllProviderCaptures().then((deleted) => { if (deleted) { void refreshCaptures(); setShowComparison(false); } else setStatus("Wait for the active request to finish"); }); } }} disabled={!captureInventory.length || !!captureState.activeCaptureId}>Delete All</button>
+          </div>
         </div>
         {showComparison && <div className="sl-ai-comparison">
           {captureMetadata && <div className="sl-ai-capture-meta">
@@ -314,16 +317,19 @@ export default function AIRefinementSettings() {
           <div className="sl-ai-comparison-head"><span>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Google baseline"}</span><span>{captureMetadata?.layer === "sound" ? "AI sound" : "AI candidate"}</span></div>
           {getProviderComparisonRows().map((row) => <div className="sl-ai-comparison-row" key={row.id}><span><small>{row.id}</small>{row.baseline || "—"}</span><span>{row.ai || "—"}</span></div>)}
         </div>}
-      </Row>
-      <Row label="Saved AI results" description="IndexedDB cache entries for paid refinement work." stacked>
-        <div className="sl-ai-cache-inventory">
+      </section>
+      <section className="sl-ai-subsection">
+        <div className="sl-ai-subsection-heading">
+          <h3 className="sl-ai-subsection-title">Saved AI Results</h3>
           <button className="sl-sp-btn" type="button" onClick={() => void listRefinementCacheInventory().then(setCacheInventory)}>Refresh</button>
+        </div>
+        <div className="sl-ai-cache-inventory">
           {cacheInventory.length ? cacheInventory.map((item) => <div className="sl-ai-cache-item" key={item.key}>
             <span>{item.trackLabel ?? item.trackUri}</span>
             <small>{item.layer === "sound" ? "Sound" : "Meaning"} · {item.modelName} · {item.status} · {item.tokens.input + item.tokens.output} tokens · {new Date(item.lastAccessedAt).toLocaleString()}</small>
           </div>) : <span className="sl-ai-note">No saved AI results.</span>}
         </div>
-      </Row>
+      </section>
     </div>
   );
 }
