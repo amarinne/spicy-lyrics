@@ -47,6 +47,24 @@ test("coordinator publishes baseline then an atomic overlay without mutating bas
   assert.equal("AIOriginalSnapshot" in publications.at(-1).document, false);
 });
 
+test("a replacement baseline clears stale refined state and remains actionable", async () => {
+  const { coordinator, provider, publications } = harness();
+  const first = baseline("愛", "love");
+  coordinator.acceptBaseline("spotify:track:test", first.document, "final", first.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+
+  const replacement = baseline("गीत", "song");
+  coordinator.acceptBaseline("spotify:track:test", replacement.document, "final", replacement.snapshot);
+  assert.deepEqual(coordinator.getState("spotify:track:test"), { status: "idle", origin: "baseline" });
+  assert.equal(publications.at(-1).origin, "baseline");
+
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(provider.calls.length, 2);
+  assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "AI गीत");
+});
+
 test("accepted output can be revised with the latest output, a new note, and a different model", async () => {
   const nextModel = { ...model, name: "fake-model-2" };
   const provider = new FakeRefinementProvider([

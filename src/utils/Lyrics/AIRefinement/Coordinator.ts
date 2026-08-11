@@ -73,12 +73,14 @@ export class AIRefinementCoordinator {
 
   acceptBaseline(trackUri: string, document: any, stage: "intermediate" | "final", originalSnapshot: CanonicalOriginalSnapshot, publicationRevision?: number): void {
     const revision = ++this.revision;
-    if (this.active?.trackUri === trackUri) this.cancel(trackUri, "baseline_superseded");
+    const supersededActiveRun = this.active?.trackUri === trackUri;
+    if (supersededActiveRun) this.cancel(trackUri, "baseline_superseded");
     const session = { document: structuredClone(document), snapshot: originalSnapshot, context: normalizeLyricContext(this.deps.getContext?.(trackUri)), stage, revision, publicationRevision: publicationRevision ?? revision };
     this.baselines.set(trackUri, session);
     this.overlays.delete(trackUri);
     this.appliedRecords.delete(trackUri);
     this.publishBaseline(trackUri);
+    if (!supersededActiveRun) this.setState(trackUri, { status: "idle", origin: "baseline" });
     if (stage === "final") void this.prepareFinalBaseline(trackUri, revision);
   }
 
@@ -140,7 +142,7 @@ export class AIRefinementCoordinator {
   subscribe(cb: (trackUri: string, state: RefinementState) => void): () => void { this.listeners.add(cb); return () => this.listeners.delete(cb); }
   getState(trackUri: string): RefinementState { return this.states.get(trackUri) ?? { status: "idle" }; }
   getBaselineDocument(trackUri: string): any | undefined { const document = this.baselines.get(trackUri)?.document; return document ? structuredClone(document) : undefined; }
-  invalidateBaseline(trackUri: string): void { this.cancel(trackUri, "user"); this.overlays.delete(trackUri); this.appliedRecords.delete(trackUri); this.baselines.delete(trackUri); }
+  invalidateBaseline(trackUri: string): void { this.cancel(trackUri, "user"); this.overlays.delete(trackUri); this.appliedRecords.delete(trackUri); this.baselines.delete(trackUri); this.setState(trackUri, { status: "idle", origin: "baseline" }); }
 
   setEnabled(enabled: boolean): void {
     this.enabled = enabled;

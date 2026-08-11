@@ -59,6 +59,17 @@ function parseItems(text: string): Array<{ id: string; t: string }> {
   return payload.items;
 }
 
+function usageTokens(usage: any): { input?: number; output?: number } {
+  const input = Number.isFinite(usage?.prompt_tokens) ? usage.prompt_tokens : undefined;
+  const visibleOutput = Number.isFinite(usage?.completion_tokens) ? usage.completion_tokens : undefined;
+  const total = Number.isFinite(usage?.total_tokens) ? usage.total_tokens : undefined;
+  const providerOutput = input !== undefined && total !== undefined && total >= input ? total - input : undefined;
+  const output = providerOutput !== undefined && visibleOutput !== undefined
+    ? Math.max(providerOutput, visibleOutput)
+    : providerOutput ?? visibleOutput;
+  return { input, output };
+}
+
 export type ModelProbeResult = { ok: true; usage: { input?: number; output?: number } } | { ok: false; failure: ProviderFailure };
 
 function descriptor(raw: any): ModelDescriptor | null {
@@ -172,7 +183,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
     return {
       ok: true,
       items,
-      usage: { input: Number.isFinite(response.body?.usage?.prompt_tokens) ? response.body.usage.prompt_tokens : undefined, output: Number.isFinite(response.body?.usage?.completion_tokens) ? response.body.usage.completion_tokens : undefined },
+      usage: usageTokens(response.body?.usage),
       finish: finishReason(response.body?.choices?.[0]?.finish_reason),
       raw: { bytes: response.bytes ?? 0 },
     };

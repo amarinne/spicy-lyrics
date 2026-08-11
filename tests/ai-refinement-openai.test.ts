@@ -49,7 +49,7 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
     calls.push({ url: String(input), init });
     return new Response(JSON.stringify({
       choices: [{ message: { content: '{"items":[{"id":"S0","t":"hello"}]}' }, finish_reason: "stop" }],
-      usage: { prompt_tokens: 17, completion_tokens: 9 },
+      usage: { prompt_tokens: 17, completion_tokens: 9, total_tokens: 37, completion_tokens_details: { reasoning_tokens: 11 } },
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const model = { name: "gemini-2.5-flash", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
@@ -59,7 +59,7 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
   assert.equal(result.ok, true);
   if (!result.ok) return;
   assert.deepEqual(result.items, [{ id: "S0", t: "hello" }]);
-  assert.deepEqual(result.usage, { input: 17, output: 9 });
+  assert.deepEqual(result.usage, { input: 17, output: 20 });
   assert.equal(result.finish, "stop");
   const body = JSON.parse(String(calls[0].init?.body));
   assert.equal(calls[0].url, "https://proxy.example.test/v1/chat/completions");
