@@ -73,6 +73,7 @@ test("accepted output can be revised with the latest output, a new note, and a d
       assert.equal(runConfig.iteration, true);
       assert.equal(runConfig.model.name, "fake-model-2");
       assert.match(runConfig.instructions ?? "", /Make it warmer/);
+      assert.equal(request.instructions, "Make it warmer.");
       assert.deepEqual(request.items, [{ id: "S0", c: "ordinary", v: null, s: "愛", p: "first AI" }]);
       return { ok: true, items: [{ id: "S0", t: "warmer AI" }], usage: { input: 6, output: 3 }, finish: "stop", raw: { bytes: 26 } };
     },
@@ -108,6 +109,7 @@ test("an initial request can add one-off preset steering and select a model with
     assert.equal(runConfig.iteration, false);
     assert.equal(runConfig.model.name, "fake-model-2");
     assert.equal(runConfig.instructions, "Always preserve names.\nKeep mixed-language phrases natural.");
+    assert.equal(request.instructions, "Always preserve names.\nKeep mixed-language phrases natural.");
     assert.equal(request.items[0].p, undefined);
     return { ok: true, items: [{ id: "S0", t: "contextual AI" }], usage: { input: 5, output: 2 }, finish: "stop", raw: { bytes: 24 } };
   }]);
@@ -187,8 +189,8 @@ test("paid output never crosses document or target-language identity", async () 
 
 test("explicit retry after restart resets only failed chunk attempt caps and preserves paid accounting", async () => {
   const firstProvider = new FakeRefinementProvider([
-    { ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
-    { ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+    { ok: true, items: [], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+    { ok: true, items: [], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
   ]);
   const cache = new MemoryRefinementCache();
   const first = harness(firstProvider, cache);
@@ -204,6 +206,37 @@ test("explicit retry after restart resets only failed chunk attempt caps and pre
   await waitFor(() => reopened.coordinator.getState("spotify:track:test").status === "refined");
   assert.equal(retryProvider.calls.length, 1);
   assert.ok(cache.snapshot()[0].budgetConsumed > spent);
+});
+
+test("mixed translated and unchanged Punjabi Meaning rows apply atomically in one attempt", async () => {
+  const provider = new FakeRefinementProvider([{ ok: true, items: [
+    { id: "S0", t: "I make no excuses" },
+    { id: "S1", t: "Intense" },
+  ], usage: { input: 8, output: 4 }, finish: "stop", raw: { bytes: 48 } }]);
+  const { coordinator, publications } = harness(provider);
+  const original = { Type: "Static", Language: "pan", Lines: [{ Text: "ਮੈਂ ਕੋਈ ਬਹਾਨਾ ਨਹੀਂ ਬਣਾਉਂਦਾ" }, { Text: "Intense" }] };
+  const snapshot = captureOriginalSnapshot(original, "en");
+  const document = { ...original, ProcessingPending: false, RomanizationPending: false, Lines: [
+    { Text: original.Lines[0].Text, TranslatedText: "No excuses" },
+    { Text: "Intense", TranslatedText: "Intense" },
+  ] };
+  coordinator.acceptBaseline("spotify:track:test", document, "final", snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(provider.calls.length, 1);
+  assert.deepEqual(publications.at(-1).document.Lines.map((line: any) => line.TranslatedText), ["I make no excuses", "Intense"]);
+});
+
+test("all-source Meaning output does not repair or replace the translated baseline", async () => {
+  const provider = new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "愛" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } }]);
+  const { coordinator, publications } = harness(provider);
+  const value = baseline("愛", "love");
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "unchanged");
+  assert.equal(provider.calls.length, 1);
+  assert.equal(publications.at(-1).origin, "baseline");
+  assert.equal(publications.at(-1).document.Lines[0].TranslatedText, "love");
 });
 
 test("coordinator captures track metadata with the baseline and sends voice-aware context", async () => {

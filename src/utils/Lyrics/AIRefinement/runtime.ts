@@ -56,7 +56,7 @@ export async function executeChunk(args: {
     const deadline = setTimeout(() => callController.abort("timeout"), args.deadlineMs ?? 60_000);
     let result;
     try {
-      result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, callController.signal);
+      result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, ...(args.chunk.instructions ? { instructions: args.chunk.instructions } : {}), items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, callController.signal);
     } catch {
       totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
       const failure = { reason: "delivery_unknown" } as const; record.status = "failed"; record.failure = failure;
@@ -65,6 +65,10 @@ export async function executeChunk(args: {
       clearTimeout(deadline); args.signal.removeEventListener("abort", abortCall);
     }
     if (!result.ok) {
+      if (result.failure.kind === "protocol" && record.attempts < AI_MAX_ATTEMPTS) {
+        totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
+        record.repairs++; continue;
+      }
       if (result.failure.kind === "rate_limited" && record.attempts < AI_MAX_ATTEMPTS) {
         totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
         try { await wait(Math.min(result.failure.retryAfterMs ?? 1000, 30_000), args.signal); }
@@ -91,7 +95,7 @@ export async function executeChunk(args: {
       return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     }
     try {
-      const items = validateProviderItems(result.items, args.chunk.items, args.config.layer ?? "meaning", args.config.targetLang, new Set(args.chunk.allowUnchangedIds));
+      const items = validateProviderItems(result.items, args.chunk.items, args.config.layer ?? "meaning", args.config.targetLang);
       record.status = "complete"; delete record.failure;
       return { ok: true, items, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
     } catch (error) {

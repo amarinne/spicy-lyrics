@@ -53,7 +53,7 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
     }), { status: 200, headers: { "content-type": "application/json" } });
   });
   const model = { name: "gemini-2.5-flash", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 8_192, supportedGenerationMethods: ["chat.completions"] };
-  const result = await provider.translateChunk({ context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] }, {
+  const result = await provider.translateChunk({ context: lyricContext, target: "en", instructions: "Preserve honorifics.", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] }, {
     providerVersion: "openai-compatible-v1", endpoint: "https://proxy.example.test/v1", model, targetLang: "en", instructions: "Preserve honorifics.", context: lyricContext, promptVersion: 3, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 64,
   }, new AbortController().signal);
   assert.equal(result.ok, true);
@@ -67,11 +67,11 @@ test("OpenAI-compatible translation uses the structured contract and maps usage"
   assert.deepEqual(body.response_format, { type: "json_object" });
   assert.equal(body.temperature, 0);
   assert.equal(body.max_tokens, 64);
-  assert.deepEqual(JSON.parse(body.messages[1].content), { context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] });
+  assert.deepEqual(JSON.parse(body.messages[1].content), { context: lyricContext, target: "en", instructions: "Preserve honorifics.", items: [{ id: "S0", c: "ordinary", v: "primary", s: "hola" }] });
   assert.deepEqual(body.messages.map((message: { role: string }) => message.role), ["system", "user"]);
   assert.equal(body.messages.some((message: { role: string }) => message.role === "assistant"), false);
-  assert.match(body.messages[0].content, /^Additional instructions: Preserve honorifics\./);
-  assert.match(body.messages[0].content, /source unchanged\.$/);
+  assert.doesNotMatch(body.messages[0].content, /Preserve honorifics/);
+  assert.match(body.messages[0].content, /A row may remain unchanged/);
 });
 
 test("model probe uses the translation transport and rejects malformed output", async () => {

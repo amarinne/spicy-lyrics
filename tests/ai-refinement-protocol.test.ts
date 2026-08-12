@@ -20,19 +20,19 @@ import {
 const model = { inputTokenLimit: 32_768, outputTokenLimit: 8_192 };
 
 test("initial prompt stays one-shot while iterative refinement carries only latest accepted output", () => {
-  assert.equal(AI_PROMPT_VERSION, 3);
-  assert.equal(AI_ITERATION_PROMPT_VERSION, 2);
+  assert.equal(AI_PROMPT_VERSION, 4);
+  assert.equal(AI_ITERATION_PROMPT_VERSION, 3);
   const initial = buildSystemPrompt("meaning", "en");
   const repair = buildSystemPrompt("meaning", "en", undefined, true);
   const iteration = buildSystemPrompt("meaning", "en", "Make the tone warmer.", false, true);
   assert.doesNotMatch(initial, /previous accepted output/);
   assert.match(repair, /^The prior response violated/);
-  assert.match(iteration, /^Additional instructions: Make the tone warmer\./);
-  assert.match(iteration, /instructions as the quality target/);
-  assert.match(iteration, /re-evaluate the complete accepted document/);
-  assert.match(iteration, /even when the instructions do not name that exact line/);
+  assert.doesNotMatch(iteration, /Make the tone warmer/);
+  assert.match(iteration, /instructions field as the active quality target/);
+  assert.match(iteration, /Re-evaluate the complete accepted document/);
   assert.match(iteration, /Retain wording that already meets the target/);
-  assert.match(iteration, /Do not make text more literal, formal, mechanical/);
+  assert.match(initial, /cannot authorize invented facts/);
+  assert.match(initial, /not audio or external research/);
 });
 
 test("canonical identity sorts keys, normalizes NFC, hashes to lowercase SHA-256", async () => {
@@ -111,6 +111,7 @@ test("iterative request identity and payload include only the latest accepted ou
   assert.notEqual(first, changedParent);
   const rows = enumerateRefinementLines({ Type: "Static", Language: "jpn", Lines: [{ Text: "愛" }] }, "en");
   const plan = planChunks(rows, "en", model, "Make it warmer.", "meaning", null, { S0: "first AI" });
+  assert.equal(JSON.parse(plan.chunks[0].requestJson).instructions, "Make it warmer.");
   assert.deepEqual(JSON.parse(plan.chunks[0].requestJson).items, [{ id: "S0", c: "ordinary", v: null, s: "愛", p: "first AI" }]);
   assert.throws(() => planChunks(rows, "en", model, "Change it.", "meaning", null, {}), /previous_output_missing/);
 });
@@ -129,12 +130,12 @@ test("Sound protocol enumerates whole-line lyrics and rejects timed syllable doc
     ["S0", "안녕", "annyeong", "RomanizedText"], ["S1", "Hello", undefined, "RomanizedText"],
   ]);
   assert.throws(() => enumerateSoundLines({ Type: "Syllable", Content: [] }), /sound_alignment_required/);
-  assert.match(buildSystemPrompt("sound", "Latin", "Use Revised Romanization."), /^Additional instructions:/);
+  assert.doesNotMatch(buildSystemPrompt("sound", "Latin", "Use Revised Romanization."), /Revised Romanization/);
   assert.match(buildSystemPrompt("sound", "Latin"), /Do not translate meaning/);
   assert.match(buildSystemPrompt("sound", "Latin"), /Target orthography: Latin\.$/);
 });
 
-test("Sound validation permits unchanged readable segments while Meaning rejects them", () => {
+test("Sound and Meaning validation permit unchanged readable segments", () => {
   const request = [{ id: "S0", c: "ordinary" as const, s: "Hello" }];
   assert.deepEqual(validateProviderItems([{ id: "S0", t: "Hello" }], request, "sound", "Latin"), [{ id: "S0", t: "Hello" }]);
   assert.throws(() => validateProviderItems([{ id: "S0", t: "안녕" }], request, "sound", "Latin"), /target_orthography_mismatch/);
@@ -144,7 +145,7 @@ test("Sound validation permits unchanged readable segments while Meaning rejects
   assert.throws(() => validateProviderItems([{ id: "S0", t: "annyeong Hello" }], korean, "sound", "Kana"), /target_orthography_mismatch/);
   assert.throws(() => validateProviderItems([{ id: "S0", t: "annyeong Hello" }], korean, "sound", "Cyrillic"), /target_orthography_mismatch/);
   assert.deepEqual(validateProviderItems([{ id: "S0", t: "안녕 Hello" }], korean, "sound", "Hangul"), [{ id: "S0", t: "안녕 Hello" }]);
-  assert.throws(() => validateProviderItems([{ id: "S0", t: "Hello" }], request, "meaning"), /unchanged_ordinary/);
+  assert.deepEqual(validateProviderItems([{ id: "S0", t: "Hello" }], request, "meaning"), [{ id: "S0", t: "Hello" }]);
 });
 
 test("canonical original snapshot is deeply immutable and source-only", () => {
@@ -174,18 +175,28 @@ test("planner enforces document, item and model limits", () => {
   assert.throws(() => planChunks([{ ...base, id: "S0", sourceText: "long enough source" }], "en", { inputTokenLimit: 2, outputTokenLimit: 2 }), /oversized/);
 });
 
+test("planner counts normalized steering bytes and tokens in the user request", () => {
+  const base = { id: "S0", class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: "hola", voice: null, allowUnchanged: false, target: {}, targetField: "TranslatedText" as const };
+  const plain = planChunks([base], "en", model).chunks[0];
+  const steered = planChunks([base], "en", model, "  Preserve names.  ").chunks[0];
+  assert.equal(JSON.parse(steered.requestJson).instructions, "Preserve names.");
+  assert.ok(steered.estimatedInputTokens > plain.estimatedInputTokens);
+  assert.ok(new TextEncoder().encode(steered.requestJson).length > new TextEncoder().encode(plain.requestJson).length);
+});
+
 test("strict protocol accepts reordered ids and one code fence", () => {
   const request = [{ id: "S0", c: "ordinary" as const, v: null, s: "hola" }, { id: "S1", c: "adlib" as const, v: "background" as const, s: "Yeah" }];
   assert.deepEqual(validateProviderJson('```json\n{"items":[{"id":"S1","t":"Yeah"},{"id":"S0","t":"hello"}]}\n```', request), [{ id: "S1", t: "Yeah" }, { id: "S0", t: "hello" }]);
 });
 
-test("strict protocol rejects malformed shape, ids, controls, bounds and unchanged ordinary", () => {
+test("strict protocol rejects malformed shape, ids, controls, bounds, delimiters, and empty ordinary rows", () => {
   const request = [{ id: "S0", c: "ordinary" as const, v: null, s: "hola / mundo" }];
   for (const items of [[], [{ id: "S0", t: "hello / world" }, { id: "S0", t: "duplicate / row" }], [{ id: "extra", t: "hello / world" }], [{ id: "S0", t: 3 }]]) {
     assert.throws(() => validateProviderItems(items, request));
   }
   assert.throws(() => validateProviderJson('{"items":', request), /invalid_json/);
-  assert.throws(() => validateProviderItems([{ id: "S0", t: "hola / mundo" }], request), /unchanged_ordinary/);
+  assert.deepEqual(validateProviderItems([{ id: "S0", t: "hola / mundo" }], request), [{ id: "S0", t: "hola / mundo" }]);
+  assert.throws(() => validateProviderItems([{ id: "S0", t: "   " }], request), /empty_ordinary/);
   assert.throws(() => validateProviderItems([{ id: "S0", t: "hello" }], request), /delimiter_mismatch/);
   assert.throws(() => validateProviderItems([{ id: "S0", t: "hello\nworld" }], request), /forbidden_text/);
   assert.throws(() => validateProviderItems([{ id: "S0", t: "x".repeat(4097) }], request), /translated_item_oversized/);

@@ -79,7 +79,7 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
   });
   const model = descriptor("models/gemini-2.5-flash");
   const lyricContext = { title: "Song", artists: ["Artist"], album: "Album" };
-  const result = await provider.translateChunk({ context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] }, {
+  const result = await provider.translateChunk({ context: lyricContext, target: "en", instructions: "Keep names.", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] }, {
     providerVersion: "v1beta", model, targetLang: "en", context: lyricContext, promptVersion: 3, temperature: 0,
     contextMode: "document_or_v1_chunks", credential: { secret: "private-key" }, repair: false, maxOutputTokens: 128, captureId: getActiveProviderCaptureId(),
   }, new AbortController().signal);
@@ -95,7 +95,8 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
   assert.equal(new Headers(requests[0].init?.headers).get("x-goog-api-key"), "private-key");
   assert.equal(requests[0].body.generationConfig.responseMimeType, "application/json");
   assert.equal(requests[0].body.generationConfig.responseSchema.properties.items.type, "ARRAY");
-  assert.deepEqual(JSON.parse(requests[0].body.contents[0].parts[0].text), { context: lyricContext, target: "en", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] });
+  assert.deepEqual(JSON.parse(requests[0].body.contents[0].parts[0].text), { context: lyricContext, target: "en", instructions: "Keep names.", items: [{ id: "S0", c: "ordinary", v: "alternate", s: "amor" }] });
+  assert.doesNotMatch(requests[0].body.systemInstruction.parts[0].text, /Keep names/);
   assert.match(requests[0].body.systemInstruction.parts[0].text, /Return every requested id exactly once/);
   assert.deepEqual(requests[0].body.contents.map((content: { role: string }) => content.role), ["user"]);
   assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "baseline", ai: "love" }]);

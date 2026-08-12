@@ -121,6 +121,7 @@ function Composer(options: ComposerOptions) {
   return <div className="sl-ai-steering-editor sl-ai-request-composer">
     <label>Preset<select value={selectedPresetId} onChange={(event) => selectPreset(event.currentTarget.value)}>{presets.map((preset) => <option value={preset.id} key={preset.id}>{preset.name}</option>)}</select></label>
     <label>Steering<textarea value={draft} onChange={(event) => setDraft(event.currentTarget.value)} placeholder="Describe what the model should preserve, fix, or emphasize." autoFocus /></label>
+    <p className="sl-ai-disclosure">Best-effort and text-only. The model receives lyrics, metadata, and steering—not audio—so pronunciation, phrasing, homophones, delivery, and outside artist context may be missed.</p>
     <div className="sl-ai-preset-editor">
       <input value={presetName} onChange={(event) => setPresetName(event.currentTarget.value)} placeholder="Preset name" />
       <button type="button" className="sl-sp-btn" disabled={!presetName.trim() || !draft.trim()} onClick={savePreset}>Save preset</button>

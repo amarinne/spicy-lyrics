@@ -368,6 +368,8 @@ export class AIRefinementCoordinator {
 
   private applyRecord(trackUri: string, session: BaselineSession, record: RefinementRecord, cacheWarning?: "write_failed", persistenceWarning?: "denied", runTokens = { input: 0, output: 0 }): void {
     const sent = session.rows?.filter((row) => row.sendDisposition === "sent") ?? [];
+    const allSource = this.layer === "meaning" && sent.length > 0 && sent.every((row) => record.items[row.id]?.translatedText === row.sourceText);
+    if (allSource) { this.overlays.delete(trackUri); this.appliedRecords.delete(trackUri); this.publishBaseline(trackUri); this.setState(trackUri, { status: "unchanged", cacheWarning, persistenceWarning, origin: "baseline", revisionNumber: record.revisionNumber, modelName: record.modelName, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } }); return; }
     const changed = sent.some((row) => isMeaningfullyDifferent(record.items[row.id]?.translatedText, row.baselineTranslatedText ?? row.sourceText));
     if (!changed) { this.overlays.delete(trackUri); this.appliedRecords.delete(trackUri); this.setState(trackUri, { status: "unchanged", cacheWarning, persistenceWarning, origin: "baseline", revisionNumber: record.revisionNumber, modelName: record.modelName, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } }); return; }
     this.overlays.set(trackUri, Object.fromEntries(Object.entries(record.items).map(([id, item]) => [id, item.translatedText])));

@@ -55,6 +55,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /AI output/);
   assert.match(ui, /System prompt/);
   assert.match(ui, /AI Instructions/);
+  assert.match(ui, /Best-effort, text-only guidance/);
   assert.equal((ui.match(/label="AI Instructions"/g) ?? []).length, 1);
   assert.doesNotMatch(ui, /Meaning Instructions|Sound Instructions|AI_MAX_STEERING_BYTES|instructionsByteCount|steeringByteCount|soundByteCount/);
   assert.match(ui, /mixed-language phrasing/);
@@ -67,6 +68,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   const page = read("src/components/Pages/PageView.ts");
   assert.match(page, /contextmenu/);
   assert.match(page, /openAIRefinementComposer/);
+  assert.match(readFileSync(new URL("../src/utils/openAISteeringEditor.tsx", import.meta.url), "utf8"), /Best-effort and text-only/);
   assert.match(page, /getDefaultAIRefinementRequest/);
   assert.match(page, /AIRefined/);
   assert.match(page, /refineOutput/);
@@ -93,7 +95,8 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   const lyricsUi = read("src/components/ReactComponents/SettingsPanel/LyricsSection.tsx");
   assert.match(lyricsUi, /Translation Backend/);
   assert.match(lyricsUi, /Google Translate/);
-  assert.match(lyricsUi, /AI Translate on demand/);
+  assert.match(lyricsUi, /Contextual AI on demand/);
+  assert.match(lyricsUi, /contextual AI translation with user steering/);
   assert.match(lyricsUi, /Sound Backend/);
   assert.match(lyricsUi, /Target Orthography/);
   assert.match(lyricsUi, /AI automatic/);

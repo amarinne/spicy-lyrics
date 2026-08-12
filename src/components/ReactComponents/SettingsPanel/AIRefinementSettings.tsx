@@ -256,7 +256,7 @@ export default function AIRefinementSettings() {
           notifyAIRefinementConfigChanged();
         }} disabled={!discoveredModels.length} />
       </Row>
-      <Row label="AI Instructions" stacked>
+      <Row label="AI Instructions" description="Best-effort, text-only guidance for contextual AI translation. The model receives lyrics, metadata, and instructions—not audio—so pronunciation, phrasing, homophones, delivery, and outside artist context may be missed." stacked>
         <div className="sl-ai-secret-controls">
           <textarea className="sl-sp-text-input sl-ai-instructions" value={instructionsDraft} onChange={(event) => setInstructionsDraft(event.currentTarget.value)} placeholder="Preserve honorifics, explain cultural nuance naturally, or guide mixed-language phrasing." />
           <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={instructionsDraft === instructions} onClick={() => { $aiInstructions.set(instructionsDraft); notifyAIRefinementConfigChanged(); }}>Apply</button></div>

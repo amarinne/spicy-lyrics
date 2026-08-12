@@ -18,18 +18,40 @@ const config: ProviderConfig = { providerVersion: "1", model: descriptor, target
 const row = { id: "S0", class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: "hola", voice: null, allowUnchanged: false, target: {}, targetField: "TranslatedText" as const };
 const chunk = planChunks([row], "en", descriptor).chunks[0];
 
-test("full-chunk repair uses byte-identical membership and caps attempts at two", async () => {
+test("full-chunk structural repair uses byte-identical user JSON including steering and caps attempts at two", async () => {
+  const steeredChunk = planChunks([row], "en", descriptor, " Preserve names. ").chunks[0];
   const provider = new FakeRefinementProvider([
-    { ok: true, items: [{ id: "S0", t: "hola" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+    { ok: true, items: [], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
     { ok: true, items: [{ id: "S0", t: "hello" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
   ]);
-  const result = await executeChunk({ provider, chunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0 });
+  const result = await executeChunk({ provider, chunk: steeredChunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0 });
   assert.equal(result.ok, true);
   assert.equal(result.record.attempts, 2);
   assert.equal(result.record.repairs, 1);
   assert.deepEqual(provider.calls[0].request, provider.calls[1].request);
+  assert.equal(JSON.stringify(provider.calls[0].request), steeredChunk.requestJson);
+  assert.equal(provider.calls[0].request.instructions, "Preserve names.");
   assert.equal(provider.calls[1].config.repair, true);
   assert.equal(provider.calls.length, 2);
+});
+
+test("unchanged Meaning text is accepted without repair", async () => {
+  const provider = new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "hola" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } }]);
+  const result = await executeChunk({ provider, chunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0 });
+  assert.equal(result.ok, true);
+  assert.equal(result.record.attempts, 1);
+  assert.equal(result.record.repairs, 0);
+});
+
+test("provider JSON protocol failures receive one structural repair", async () => {
+  const provider = new FakeRefinementProvider([
+    { ok: false, failure: { kind: "protocol", detail: "invalid_json" } },
+    { ok: true, items: [{ id: "S0", t: "hello" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+  ]);
+  const result = await executeChunk({ provider, chunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0 });
+  assert.equal(result.ok, true);
+  assert.equal(result.record.repairs, 1);
+  assert.deepEqual(provider.calls[0].request, provider.calls[1].request);
 });
 
 test("delivery_unknown, truncation and safety are terminal without retry", async () => {

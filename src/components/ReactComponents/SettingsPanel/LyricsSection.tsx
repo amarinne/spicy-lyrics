@@ -121,7 +121,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showCyrillicRomanization = matches(query, "Cyrillic Language", "Choose Russian or Ukrainian Cyrillic romanization rules.");
   const showCyrillicKeepSigns = matches(query, "Keep Cyrillic Signs", "Preserve Cyrillic hard and soft sign marks.");
   const showLyricsTranslation = matches(query, "Lyrics Translation", "Show translated lyrics under each line.");
-  const showMeaningBackend = matches(query, "Translation Backend", "Choose Google, automatic AI, or on-demand AI translation.");
+  const showMeaningBackend = matches(query, "Translation Backend", "Choose Google or contextual AI translation with user steering.");
   const showSoundBackend = matches(query, "Sound Backend", "Choose built-in or AI pronunciation.");
   const showSoundTarget = matches(query, "Target Orthography", "Choose the script used for AI pronunciation.");
   const showTranslationTarget = matches(query, "Translation Target Language", "Language used for lyrics translation.");
@@ -311,7 +311,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
 
       {showMeaningBackend && (
         <Row label="Translation Backend" description="Choose how the Meaning layer is produced from original lyrics.">
-          <Select value={meaningBackend} options={["google", "ai_auto", "ai_on_demand"]} labels={["Google Translate", "AI Translate", "AI Translate on demand"]} onChange={(value) => $meaningBackend.set(value as MeaningBackend)} />
+          <Select value={meaningBackend} options={["google", "ai_auto", "ai_on_demand"]} labels={["Google Translate", "Contextual AI", "Contextual AI on demand"]} onChange={(value) => $meaningBackend.set(value as MeaningBackend)} />
         </Row>
       )}
 

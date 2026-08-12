@@ -1,9 +1,9 @@
 export const AI_REFINEMENT_SCHEMA = 1;
 export const AI_SOUND_REFINEMENT_SCHEMA = 2;
 export const AI_ORIGINAL_SNAPSHOT_SCHEMA = 1;
-export const AI_PROMPT_VERSION = 3;
-export const AI_ITERATION_PROMPT_VERSION = 2;
-export const AI_CHUNK_PLAN_VERSION = 3;
+export const AI_PROMPT_VERSION = 4;
+export const AI_ITERATION_PROMPT_VERSION = 3;
+export const AI_CHUNK_PLAN_VERSION = 4;
 export const AI_TOKEN_BUDGET = 12_000;
 export const AI_MAX_DOCUMENT_ROWS = 512;
 export const AI_MAX_DOCUMENT_SOURCE_BYTES = 64 * 1024;
@@ -19,7 +19,7 @@ export type RefinementSchema = typeof AI_REFINEMENT_SCHEMA | typeof AI_SOUND_REF
 export type VoiceHint = "primary" | "alternate" | "background";
 export type LyricContext = { title: string | null; artists: string[]; album: string | null };
 export type ProviderRequestItem = { id: string; c: "ordinary" | "adlib"; v: VoiceHint | null; s: string; p?: string };
-export type ProviderRequest = { context: LyricContext; target: string; items: ReadonlyArray<ProviderRequestItem> };
+export type ProviderRequest = { context: LyricContext; target: string; instructions?: string; items: ReadonlyArray<ProviderRequestItem> };
 
 export type RefinementLineClass = "ordinary" | "adlib" | "structural";
 export type SendDisposition = "sent" | "structural" | "skipped";
@@ -98,6 +98,7 @@ export interface RefinementProvider {
 export type PlannedChunk = {
   id: string;
   context: LyricContext;
+  instructions?: string;
   items: ReadonlyArray<ProviderRequestItem>;
   allowUnchangedIds: ReadonlyArray<string>;
   requestJson: string;
