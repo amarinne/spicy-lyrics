@@ -89,6 +89,7 @@ export const $koreanDisplayMode = persistAtom<KoreanDisplayMode>("koreanDisplayM
 export const $cyrillicRomanizationMode = persistAtom<"Russian" | "Ukrainian">("cyrillicRomanizationMode", "Russian");
 export const $cyrillicKeepSigns = persistAtom<boolean>("cyrillicKeepSigns", false);
 export const $translationEnabled = persistAtom<boolean>("translationEnabled", false);
+export const $meaningVisible = persistAtom<boolean>("meaningVisible", true);
 export const $translationTargetLang = persistAtom<string>("translationTargetLang", "en");
 export const $lyricsCopyFormat = persistAtom<"plain" | "timestamps" | "translation" | "metadata">("lyricsCopyFormat", "plain");
 export const $flatViewControls = persistAtom<boolean>("flatViewControls", true);

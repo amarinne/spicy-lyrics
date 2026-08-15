@@ -297,12 +297,21 @@ export default function AIRefinementSettings() {
         {showComparison && <div className="sl-ai-comparison">
           {captureMetadata && <div className="sl-ai-capture-meta">
             <span>{captureMetadata.model}</span><span>{captureMetadata.providerId}</span><span>{captureMetadata.attempts} attempt{captureMetadata.attempts === 1 ? "" : "s"}</span>
+            <span>{captureMetadata.versions} saved version{captureMetadata.versions === 1 ? "" : "s"}</span>
             <span>{captureMetadata.trackLabel ?? captureMetadata.trackUri ?? "Unknown track"}</span>
             <span>{captureMetadata.source?.label ?? "Unknown source"} · {captureMetadata.source?.format ?? "Unknown format"}</span>
           </div>}
           {captureMetadata?.systemPrompt && <details className="sl-ai-system-prompt"><summary>System prompt</summary><pre>{captureMetadata.systemPrompt}</pre></details>}
-          <div className="sl-ai-comparison-head"><span>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Before AI"}</span><span>{captureMetadata?.layer === "sound" ? "AI sound" : "AI output"}</span></div>
-          {getProviderComparisonRows().map((row) => <div className="sl-ai-comparison-row" key={row.id}><span><small>{row.id}</small>{row.baseline || "—"}</span><span>{row.ai || "—"}</span></div>)}
+          {getProviderComparisonRows().map((row) => <article className="sl-ai-comparison-row" key={row.id}>
+            <header>{row.id}</header>
+            <div className="sl-ai-comparison-version"><small>Original</small><span>{row.original || "—"}</span></div>
+            <div className="sl-ai-comparison-version"><small>{captureMetadata?.layer === "sound" ? "Built-in sound" : "Machine output"}</small><span>{row.baseline || "—"}</span></div>
+            {row.attempts.map((attempt) => <div className={`sl-ai-comparison-version sl-ai-comparison-attempt${attempt.accepted ? " accepted" : ""}`} key={`${row.id}-${attempt.number}`}>
+              <small>AI output {attempt.number}{attempt.repair ? " · repair" : ""}{attempt.accepted ? " · accepted" : ""} · {attempt.model.replace(/^models\//, "")}</small>
+              <span>{attempt.text || "—"}</span>
+            </div>)}
+            {!row.attempts.length && <div className="sl-ai-comparison-version sl-ai-comparison-attempt"><small>AI output</small><span>—</span></div>}
+          </article>)}
         </div>}
       </section>
       <section className="sl-ai-subsection">

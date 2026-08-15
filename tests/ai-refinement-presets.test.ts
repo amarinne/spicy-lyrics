@@ -16,6 +16,7 @@ test("built-in refinement presets stay bounded and default to whole-document nat
   assert.match(preset.instructions, /complete output natural and contextual/);
   assert.match(preset.instructions, /materially inaccurate, awkward, or inconsistent/);
   assert.match(preset.instructions, /alternative would not be better/);
+  assert.match(preset.instructions, /cultural nuance/);
 });
 
 test("custom refinement presets validate, persist, update, delete, and cannot shadow built-ins", () => {

@@ -105,23 +105,27 @@ function soundOrthographyAccepts(value: string, target: string, source: string):
   return !sourceNeedsRespelling || targetScriptMatches(value, orthography);
 }
 
-export function validateProviderItems(items: unknown, requested: ReadonlyArray<ProviderRequestItem>, layer: DerivedLayer = "meaning", target = "en", allowUnchangedIds: ReadonlySet<string> = new Set()): Array<{ id: string; t: string }> {
+export function validateProviderItems(items: unknown, requested: ReadonlyArray<ProviderRequestItem>, layer: DerivedLayer = "meaning", target = "en", _allowUnchangedIds: ReadonlySet<string> = new Set()): Array<{ id: string; t: string }> {
   if (!Array.isArray(items)) throw new TypeError("items_not_array");
   const requestedById = new Map(requested.map((item) => [item.id, item]));
   const seen = new Set<string>();
   const out: Array<{ id: string; t: string }> = [];
   for (const item of items) {
     if (!item || typeof item !== "object" || typeof item.id !== "string" || typeof item.t !== "string") throw new TypeError("invalid_item");
-    if (!requestedById.has(item.id) || seen.has(item.id)) throw new TypeError("id_set_mismatch");
+    if (!requestedById.has(item.id)) throw new TypeError(`id_set_mismatch:unexpected:${item.id}`);
+    if (seen.has(item.id)) throw new TypeError(`id_set_mismatch:duplicate:${item.id}`);
     seen.add(item.id);
     const source = requestedById.get(item.id)!;
-    if (utf8Bytes(item.t) > AI_MAX_TRANSLATED_ITEM_BYTES) throw new RangeError("translated_item_oversized");
-    if (containsForbiddenText(item.t)) throw new TypeError("forbidden_text");
-    if (source.c === "ordinary" && !item.t.trim()) throw new TypeError("empty_ordinary");
-    if (layer === "sound" && !soundOrthographyAccepts(item.t, target, source.s)) throw new TypeError("target_orthography_mismatch");
-    if (source.s.split(" / ").length !== item.t.split(" / ").length) throw new TypeError("delimiter_mismatch");
+    if (utf8Bytes(item.t) > AI_MAX_TRANSLATED_ITEM_BYTES) throw new RangeError(`translated_item_oversized:${item.id}`);
+    if (containsForbiddenText(item.t)) throw new TypeError(`forbidden_text:${item.id}`);
+    if (source.c === "ordinary" && !item.t.trim()) throw new TypeError(`empty_ordinary:${item.id}`);
+    if (layer === "sound" && !soundOrthographyAccepts(item.t, target, source.s)) throw new TypeError(`target_orthography_mismatch:${item.id}`);
+    if (source.s.split(" / ").length !== item.t.split(" / ").length) throw new TypeError(`delimiter_mismatch:${item.id}`);
     out.push({ id: item.id, t: item.t });
   }
-  if (seen.size !== requestedById.size) throw new TypeError("id_set_mismatch");
+  if (seen.size !== requestedById.size) {
+    const missing = requested.find((item) => !seen.has(item.id));
+    throw new TypeError(`id_set_mismatch:missing:${missing?.id ?? "unknown"}`);
+  }
   return out;
 }

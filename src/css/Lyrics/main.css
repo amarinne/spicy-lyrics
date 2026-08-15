@@ -330,6 +330,10 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   background: none;
 }
 
+#SpicyLyricsPage.MeaningHidden .LyricsContainer .LyricsContent .translated-below {
+  display: none !important;
+}
+
 #SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .translated-below {
   text-wrap: pretty;
   overflow-wrap: break-word;

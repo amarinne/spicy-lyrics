@@ -51,8 +51,10 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /trackLabel \?\? item\.trackUri/);
   assert.match(ui, /item\.model/);
   assert.match(ui, /item\.attempts/);
-  assert.match(ui, /Before AI/);
-  assert.match(ui, /AI output/);
+  assert.match(ui, />Original</);
+  assert.match(ui, /Machine output/);
+  assert.match(ui, /AI output \{attempt\.number\}/);
+  assert.match(ui, /attempt\.accepted/);
   assert.match(ui, /System prompt/);
   assert.match(ui, /AI Instructions/);
   assert.match(ui, /Best-effort, text-only guidance/);
@@ -68,6 +70,17 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   const page = read("src/components/Pages/PageView.ts");
   assert.match(page, /contextmenu/);
   assert.match(page, /openAIRefinementComposer/);
+  assert.doesNotMatch(page, /openMeaningPanel/);
+  assert.doesNotMatch(page, /id="AIRefinementToggle"/);
+  assert.match(page, /\$meaningVisible\.set/);
+  assert.doesNotMatch(page, /setTranslationEnabled\(!translationEnabled\)/);
+  const translationClick = page.match(/translationToggle\.addEventListener\("click", \(\) => \{([\s\S]*?)\n\s*\}\);/)?.[1] ?? "";
+  assert.match(translationClick, /\$meaningVisible\.set/);
+  assert.doesNotMatch(translationClick, /refine|fetch|reprocess|invalidate|openAIComposer/);
+  const translationContextMenu = page.match(/translationToggle\.addEventListener\("contextmenu",[\s\S]*?\n\s*\}\);/)?.[0] ?? "";
+  assert.match(translationContextMenu, /preventDefault/);
+  assert.match(translationContextMenu, /openAIComposer\(trackUri, "meaning"\)/);
+  assert.match(read("src/css/Lyrics/main.css"), /MeaningHidden.*translated-below/s);
   assert.match(readFileSync(new URL("../src/utils/openAISteeringEditor.tsx", import.meta.url), "utf8"), /Best-effort and text-only/);
   assert.match(page, /getDefaultAIRefinementRequest/);
   assert.match(page, /AIRefined/);
@@ -85,6 +98,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(composer, /availableModels/);
   assert.match(composer, /type="checkbox"/);
   assert.match(composer, /isLarge: true/);
+  assert.match(composer, /modalId: "ai-refinement"/);
   const defaultCss = read("src/css/default.css");
   assert.match(defaultCss, /ViewControl\.AIRefined/);
   assert.match(defaultCss, /#1ed760/);
@@ -100,7 +114,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(lyricsUi, /Sound Backend/);
   assert.match(lyricsUi, /Target Orthography/);
   assert.match(lyricsUi, /AI automatic/);
-  assert.match(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
+  assert.doesNotMatch(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
   assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /SelectionDiagnostics/);
   assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /current\?\.uri === trackUri/);
   assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /selectionScore/);

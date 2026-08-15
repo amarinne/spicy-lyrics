@@ -461,11 +461,6 @@ export async function batchTranslate(
 export async function translateLyrics(lyrics: any): Promise<void> {
   const { translationEnabled, translationTargetLang } = await import("../lyrics.ts");
   if (!translationEnabled || !translationTargetLang) return;
-  const { $meaningBackend } = await import("../../stores.ts");
-  if ($meaningBackend.get() === "ai_auto") {
-    lyrics.IncludesTranslation = false;
-    return;
-  }
 
   const sourceLang = lyrics.Language || "und";
   const targetLang = translationTargetLang;

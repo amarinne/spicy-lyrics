@@ -31,12 +31,14 @@ export type DurableProviderCapture = {
   exchanges: ProviderExchangeCapture[];
 };
 
-export type ProviderComparisonRow = { id: string; baseline: string; ai: string };
+export type ProviderComparisonAttempt = { number: number; text: string; model: string; repair: boolean; accepted: boolean };
+export type ProviderComparisonRow = { id: string; original: string; baseline: string; attempts: ProviderComparisonAttempt[] };
 export type CaptureState = { enabled: boolean; durable: boolean; captureId: string | null; activeCaptureId: string | null; exchanges: ReadonlyArray<ProviderExchangeCapture> };
 export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; sourceLabel: string | null; model: string | null; attempts: number; updatedAt: number };
 
 const activeCaptures = new Map<string, DurableProviderCapture>();
 let selectedCapture: DurableProviderCapture | null = null;
+let comparisonCaptures: DurableProviderCapture[] = [];
 let writeChain = Promise.resolve();
 const listeners = new Set<(state: CaptureState) => void>();
 
@@ -51,6 +53,16 @@ function notify(): void {
 
 function latestActiveCapture(): DurableProviderCapture | null { return Array.from(activeCaptures.values()).at(-1) ?? null; }
 function displayedCapture(): DurableProviderCapture | null { return selectedCapture ?? latestActiveCapture(); }
+function sameComparisonGroup(left: DurableProviderCapture, right: DurableProviderCapture): boolean {
+  return left.trackUri === right.trackUri
+    && (left.layer ?? "meaning") === (right.layer ?? "meaning")
+    && (left.source?.provider ?? null) === (right.source?.provider ?? null)
+    && (left.source?.format ?? null) === (right.source?.format ?? null);
+}
+function setSelectedCapture(record: DurableProviderCapture, records: DurableProviderCapture[]): void {
+  selectedCapture = { ...structuredClone(record), enabled: false };
+  comparisonCaptures = records.filter((candidate) => sameComparisonGroup(candidate, record)).sort((left, right) => left.createdAt - right.createdAt).map((candidate) => ({ ...structuredClone(candidate), enabled: false }));
+}
 
 function persist(record: DurableProviderCapture): void {
   if (typeof indexedDB === "undefined") return;
@@ -83,7 +95,7 @@ export async function loadLatestProviderCapture(): Promise<boolean> {
   const records = await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[];
   const latest = records.sort((left, right) => right.updatedAt - left.updatedAt)[0];
   if (!latest) return false;
-  selectedCapture = { ...structuredClone(latest), enabled: false };
+  setSelectedCapture(latest, records);
   notify();
   return true;
 }
@@ -109,9 +121,11 @@ export async function selectProviderCapture(id: string): Promise<boolean> {
   if (typeof indexedDB === "undefined") return false;
   await writeChain;
   const { dbPromise, ObjectStores } = await import("../../db.ts");
-  const selected = await (await dbPromise).get(ObjectStores.AICaptures, id) as DurableProviderCapture | undefined;
+  const db = await dbPromise;
+  const selected = await db.get(ObjectStores.AICaptures, id) as DurableProviderCapture | undefined;
   if (!selected) return false;
-  selectedCapture = { ...structuredClone(selected), enabled: false };
+  const records = await db.getAll(ObjectStores.AICaptures) as DurableProviderCapture[];
+  setSelectedCapture(selected, records);
   notify();
   return true;
 }
@@ -120,6 +134,7 @@ export async function deleteProviderCapture(): Promise<boolean> {
   const id = displayedCapture()?.id;
   if (!id || activeCaptures.has(id)) return false;
   selectedCapture = null;
+  comparisonCaptures = [];
   if (id && typeof indexedDB !== "undefined") {
     await writeChain;
     const { dbPromise, ObjectStores } = await import("../../db.ts");
@@ -130,11 +145,12 @@ export async function deleteProviderCapture(): Promise<boolean> {
   return true;
 }
 
-export function clearProviderCapture(): void { activeCaptures.clear(); selectedCapture = null; notify(); }
+export function clearProviderCapture(): void { activeCaptures.clear(); selectedCapture = null; comparisonCaptures = []; notify(); }
 
 export async function deleteAllProviderCaptures(): Promise<boolean> {
   if (activeCaptures.size) return false;
   selectedCapture = null;
+  comparisonCaptures = [];
   if (typeof indexedDB !== "undefined") {
     await writeChain;
     const { dbPromise, ObjectStores } = await import("../../db.ts");
@@ -214,11 +230,30 @@ async function saveJson(filename: string, contents: string): Promise<string | nu
   return filename;
 }
 
+function filenamePart(value: string | null | undefined, fallback: string, maxLength: number): string {
+  const printable = Array.from((value ?? "").normalize("NFC"), (character) => {
+    const code = character.codePointAt(0)!;
+    return code <= 0x1f || code === 0x7f ? "-" : character;
+  }).join("");
+  const sanitized = printable
+    .replace(/[<>:"/\\|?*]+/g, "-")
+    .replace(/[\s—–-]+/g, "-")
+    .replace(/^[.-]+|[.-]+$/g, "")
+    .slice(0, maxLength);
+  return sanitized || fallback;
+}
+
+export function providerCaptureFilename(capture: DurableProviderCapture): string {
+  const track = filenamePart(capture.trackLabel ?? capture.trackUri, "unknown-track", 96);
+  const model = filenamePart(capture.exchanges.at(-1)?.model, "model", 64);
+  const timestamp = new Date(capture.updatedAt).toISOString().replace(/[:.]/g, "-");
+  return `spicy-ai-capture-${track}-${model}-${timestamp}.json`;
+}
+
 export async function downloadProviderCapture(): Promise<string | null> {
   const shown = displayedCapture();
   if (!shown?.exchanges.length) return null;
-  const model = shown.exchanges.at(-1)?.model.replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 64) || "model";
-  const filename = `spicy-ai-capture-${model}-${new Date(shown.updatedAt).toISOString().replace(/[:.]/g, "-")}.json`;
+  const filename = providerCaptureFilename(shown);
   return saveJson(filename, JSON.stringify(shown, null, 2));
 }
 
@@ -234,13 +269,78 @@ export async function downloadAllProviderCaptures(): Promise<{ filename: string;
   return saved ? { filename: saved, count: records.length } : null;
 }
 
-export function getProviderComparisonRows(): ProviderComparisonRow[] {
-  const shown = displayedCapture();
-  const byId = new Map(Object.entries(shown?.accepted ?? {}));
-  return (shown?.baseline ?? []).map((row) => ({ id: row.id, baseline: row.baseline, ai: byId.get(row.id) ?? "" }));
+function parseJsonObject(value: unknown): any | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) return value;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  const fenced = trimmed.match(/^```(?:json)?\s*([\s\S]*?)\s*```$/i);
+  try { return JSON.parse(fenced ? fenced[1] : trimmed); } catch { return null; }
 }
 
-export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; source: LyricsSourceEvidence | null; updatedAt: number } | null {
+function exchangeRequestItems(exchange: ProviderExchangeCapture): Array<{ id: string; s: string }> {
+  const request = exchange.request as any;
+  const openAIContent = Array.isArray(request?.messages) ? request.messages.find((message: any) => message?.role === "user")?.content : null;
+  const geminiContent = Array.isArray(request?.contents) ? request.contents.flatMap((content: any) => content?.parts ?? []).map((part: any) => typeof part?.text === "string" ? part.text : "").join("") : null;
+  const parsed = parseJsonObject(openAIContent ?? geminiContent);
+  return Array.isArray(parsed?.items) ? parsed.items.filter((item: any) => typeof item?.id === "string" && typeof item?.s === "string").map((item: any) => ({ id: item.id, s: item.s })) : [];
+}
+
+function exchangeResponseItems(exchange: ProviderExchangeCapture): Array<{ id: string; t: string }> {
+  const response = exchange.response as any;
+  const openAIContent = response?.choices?.[0]?.message?.content;
+  const normalizedOpenAIContent = Array.isArray(openAIContent) ? openAIContent.map((part: any) => typeof part?.text === "string" ? part.text : typeof part === "string" ? part : "").join("") : openAIContent;
+  const geminiContent = Array.isArray(response?.candidates?.[0]?.content?.parts) ? response.candidates[0].content.parts.map((part: any) => typeof part?.text === "string" ? part.text : "").join("") : null;
+  const parsed = parseJsonObject(normalizedOpenAIContent ?? geminiContent);
+  return Array.isArray(parsed?.items) ? parsed.items.filter((item: any) => typeof item?.id === "string" && typeof item?.t === "string").map((item: any) => ({ id: item.id, t: item.t })) : [];
+}
+
+export function getProviderComparisonRows(): ProviderComparisonRow[] {
+  const shown = displayedCapture();
+  if (!shown) return [];
+  const captures = selectedCapture && comparisonCaptures.length ? comparisonCaptures : [shown];
+  return buildProviderComparisonRows(captures);
+}
+
+export function buildProviderComparisonRows(captures: ReadonlyArray<DurableProviderCapture>): ProviderComparisonRow[] {
+  if (!captures.length) return [];
+  const originals = new Map<string, string>();
+  const attempts = new Map<string, ProviderComparisonAttempt[]>();
+  captures.forEach((capture, captureIndex) => {
+    const responseById = new Map<string, { text: string; model: string; repair: boolean }>();
+    for (const exchange of capture.exchanges) {
+      for (const item of exchangeRequestItems(exchange)) if (!originals.has(item.id)) originals.set(item.id, item.s);
+      for (const item of exchangeResponseItems(exchange)) responseById.set(item.id, { text: item.t, model: exchange.model, repair: exchange.repair });
+    }
+    const ids = new Set([...responseById.keys(), ...Object.keys(capture.accepted ?? {})]);
+    for (const id of ids) {
+      const response = responseById.get(id);
+      const acceptedText = capture.accepted?.[id];
+      const text = acceptedText ?? response?.text;
+      if (text === undefined) continue;
+      const rowAttempts = attempts.get(id) ?? [];
+      rowAttempts.push({ number: captureIndex + 1, text, model: response?.model ?? capture.exchanges.at(-1)?.model ?? "unknown", repair: response?.repair ?? false, accepted: acceptedText !== undefined });
+      attempts.set(id, rowAttempts);
+    }
+  });
+  const ids = new Set<string>([...captures.flatMap((capture) => capture.baseline.map((row) => row.id)), ...originals.keys(), ...attempts.keys()]);
+  const baseline = new Map(captures[0].baseline.map((row) => [row.id, row.baseline]));
+  return Array.from(ids).map((id) => ({ id, original: originals.get(id) ?? "", baseline: baseline.get(id) ?? "", attempts: attempts.get(id) ?? [] }));
+}
+
+export async function loadMeaningComparisonRows(trackUri: string): Promise<{ captures: number; rows: ProviderComparisonRow[] }> {
+  if (typeof indexedDB === "undefined") return { captures: 0, rows: [] };
+  await writeChain;
+  const { dbPromise, ObjectStores } = await import("../../db.ts");
+  const records = (await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[])
+    .filter((record) => record.trackUri === trackUri && (record.layer ?? "meaning") === "meaning")
+    .sort((left, right) => left.createdAt - right.createdAt);
+  if (!records.length) return { captures: 0, rows: [] };
+  const latest = records.at(-1)!;
+  const compatible = records.filter((record) => sameComparisonGroup(record, latest));
+  return { captures: compatible.length, rows: buildProviderComparisonRows(compatible) };
+}
+
+export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; versions: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; source: LyricsSourceEvidence | null; updatedAt: number } | null {
   const shown = displayedCapture();
   const latest = shown?.exchanges.at(-1);
   if (!shown || !latest) return null;
@@ -248,5 +348,5 @@ export function getProviderCaptureMetadata(): { model: string; providerId: strin
   const systemPrompt = Array.isArray(messages)
     ? messages.find((message) => message?.role === "system")?.content
     : (latest.request as any)?.systemInstruction?.parts?.map((part: any) => typeof part?.text === "string" ? part.text : "").join("") ?? "";
-  return { model: latest.model, providerId: latest.providerId, endpoint: latest.endpoint, attempts: shown.exchanges.length, systemPrompt: typeof systemPrompt === "string" ? systemPrompt : "", trackUri: shown.trackUri, trackLabel: shown.trackLabel, layer: shown.layer ?? "meaning", source: shown.source ? structuredClone(shown.source) : null, updatedAt: shown.updatedAt };
+  return { model: latest.model, providerId: latest.providerId, endpoint: latest.endpoint, attempts: shown.exchanges.length, versions: selectedCapture && comparisonCaptures.length ? comparisonCaptures.length : 1, systemPrompt: typeof systemPrompt === "string" ? systemPrompt : "", trackUri: shown.trackUri, trackLabel: shown.trackLabel, layer: shown.layer ?? "meaning", source: shown.source ? structuredClone(shown.source) : null, updatedAt: shown.updatedAt };
 }

@@ -9,6 +9,7 @@ import {
   $forceDarkBackground,
   $japaneseReadingMode,
   $joinMandarinWords,
+  $meaningVisible,
   $showChineseTranslitButton,
   $translationTargetLang,
 } from "../../utils/uiState.ts";
@@ -24,8 +25,6 @@ import {
   removeLinesEvListener,
   setChineseTranslitMode,
   setRomanizedStatus,
-  setTranslationEnabled,
-  translationEnabled,
 } from "../../utils/Lyrics/lyrics.ts";
 import {
   CleanupScrollEvents,
@@ -497,6 +496,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     ".ContentBox .ViewControls"
   );
   if (!elem) return;
+  PageContainer.classList.toggle("MeaningHidden", !$meaningVisible.get());
 
   // Safely destroy existing tooltips first
   Object.keys(Tooltips).forEach((key) => {
@@ -550,19 +550,9 @@ function AppendViewControls(ReAppend: boolean = false) {
               }</button>`
             : ""
         }
-        <button id="TranslationToggle" class="ViewControl">
-          ${translationEnabled ? Icons.DisableTranslation : Icons.EnableTranslation}
+        <button id="TranslationToggle" class="ViewControl${aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">
+          ${aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining" || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested" ? Icons.Spinner.replaceAll("{SIZE}", "20") : $meaningVisible.get() ? Icons.DisableTranslation : Icons.EnableTranslation}
         </button>
-        ${
-          $meaningBackend.get() !== "google"
-            ? `<button id="AIRefinementToggle" class="ViewControl${aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">${
-                aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
-                  || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
-                  ? Icons.Spinner.replaceAll("{SIZE}", "20")
-                  : Icons.AIRefine
-              }</button>`
-            : ""
-        }
         ${
           !Fullscreen.IsOpen &&
           !Fullscreen.CinemaViewOpen
@@ -721,23 +711,6 @@ function AppendViewControls(ReAppend: boolean = false) {
       }
     }
 
-    const reprocessCurrentLyrics = async () => {
-      const songUri = SpotifyPlayer.GetUri();
-      const songId = SpotifyPlayer.GetId();
-      if (!songUri) return;
-      PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.add("HiddenTransitioned");
-      invalidateAIRefinementBaseline(songUri);
-      $currentLyricsData.set("");
-      if (songId) await LyricsStore.RemoveItem(songId).catch(() => {});
-      const lyrics = await fetchLyrics(songUri);
-      ApplyLyrics(lyrics);
-      setTimeout(() => {
-        AppendViewControls();
-        triggerRemeasureLV();
-        PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.remove("HiddenTransitioned");
-      }, 45);
-    };
-
     const chineseTranslitToggle = elem.querySelector("#ChineseTranslitToggle");
     if (chineseTranslitToggle) {
       try {
@@ -804,7 +777,7 @@ function AppendViewControls(ReAppend: boolean = false) {
           : state.status === "refining" || state.status === "requested"
             ? `Refining sound ${state.done ?? 0}/${state.total ?? 0}`
             : state.status === "failed"
-              ? state.reason === "alignment_required" ? "AI sound is unavailable for syllable-timed lyrics." : `Sound failed: ${state.reason}. Click to retry.`
+              ? state.reason === "alignment_required" ? "AI sound is unavailable for syllable-timed lyrics." : `Sound failed: ${state.reason}${state.detail ? ` (${state.detail})` : ""}. Click to retry.`
               : "Refine sound with AI";
         const warningLabel = `${label}${cacheWarning}`;
         Tooltips.AISound = Spicetify.Tippy(soundToggle, { ...Spicetify.TippyProps, content: warningLabel });
@@ -824,48 +797,26 @@ function AppendViewControls(ReAppend: boolean = false) {
 
     const translationToggle = elem.querySelector("#TranslationToggle");
     if (translationToggle) {
+      const trackUri = SpotifyPlayer.GetUri();
+      const state = trackUri ? aiRefinementCoordinator.getState(trackUri) : { status: "idle" as const };
       try {
         if (!isPip) {
           Tooltips.Close = Spicetify.Tippy(translationToggle, {
             ...Spicetify.TippyProps,
-            content: translationEnabled ? "Disable Translation" : "Enable Translation",
+            content: `${$meaningVisible.get() ? "Hide" : "Show"} translation${state.status === "refined" ? " · AI" : " · Google"}. Right-click to refine with AI.`,
           });
         }
-        translationToggle.addEventListener("click", async () => {
-          setTranslationEnabled(!translationEnabled);
-          await reprocessCurrentLyrics();
+        translationToggle.addEventListener("click", () => {
+          $meaningVisible.set(!$meaningVisible.get());
+        });
+        translationToggle.addEventListener("contextmenu", (event) => {
+          event.preventDefault();
+          if (!trackUri) return;
+          openAIComposer(trackUri, "meaning");
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Translation tooltip", err);
       }
-    }
-
-    const refinementToggle = elem.querySelector("#AIRefinementToggle");
-    if (refinementToggle) {
-      const trackUri = SpotifyPlayer.GetUri();
-      const state = trackUri ? aiRefinementCoordinator.getState(trackUri) : { status: "idle" as const };
-      if (!isPip) {
-        const cacheWarning = state.cacheWarning === "write_failed" ? " · not saved; retry after fixing storage" : "";
-        const label = state.status === "refined"
-          ? `Refine AI output${state.revisionNumber ? ` · revision ${state.revisionNumber}` : ""}`
-          : state.status === "refining" || state.status === "requested"
-            ? `Refining ${state.done ?? 0}/${state.total ?? 0}`
-            : state.status === "failed"
-              ? `Refine failed: ${state.reason}. Click to retry.`
-              : "Refine translation with AI";
-        Tooltips.AIRefinement = Spicetify.Tippy(refinementToggle, { ...Spicetify.TippyProps, content: `${label}${cacheWarning}` });
-      }
-      refinementToggle.addEventListener("click", () => {
-        if (!trackUri || state.status === "refining" || state.status === "requested") return;
-        const request = getDefaultAIRefinementRequest();
-        if (!request) return;
-        if (state.status === "refined") aiRefinementCoordinator.refineOutput(trackUri, request);
-        else aiRefinementCoordinator.refine(trackUri, request);
-      });
-      refinementToggle.addEventListener("contextmenu", (event) => {
-        event.preventDefault();
-        if (trackUri) openAIComposer(trackUri, "meaning");
-      });
     }
 
     if (!Fullscreen.IsOpen && !Fullscreen.CinemaViewOpen) {
@@ -1101,6 +1052,11 @@ onExperimentChange(() => {
 $meaningBackend.listen(() => {
   syncAIRefinementBackends();
   queueProcessingSettingsRefresh();
+  if (PageContainer) AppendViewControls(true);
+});
+
+$meaningVisible.listen((visible) => {
+  PageContainer?.classList.toggle("MeaningHidden", !visible);
   if (PageContainer) AppendViewControls(true);
 });
 

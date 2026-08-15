@@ -37,8 +37,9 @@ function retryAfterMs(headers?: Headers): number | undefined {
 function responseText(payload: any): string | null {
   const content = payload?.choices?.[0]?.message?.content;
   if (typeof content === "string") return content;
+  if (content && typeof content === "object" && !Array.isArray(content)) return JSON.stringify(content);
   if (Array.isArray(content)) {
-    const text = content.map((part) => typeof part?.text === "string" ? part.text : "").join("");
+    const text = content.map((part) => typeof part?.text === "string" ? part.text : typeof part === "string" ? part : "").join("");
     return text || null;
   }
   return null;
@@ -175,7 +176,9 @@ export class OpenAIRefinementProvider implements RefinementProvider {
       const failure = mapHttpFailure(response.status);
       return failure.kind === "rate_limited" ? { ok: false, failure: { ...failure, retryAfterMs: retryAfterMs(response.headers) } } : { ok: false, failure };
     }
+    const finish = finishReason(response.body?.choices?.[0]?.finish_reason);
     const text = responseText(response.body);
+    if (!text && finish !== "stop") return { ok: true, items: [], usage: usageTokens(response.body?.usage), finish, raw: { bytes: response.bytes ?? 0 } };
     if (!text) return { ok: false, failure: { kind: "protocol", detail: "content_missing" } };
     let items: Array<{ id: string; t: string }>;
     try { items = parseItems(text); }
@@ -184,7 +187,7 @@ export class OpenAIRefinementProvider implements RefinementProvider {
       ok: true,
       items,
       usage: usageTokens(response.body?.usage),
-      finish: finishReason(response.body?.choices?.[0]?.finish_reason),
+      finish,
       raw: { bytes: response.bytes ?? 0 },
     };
   }

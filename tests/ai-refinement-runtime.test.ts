@@ -54,6 +54,16 @@ test("provider JSON protocol failures receive one structural repair", async () =
   assert.deepEqual(provider.calls[0].request, provider.calls[1].request);
 });
 
+test("terminal protocol failure identifies the failing lyric row", async () => {
+  const provider = new FakeRefinementProvider([
+    { ok: true, items: [{ id: "S0", t: "hello / world" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+    { ok: true, items: [{ id: "S0", t: "hello / world" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+  ]);
+  const result = await executeChunk({ provider, chunk, config, signal: new AbortController().signal, budgetAlreadyConsumed: 0 });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.failure.detail, "delimiter_mismatch:S0");
+});
+
 test("delivery_unknown, truncation and safety are terminal without retry", async () => {
   for (const [response, reason] of [
     [{ ok: false, failure: { kind: "delivery_unknown", cause: "network" } }, "delivery_unknown"],

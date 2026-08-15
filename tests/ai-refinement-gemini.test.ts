@@ -99,7 +99,7 @@ test("Gemini translation uses header auth, structured JSON, usage, and selected 
   assert.doesNotMatch(requests[0].body.systemInstruction.parts[0].text, /Keep names/);
   assert.match(requests[0].body.systemInstruction.parts[0].text, /Return every requested id exactly once/);
   assert.deepEqual(requests[0].body.contents.map((content: { role: string }) => content.role), ["user"]);
-  assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", baseline: "baseline", ai: "love" }]);
+  assert.deepEqual(getProviderComparisonRows(), [{ id: "S0", original: "amor", baseline: "baseline", attempts: [{ number: 1, text: "love", model: "models/gemini-2.5-flash", repair: false, accepted: true }] }]);
   assert.equal(getProviderCaptureMetadata()?.providerId, "gemini");
   assert.match(getProviderCaptureMetadata()?.systemPrompt ?? "", /Return every requested id exactly once/);
   clearProviderCapture();

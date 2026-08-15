@@ -16,6 +16,7 @@ export type RefinementState = {
   done?: number;
   total?: number;
   reason?: RefinementFailureReason | CancellationReason;
+  detail?: string;
   cacheWarning?: "write_failed";
   persistenceWarning?: "denied";
   tokens?: { refine: { input: number; output: number }; session: { input: number; output: number } };
@@ -348,7 +349,7 @@ export class AIRefinementCoordinator {
           }
           return;
         }
-        if (!execution.ok) { record.status = "failed"; try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); } catch { cacheWarning = "write_failed"; this.unpersistedBudget.set(ledgerKey, (this.unpersistedBudget.get(ledgerKey) ?? 0) + execution.budgetConsumed); } this.setState(trackUri, { status: "failed", reason: execution.failure.reason, revisionNumber: record.revisionNumber, modelName: record.modelName, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } }); return; }
+        if (!execution.ok) { record.status = "failed"; try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); } catch { cacheWarning = "write_failed"; this.unpersistedBudget.set(ledgerKey, (this.unpersistedBudget.get(ledgerKey) ?? 0) + execution.budgetConsumed); } this.setState(trackUri, { status: "failed", reason: execution.failure.reason, detail: execution.failure.detail, revisionNumber: record.revisionNumber, modelName: record.modelName, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } }); return; }
         record.status = "partial";
         try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); } catch { cacheWarning = "write_failed"; this.unpersistedBudget.set(ledgerKey, (this.unpersistedBudget.get(ledgerKey) ?? 0) + execution.budgetConsumed); }
       }

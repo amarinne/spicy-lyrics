@@ -208,6 +208,20 @@ test("explicit retry after restart resets only failed chunk attempt caps and pre
   assert.ok(cache.snapshot()[0].budgetConsumed > spent);
 });
 
+test("coordinator exposes the exact protocol failure detail", async () => {
+  const provider = new FakeRefinementProvider([
+    { ok: true, items: [{ id: "S0", t: "bad / split" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+    { ok: true, items: [{ id: "S0", t: "bad / split" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
+  ]);
+  const { coordinator } = harness(provider);
+  const value = baseline();
+  coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
+  coordinator.refine("spotify:track:test");
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "failed");
+  assert.equal(coordinator.getState("spotify:track:test").reason, "protocol_invalid");
+  assert.equal(coordinator.getState("spotify:track:test").detail, "delimiter_mismatch:S0");
+});
+
 test("mixed translated and unchanged Punjabi Meaning rows apply atomically in one attempt", async () => {
   const provider = new FakeRefinementProvider([{ ok: true, items: [
     { id: "S0", t: "I make no excuses" },
