@@ -139,6 +139,8 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /Always use AI/);
   assert.match(ui, /Generate AI output, then toggle/);
   assert.match(ui, /Toggle display only/);
+  assert.match(ui, /Use existing pronunciation as AI baseline/);
+  assert.match(ui, /raw lyrics only/);
   assert.match(read("src/utils/Lyrics/AIRefinement/singleton.ts"), /enabled && \$meaningBackend/);
   assert.doesNotMatch(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
   assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /SelectionDiagnostics/);

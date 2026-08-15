@@ -1,4 +1,4 @@
-import { $currentLyricsData, $aiConsentVersion, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedProvider, $meaningBackend, $soundBackend, $soundTargetOrthography } from "../../stores.ts";
+import { $currentLyricsData, $aiConsentVersion, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedProvider, $aiSoundUseExistingBaseline, $meaningBackend, $soundBackend, $soundTargetOrthography } from "../../stores.ts";
 import { SpotifyPlayer } from "../../../components/Global/SpotifyPlayer.ts";
 import { AI_CONSENT_VERSION, loadProviderCredential } from "./Credentials.ts";
 import { AIRefinementCoordinator } from "./Coordinator.ts";
@@ -51,6 +51,7 @@ async function getConfig(layer: DerivedLayer) {
     model,
     targetLang: layer === "sound" ? $soundTargetOrthography.get() : (await import("../lyrics.ts")).translationTargetLang,
     instructions: layer === "sound" ? "" : $aiInstructions.get(),
+    useSoundBaseline: layer === "sound" ? $aiSoundUseExistingBaseline.get() : undefined,
   };
 }
 

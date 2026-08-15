@@ -6,7 +6,7 @@ import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCa
 import { downloadRefinementCacheRecord, listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
 import { geminiRefinementProvider, notifyAIRefinementConfigChanged, notifyAIRefinementCredentialChanged, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
-import { $aiButtonBehavior, $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $meaningBackend, $soundBackend, type AIButtonBehavior, type MeaningBackend, type SoundBackend } from "../../../utils/stores.ts";
+import { $aiButtonBehavior, $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $aiSoundUseExistingBaseline, $meaningBackend, $soundBackend, type AIButtonBehavior, type MeaningBackend, type SoundBackend } from "../../../utils/stores.ts";
 import { Row, Select, Toggle } from "./components.tsx";
 
 const encoder = new TextEncoder();
@@ -50,6 +50,7 @@ export default function AIRefinementSettings() {
   const meaningBackend = useStore($meaningBackend);
   const soundBackend = useStore($soundBackend);
   const buttonBehavior = useStore($aiButtonBehavior);
+  const useExistingSoundBaseline = useStore($aiSoundUseExistingBaseline);
   const providerId: ProviderId = selectedProviderValue === "openai" ? "openai" : "gemini";
   const providerName = providerId === "gemini" ? "Gemini" : "OpenAI-compatible";
   const selectedModels = useMemo(() => stringMap(selectedModelsJson), [selectedModelsJson]);
@@ -273,6 +274,9 @@ export default function AIRefinementSettings() {
       </Row>
       <Row label="AI pronunciation" description="Choose whether AI pronunciation runs automatically on song load or waits for a button/panel action.">
         <Select value={soundBackend === "deterministic" ? "ai_on_demand" : soundBackend} options={["ai_auto", "ai_on_demand"]} labels={["Always use AI", "AI on demand"]} onChange={(value) => { $soundBackend.set(value as SoundBackend); notifyAIRefinementConfigChanged(); }} />
+      </Row>
+      <Row label="Use existing pronunciation as AI baseline" description="When enabled, initial AI pronunciation receives deterministic or Google output alongside the original lyrics. Disable to make the model work from raw lyrics only.">
+        <Toggle checked={useExistingSoundBaseline} onChange={(enabled) => { $aiSoundUseExistingBaseline.set(enabled); notifyAIRefinementConfigChanged(); }} />
       </Row>
       <Row label="Translation & transliteration buttons" description="Choose whether a normal click may create missing AI output.">
         <Select value={buttonBehavior} options={["generate_then_toggle", "toggle_only"]} labels={["Generate AI output, then toggle", "Toggle display only"]} onChange={(value) => $aiButtonBehavior.set(value as AIButtonBehavior)} />

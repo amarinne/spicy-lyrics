@@ -12,6 +12,7 @@ export default function AITranslationSection({ query, sectionFilter }: { query: 
     || matches(query, "Model")
     || matches(query, "Test connection")
     || matches(query, "Always use AI", "AI on demand")
+    || matches(query, "Use existing pronunciation as AI baseline", "raw lyrics")
     || matches(query, "Translation & transliteration buttons", "Generate AI output, then toggle", "Toggle display only");
   if (!visible) return null;
   return (

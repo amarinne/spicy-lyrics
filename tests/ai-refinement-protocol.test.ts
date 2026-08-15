@@ -122,6 +122,7 @@ test("Sound config identity includes source language, target orthography, and wh
   assert.notEqual(first, await buildConfigId({ ...base, sourceLanguage: "ko" }));
   assert.notEqual(first, await buildConfigId({ ...base, targetLang: "Hangul" }));
   assert.notEqual(first, await buildConfigId({ ...base, soundMode: null }));
+  assert.notEqual(first, await buildConfigId({ ...base, soundBaselineMode: "raw_source_v1" }));
 });
 
 test("Sound protocol enumerates whole-line lyrics and rejects timed syllable documents", () => {
@@ -139,6 +140,8 @@ test("initial Sound fallback requests include the incomplete local baseline", ()
   const rows = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "ฉัน love", RomanizedText: "ฉัน love" }] });
   const plan = planChunks(rows, "Latin", { inputTokenLimit: 32_768, outputTokenLimit: 2_048 }, "Keep names.", "sound");
   assert.equal(JSON.parse(plan.chunks[0].requestJson).items[0].p, "ฉัน love");
+  const rawPlan = planChunks(rows, "Latin", { inputTokenLimit: 32_768, outputTokenLimit: 2_048 }, "Keep names.", "sound", null, null, false);
+  assert.equal(JSON.parse(rawPlan.chunks[0].requestJson).items[0].p, undefined);
 });
 
 test("Sound cache identity includes its lower-priority fallback baseline", async () => {

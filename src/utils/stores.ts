@@ -92,6 +92,7 @@ export const $aiSoundRefinementPresets = persistAtom<string>("aiSoundRefinementP
 export const $aiDefaultSoundRefinementPreset = persistAtom<string>("aiDefaultSoundRefinementPreset", legacySoundSteering ? "legacy-sound-steering" : "readable-pronunciation");
 export type AIButtonBehavior = "generate_then_toggle" | "toggle_only";
 export const $aiButtonBehavior = persistAtom<AIButtonBehavior>("aiButtonBehavior", "generate_then_toggle");
+export const $aiSoundUseExistingBaseline = persistAtom<boolean>("aiSoundUseExistingBaseline", true);
 export const $lyricsSourceOrder = persistAtom<string>("lyricsSourceOrder", JSON.stringify(["spicy", "spotify", "lrclib"]));
 export const $lyricsSelectionMode = persistAtom<"smart" | "syncType" | "strict">("lyricsSelectionMode", "smart");
 export const $lyricsSourceOverrides = persistAtom<string>("lyricsSourceOverrides", "{}");

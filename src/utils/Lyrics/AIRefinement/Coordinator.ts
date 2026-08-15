@@ -8,7 +8,7 @@ import { AI_CHUNK_PLAN_VERSION, AI_ITERATION_PROMPT_VERSION, AI_PROMPT_VERSION, 
 import { captureProviderAcceptedItems, captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
 import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
 
-export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; credential?: ProviderCredential | null };
+export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; useSoundBaseline?: boolean; credential?: ProviderCredential | null };
 export type RefinementRequestOptions = { instructions?: string; model?: ModelDescriptor };
 export type RefinementRevisionOptions = { instructions: string; model: ModelDescriptor };
 export type RefinementState = {
@@ -286,6 +286,7 @@ export class AIRefinementCoordinator {
       modelName: config.model.name, targetLang: config.targetLang,
       sourceLanguage: this.layer === "sound" ? String(session.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null,
       soundMode: this.layer === "sound" ? "whole_line_v1" : null, instructions: config.instructions,
+      soundBaselineMode: this.layer === "sound" ? config.useSoundBaseline === false ? "raw_source_v1" : "existing_output_v1" : null,
       promptVersion: AI_PROMPT_VERSION, iterationPromptVersion: AI_ITERATION_PROMPT_VERSION,
       parentRecordKey: identity.revision.parent.key, parentOutputDigest, revisionInstructions,
       temperature: 0, contextMode: "document_or_v1_chunks",
@@ -304,7 +305,7 @@ export class AIRefinementCoordinator {
     if (!this.identityCurrent(identity)) return;
     if (!credential) { this.failActive(identity, "no_credential"); return; }
     let plan;
-    try { plan = planChunks(session.rows!, config.targetLang, config.model, effectiveInstructions, this.layer, session.context, previousById); } catch { this.failActive(identity, "oversized"); return; }
+    try { plan = planChunks(session.rows!, config.targetLang, config.model, effectiveInstructions, this.layer, session.context, previousById, config.useSoundBaseline !== false); } catch { this.failActive(identity, "oversized"); return; }
     this.deps.cache.pin(key);
     let record = cached ?? this.newRecord(key, trackUri, session, config, provider, plan.chunks, runConfigId, identity.revision ? {
       parentRecordKey: identity.revision.parent.key,
@@ -436,7 +437,7 @@ export class AIRefinementCoordinator {
     return this.deps.provider;
   }
   private configId(config: CoordinatorConfig, provider: RefinementProvider, session: BaselineSession): Promise<string> {
-    return buildConfigId({ layer: this.layer, provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? String(session?.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null, soundMode: this.layer === "sound" ? "whole_line_v1" : null, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks" });
+    return buildConfigId({ layer: this.layer, provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? String(session?.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null, soundMode: this.layer === "sound" ? "whole_line_v1" : null, soundBaselineMode: this.layer === "sound" ? config.useSoundBaseline === false ? "raw_source_v1" : "existing_output_v1" : null, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks" });
   }
   private schema(): RefinementSchema { return this.layer === "sound" ? AI_SOUND_REFINEMENT_SCHEMA : AI_REFINEMENT_SCHEMA; }
   private sourceLanguage(session: BaselineSession): string {
