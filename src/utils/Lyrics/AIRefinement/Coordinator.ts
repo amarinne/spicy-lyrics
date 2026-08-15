@@ -1,10 +1,10 @@
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
-import { cloneSnapshotDocument, enumerateRefinementLines, enumerateSoundLines } from "./document.ts";
+import { cloneSnapshotDocument, documentNeedsSoundOutput, enumerateRefinementLines, enumerateSoundLines, soundLineNeedsOutput } from "./document.ts";
 import { refinementRecordKey, sumBudgetConsumed } from "./cache.ts";
 import { buildConfigId, buildDocumentDigest, normalizeLyricContext, normalizeSteeringInstructions, planChunks } from "./protocol.ts";
 import { sha256Hex } from "./identity.ts";
 import { executeChunk } from "./runtime.ts";
-import { AI_CHUNK_PLAN_VERSION, AI_ITERATION_PROMPT_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type LyricContext, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema } from "./types.ts";
+import { AI_CHUNK_PLAN_VERSION, AI_ITERATION_PROMPT_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type LyricContext, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema, type SoundOrthography } from "./types.ts";
 import { captureProviderAcceptedItems, captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
 import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
 
@@ -12,7 +12,7 @@ export type CoordinatorConfig = { providerId?: string; providerVersion: string; 
 export type RefinementRequestOptions = { instructions?: string; model?: ModelDescriptor };
 export type RefinementRevisionOptions = { instructions: string; model: ModelDescriptor };
 export type RefinementState = {
-  status: "idle" | "requested" | "refining" | "refined" | "unchanged" | "failed" | "cancelled";
+  status: "idle" | "covered" | "requested" | "refining" | "refined" | "unchanged" | "failed" | "cancelled";
   done?: number;
   total?: number;
   reason?: RefinementFailureReason | CancellationReason;
@@ -200,16 +200,32 @@ export class AIRefinementCoordinator {
       sourceRows = this.layer === "sound" ? enumerateSoundLines(cloneSnapshotDocument(session.snapshot)) : enumerateRefinementLines(cloneSnapshotDocument(session.snapshot), config.targetLang);
       baselineRows = this.layer === "sound" ? enumerateSoundLines(session.document) : enumerateRefinementLines(session.document, config.targetLang);
     } catch (error) {
-      if (this.layer === "sound" && error instanceof TypeError && error.message === "sound_alignment_required") this.setState(trackUri, { status: "failed", reason: "alignment_required" });
+      if (this.layer === "sound" && error instanceof TypeError && error.message === "sound_alignment_required") {
+        if (documentNeedsSoundOutput(session.document, config.targetLang as SoundOrthography)) this.setState(trackUri, { status: "failed", reason: "alignment_required" });
+        else this.setState(trackUri, { status: "covered", origin: "baseline" });
+      }
       return;
     }
     const byId = new Map(baselineRows.map((row) => [row.id, row]));
-    const rows = sourceRows.map((row) => ({ ...row, baselineTranslatedText: byId.get(row.id)?.baselineTranslatedText }));
-    const docDigest = await buildDocumentDigest(rows, session.context);
+    const allRows = sourceRows.map((row) => {
+      const baselineRow = byId.get(row.id);
+      return { ...row, baselineTranslatedText: baselineRow?.baselineTranslatedText, baselineProvenance: baselineRow?.baselineProvenance };
+    });
+    const fallbackRows = this.layer === "sound" ? allRows.map((row) => !soundLineNeedsOutput(row, config.targetLang as SoundOrthography)
+      ? { ...row, sendDisposition: "structural" as const }
+      : row) : allRows;
+    const soundHasGaps = this.layer === "sound" && fallbackRows.some((row) => row.sendDisposition === "sent");
+    const rows = this.layer === "sound" && !soundHasGaps ? allRows : fallbackRows;
+    const docDigest = await buildDocumentDigest(rows, session.context, this.layer === "sound");
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
     const configId = await this.configId(config, provider, session);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
     session.rows = rows; session.targetLang = config.targetLang; session.docDigest = docDigest; session.configId = configId;
+    if (this.layer === "sound" && !soundHasGaps) {
+      this.setState(trackUri, { status: "covered", origin: "baseline" });
+      return;
+    }
+    if (this.active?.trackUri === trackUri) return;
     if (!this.enabled || !this.baselineEligible(trackUri, session)) return;
     if (this.layer === "sound" && this.mode === "auto" && trackUri !== this.currentTrackUri) return;
     const baseKey = refinementRecordKey(trackUri, configId, docDigest, this.schema());
@@ -385,7 +401,7 @@ export class AIRefinementCoordinator {
     const composed = this.renderable(session.document);
     const rows = this.layer === "sound" ? enumerateSoundLines(composed) : enumerateRefinementLines(composed, session.targetLang ?? "en");
     for (const row of rows) if (row.target && overlay[row.id]) {
-      if (this.layer === "sound") { (row.target as any).RomanizedText = overlay[row.id]; (row.target as any).TransliteratedText = overlay[row.id]; }
+      if (this.layer === "sound") { (row.target as any).RomanizedText = overlay[row.id]; (row.target as any).TransliteratedText = overlay[row.id]; (row.target as any).RomanizationSource = "ai"; }
       else (row.target as any).TranslatedText = overlay[row.id];
     }
     if (this.layer === "sound") { composed.HasTransliterations = true; composed.IncludesRomanization = true; }

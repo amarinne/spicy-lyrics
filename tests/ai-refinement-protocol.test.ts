@@ -20,7 +20,7 @@ import {
 const model = { inputTokenLimit: 32_768, outputTokenLimit: 8_192 };
 
 test("initial prompt stays one-shot while iterative refinement carries only latest accepted output", () => {
-  assert.equal(AI_PROMPT_VERSION, 4);
+  assert.equal(AI_PROMPT_VERSION, 5);
   assert.equal(AI_ITERATION_PROMPT_VERSION, 3);
   const initial = buildSystemPrompt("meaning", "en");
   const repair = buildSystemPrompt("meaning", "en", undefined, true);
@@ -133,6 +133,18 @@ test("Sound protocol enumerates whole-line lyrics and rejects timed syllable doc
   assert.doesNotMatch(buildSystemPrompt("sound", "Latin", "Use Revised Romanization."), /Revised Romanization/);
   assert.match(buildSystemPrompt("sound", "Latin"), /Do not translate meaning/);
   assert.match(buildSystemPrompt("sound", "Latin"), /Target orthography: Latin\.$/);
+});
+
+test("initial Sound fallback requests include the incomplete local baseline", () => {
+  const rows = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "ฉัน love", RomanizedText: "ฉัน love" }] });
+  const plan = planChunks(rows, "Latin", { inputTokenLimit: 32_768, outputTokenLimit: 2_048 }, "Keep names.", "sound");
+  assert.equal(JSON.parse(plan.chunks[0].requestJson).items[0].p, "ฉัน love");
+});
+
+test("Sound cache identity includes its lower-priority fallback baseline", async () => {
+  const first = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "ฉัน", RomanizedText: "chan", RomanizationSource: "google" }] });
+  const second = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "ฉัน", RomanizedText: "chun", RomanizationSource: "google" }] });
+  assert.notEqual(await buildDocumentDigest(first, null, true), await buildDocumentDigest(second, null, true));
 });
 
 test("Sound and Meaning validation permit unchanged readable segments", () => {

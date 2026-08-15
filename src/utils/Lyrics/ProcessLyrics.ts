@@ -4,6 +4,7 @@ import { RetrievePackage } from "../ImportPackage.ts";
 import Logger from "../Logger.ts";
 import { convertChineseLyricsText } from "./ChineseCharacterConversion.ts";
 import { $chineseCharacterForm } from "../uiState.ts";
+import { $googleSoundFallback, $soundTargetOrthography } from "../stores.ts";
 import { chineseTones, chineseTranslitMode, cyrillicKeepSigns, cyrillicRomanizationMode, joinMandarinWords, koreanDisplayMode } from "./lyrics.ts";
 import {
   ChineseTextTest,
@@ -34,7 +35,7 @@ import {
 } from "./Fork/Romanization.ts";
 import { acceptRomanization } from "./Fork/RomanizationAcceptance.ts";
 import { buildJapaneseLineTextMap } from "./Reading/JapaneseReading.ts";
-import { translateLyrics, clearTranslationCache } from "./Fork/Translation.ts";
+import { translateLyrics, clearTranslationCache, googleTransliterateLines } from "./Fork/Translation.ts";
 import { DefaultCanonicalLineBuilder } from "./Processing/Canonical.ts";
 import { annotateKoreanLine } from "./Processing/Korean/KoreanAnnotationProcessor.ts";
 import { DefaultRenderPlanBuilder, validateRenderPlan } from "./Processing/RenderPlan.ts";
@@ -46,7 +47,7 @@ import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 33;
+export const LYRICS_PROCESSING_VERSION = 34;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -564,6 +565,19 @@ export const ProcessLyrics = async (
       entries.map((entry) => romanizeEntry(entry, docContext, packages, language, lyrics.Type !== "Syllable"))
     );
     appliedRomanization = results.some(Boolean);
+  }
+
+  if ($googleSoundFallback.get() && $soundTargetOrthography.get() === "Latin" && lyrics.Type !== "Syllable") {
+    const missing = entries.map((entry, index) => !hasTransliteration(entry.target) ? index : -1).filter((index) => index >= 0);
+    if (missing.length > 0) {
+      const fallback = await googleTransliterateLines(missing.map((index) => entries[index].lineText), language);
+      fallback.forEach((reading, offset) => {
+        if (!reading) return;
+        entries[missing[offset]].target.RomanizedText = reading;
+        entries[missing[offset]].target.RomanizationSource = "google";
+        appliedRomanization = true;
+      });
+    }
   }
 
   if (presentScripts.length > 0) {

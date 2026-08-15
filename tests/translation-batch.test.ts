@@ -4,6 +4,7 @@ import {
   batchTranslate,
   buildBatchChunks,
   buildBatchQuery,
+  extractGoogleRomanization,
   looksLikeRomanizationEcho,
   parseBatchTranslation,
   shouldTranslateLine,
@@ -11,6 +12,11 @@ import {
   TRANSLATION_BATCH_MAX_CHARS,
   TRANSLATION_BATCH_MAX_LINES,
 } from "../src/utils/Lyrics/Fork/Translation.ts";
+
+test("Google dt=rm response extracts its dedicated pronunciation field", () => {
+  assert.equal(extractGoogleRomanization([[[null, null, null, "S̄wạs̄dī"]], null, "th"]), "S̄wạs̄dī");
+  assert.equal(extractGoogleRomanization([[['hello', 'สวัสดี', null, null]]]), "");
+});
 
 test("marker batch query parses translated response back to source indices", () => {
   assert.equal(

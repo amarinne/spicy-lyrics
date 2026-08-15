@@ -6,6 +6,7 @@ export type AIRefinementPreset = {
 };
 
 export const DEFAULT_AI_REFINEMENT_PRESET_ID = "natural-contextual";
+export const DEFAULT_AI_SOUND_PRESET_ID = "readable-pronunciation";
 
 export const BUILT_IN_AI_REFINEMENT_PRESETS: ReadonlyArray<AIRefinementPreset> = [
   {
@@ -40,7 +41,32 @@ export const BUILT_IN_AI_REFINEMENT_PRESETS: ReadonlyArray<AIRefinementPreset> =
   },
 ];
 
-export function parseCustomAIRefinementPresets(value: string): AIRefinementPreset[] {
+export const BUILT_IN_AI_SOUND_PRESETS: ReadonlyArray<AIRefinementPreset> = [
+  {
+    id: DEFAULT_AI_SOUND_PRESET_ID,
+    name: "Readable pronunciation",
+    instructions: "Use clear, readable pronunciation in the requested target orthography. Keep spelling and word boundaries consistent across repeated phrases and names.",
+    builtIn: true,
+  },
+  {
+    id: "source-close-pronunciation",
+    name: "Source-close pronunciation",
+    instructions: "Stay close to the source pronunciation. Avoid substitutions made only to resemble an English spelling convention, while remaining readable in the requested target orthography.",
+    builtIn: true,
+  },
+  {
+    id: "mixed-language-pronunciation",
+    name: "Mixed language",
+    instructions: "Handle each language segment independently. Preserve text already readable in the target orthography and keep code-switching, names, and repeated phrases consistent.",
+    builtIn: true,
+  },
+];
+
+function builtInPresets(layer: "meaning" | "sound"): ReadonlyArray<AIRefinementPreset> {
+  return layer === "sound" ? BUILT_IN_AI_SOUND_PRESETS : BUILT_IN_AI_REFINEMENT_PRESETS;
+}
+
+export function parseCustomAIRefinementPresets(value: string, layer: "meaning" | "sound" = "meaning"): AIRefinementPreset[] {
   try {
     const parsed = JSON.parse(value);
     if (!Array.isArray(parsed)) return [];
@@ -49,7 +75,7 @@ export function parseCustomAIRefinementPresets(value: string): AIRefinementPrese
       const id = item.id.trim();
       const name = item.name.normalize("NFC").trim().slice(0, 80);
       const instructions = item.instructions.normalize("NFC").trim();
-      if (!id || !name || !instructions || BUILT_IN_AI_REFINEMENT_PRESETS.some((preset) => preset.id === id)) return [];
+      if (!id || !name || !instructions || builtInPresets(layer).some((preset) => preset.id === id)) return [];
       return [{ id, name, instructions, builtIn: false }];
     });
   } catch {
@@ -57,17 +83,17 @@ export function parseCustomAIRefinementPresets(value: string): AIRefinementPrese
   }
 }
 
-export function allAIRefinementPresets(customJson: string): AIRefinementPreset[] {
-  return [...BUILT_IN_AI_REFINEMENT_PRESETS, ...parseCustomAIRefinementPresets(customJson)];
+export function allAIRefinementPresets(customJson: string, layer: "meaning" | "sound" = "meaning"): AIRefinementPreset[] {
+  return [...builtInPresets(layer), ...parseCustomAIRefinementPresets(customJson, layer)];
 }
 
-export function resolveAIRefinementPreset(customJson: string, id: string): AIRefinementPreset {
-  return allAIRefinementPresets(customJson).find((preset) => preset.id === id)
-    ?? BUILT_IN_AI_REFINEMENT_PRESETS[0];
+export function resolveAIRefinementPreset(customJson: string, id: string, layer: "meaning" | "sound" = "meaning"): AIRefinementPreset {
+  return allAIRefinementPresets(customJson, layer).find((preset) => preset.id === id)
+    ?? builtInPresets(layer)[0];
 }
 
-export function saveCustomAIRefinementPreset(customJson: string, preset: Omit<AIRefinementPreset, "builtIn">): { json: string; preset: AIRefinementPreset } {
-  const current = parseCustomAIRefinementPresets(customJson);
+export function saveCustomAIRefinementPreset(customJson: string, preset: Omit<AIRefinementPreset, "builtIn">, layer: "meaning" | "sound" = "meaning"): { json: string; preset: AIRefinementPreset } {
+  const current = parseCustomAIRefinementPresets(customJson, layer);
   const saved: AIRefinementPreset = {
     id: preset.id.trim(),
     name: preset.name.normalize("NFC").trim().slice(0, 80),
@@ -79,6 +105,6 @@ export function saveCustomAIRefinementPreset(customJson: string, preset: Omit<AI
   return { json: JSON.stringify(next.map(({ id, name, instructions }) => ({ id, name, instructions }))), preset: saved };
 }
 
-export function deleteCustomAIRefinementPreset(customJson: string, id: string): string {
-  return JSON.stringify(parseCustomAIRefinementPresets(customJson).filter((preset) => preset.id !== id).map(({ name, instructions, id: presetId }) => ({ id: presetId, name, instructions })));
+export function deleteCustomAIRefinementPreset(customJson: string, id: string, layer: "meaning" | "sound" = "meaning"): string {
+  return JSON.stringify(parseCustomAIRefinementPresets(customJson, layer).filter((preset) => preset.id !== id).map(({ name, instructions, id: presetId }) => ({ id: presetId, name, instructions })));
 }

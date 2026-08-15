@@ -22,6 +22,7 @@ import {
 // ─── Cache Configuration ──────────────────────────────────────────────────────
 
 const TRANSLATION_CACHE_KEY = "spicy-lyrics:translationCache";
+const GOOGLE_TRANSLITERATION_CACHE_KEY = "spicy-lyrics:googleTransliterationCache";
 const TRANSLATION_CACHE_MAX_ENTRIES = 5000;
 const GOOGLE_INITIAL_BACKOFF_MS = 900;
 const GOOGLE_MAX_BACKOFF_MS = 8000;
@@ -70,6 +71,7 @@ export function clearTranslationCache() {
   _cacheCount = 0;
   try {
     localStorage.removeItem(TRANSLATION_CACHE_KEY);
+    localStorage.removeItem(GOOGLE_TRANSLITERATION_CACHE_KEY);
   } catch { /* ignore */ }
   console.log("[SpicyLyrics:Translation] Cache cleared");
 }
@@ -273,6 +275,68 @@ async function requestGoogleTranslation(url: string): Promise<string> {
   }
   console.error("[SpicyLyrics:Translation] Fetch error:", lastError);
   return "";
+}
+
+export function extractGoogleRomanization(data: any): string {
+  if (!Array.isArray(data?.[0])) return "";
+  return data[0].map((segment: any) => typeof segment?.[3] === "string" ? segment[3] : "").join("").trim();
+}
+
+async function requestGoogleRomanization(url: string): Promise<string> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await waitForGoogleBackoff();
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        lastError = resp.status;
+        if (shouldRetryGoogle(resp.status)) registerGoogleFailure();
+        if (attempt === 0 && shouldRetryGoogle(resp.status)) continue;
+        return "";
+      }
+      const romanization = extractGoogleRomanization(await resp.json());
+      registerGoogleSuccess();
+      return romanization;
+    } catch (error) {
+      lastError = error;
+      registerGoogleFailure();
+      if (attempt === 0) continue;
+    }
+  }
+  console.error("[SpicyLyrics:Translation] Google transliteration error:", lastError);
+  return "";
+}
+
+export async function googleTransliterateLines(lines: string[], sourceLang: string): Promise<string[]> {
+  const results = Array(lines.length).fill("");
+  let cache: Record<string, string> = {};
+  try { cache = JSON.parse(localStorage.getItem(GOOGLE_TRANSLITERATION_CACHE_KEY) || "{}"); } catch {}
+  const sourceCode = sourceLang === "und" ? "auto" : (langs.where("3", sourceLang)?.["1"] || "auto");
+  const missingIndices: number[] = [];
+  const missingLines: string[] = [];
+  lines.forEach((line, index) => {
+    const text = line.trim();
+    const key = `${sourceCode}:${text}`;
+    if (!text || text === "♪") return;
+    if (cache[key]) results[index] = cache[key];
+    else { missingIndices.push(index); missingLines.push(text); }
+  });
+  for (const batch of buildBatchChunks(missingLines)) {
+    const indices = missingIndices.slice(batch.start, batch.start + batch.lines.length);
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sourceCode)}&tl=en&dt=rm&q=${encodeURIComponent(batch.query)}`;
+    const parsed = parseBatchTranslation(await requestGoogleRomanization(url));
+    indices.forEach((index, offset) => {
+      const value = stripMarkerEcho(parsed.get(offset) || "", offset);
+      if (!value || sameComparableText(lines[index], value)) return;
+      results[index] = value;
+      cache[`${sourceCode}:${lines[index].trim()}`] = value;
+    });
+  }
+  try {
+    const entries = Object.entries(cache);
+    localStorage.setItem(GOOGLE_TRANSLITERATION_CACHE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-TRANSLATION_CACHE_MAX_ENTRIES))));
+  } catch {}
+  return results;
 }
 
 const SCRIPT_TESTS = {

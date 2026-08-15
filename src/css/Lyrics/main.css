@@ -314,6 +314,12 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   -webkit-background-clip: text;
 }
 
+#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below.romanization-static {
+  color: rgba(255, 255, 255, 0.55);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
+  background: none;
+}
+
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below {
   display: block;
   width: 100%;

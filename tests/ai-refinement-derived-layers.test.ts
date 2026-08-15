@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { AIDerivedLayerComposer } from "../src/utils/Lyrics/AIRefinement/LayerComposer.ts";
+import { documentNeedsSoundOutput } from "../src/utils/Lyrics/AIRefinement/document.ts";
 
 function baseline(text = "사랑") {
   return {
@@ -12,6 +13,17 @@ function baseline(text = "사랑") {
     HasTransliterations: true,
   };
 }
+
+test("sound output eligibility follows source script and target orthography", () => {
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "ฉันรักเธอ" }] }, "Latin"), true);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "ฉัน love เธอ" }] }, "Latin"), true);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "I love you" }] }, "Latin"), false);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "かな" }] }, "Kana"), false);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "漢字かな" }] }, "Kana"), true);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "사랑", RomanizedText: "sarang" }] }, "Latin"), false);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "愛", ReadingRenderPlan: { joinedDisplayText: "ai" }, JapaneseReading: { romaji: "ai", furigana: [] } }] }, "Latin"), false);
+  assert.equal(documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: "ฉัน", RomanizedText: "c̄hạn", RomanizationSource: "google" }] }, "Latin"), true);
+});
 
 test("Meaning and Sound overlays compose atomically and restore independently", () => {
   const publications: Array<{ document: any; origin: string }> = [];
@@ -31,8 +43,9 @@ test("Meaning and Sound overlays compose atomically and restore independently", 
   assert.equal(both.Lines[0].TranslatedText, "AI meaning");
   assert.equal(both.Lines[0].RomanizedText, "sa-rang");
   assert.equal(both.Lines[0].TransliteratedText, "sa-rang");
-  assert.equal(both.Lines[0].ReadingRenderPlan, undefined);
-  assert.equal(both.Lines[0].JapaneseReading, undefined);
+  assert.equal(both.Lines[0].ReadingRenderPlan.joinedDisplayText, "sarang");
+  assert.equal(both.Lines[0].JapaneseReading.romaji, "sarang");
+  assert.equal(both.Lines[0].RomanizationSource, "ai");
 
   composer.acceptLayerPublication("spotify:track:test", "meaning", 7, source, "baseline");
   const soundOnly = publications.at(-1)!.document;

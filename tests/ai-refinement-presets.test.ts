@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  BUILT_IN_AI_SOUND_PRESETS,
+  DEFAULT_AI_SOUND_PRESET_ID,
   BUILT_IN_AI_REFINEMENT_PRESETS,
   DEFAULT_AI_REFINEMENT_PRESET_ID,
   deleteCustomAIRefinementPreset,
@@ -26,4 +28,13 @@ test("custom refinement presets validate, persist, update, delete, and cannot sh
   assert.equal(resolveAIRefinementPreset(updated.json, "custom-one").instructions, "Preserve the chorus.");
   assert.deepEqual(parseCustomAIRefinementPresets(deleteCustomAIRefinementPreset(updated.json, "custom-one")), []);
   assert.deepEqual(parseCustomAIRefinementPresets(JSON.stringify([{ id: DEFAULT_AI_REFINEMENT_PRESET_ID, name: "Shadow", instructions: "Bad" }])), []);
+});
+
+test("sound presets use pronunciation-specific templates and a separate custom namespace", () => {
+  assert.ok(BUILT_IN_AI_SOUND_PRESETS.length >= 2);
+  const preset = resolveAIRefinementPreset("[]", DEFAULT_AI_SOUND_PRESET_ID, "sound");
+  assert.match(preset.instructions, /pronunciation/i);
+  assert.doesNotMatch(preset.instructions, /translate|source meaning/i);
+  const custom = saveCustomAIRefinementPreset("[]", { id: "thai-readable", name: "Thai readable", instructions: "Use familiar Thai-to-Latin spelling." }, "sound");
+  assert.equal(resolveAIRefinementPreset(custom.json, "thai-readable", "sound").name, "Thai readable");
 });

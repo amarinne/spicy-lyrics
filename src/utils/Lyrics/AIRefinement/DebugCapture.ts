@@ -33,6 +33,7 @@ export type DurableProviderCapture = {
 
 export type ProviderComparisonAttempt = { number: number; text: string; model: string; repair: boolean; accepted: boolean };
 export type ProviderComparisonRow = { id: string; original: string; baseline: string; attempts: ProviderComparisonAttempt[] };
+export type MeaningComparisonDocument = { captures: number; rows: ProviderComparisonRow[]; modelName: string | null; instructions: string | null };
 export type CaptureState = { enabled: boolean; durable: boolean; captureId: string | null; activeCaptureId: string | null; exchanges: ReadonlyArray<ProviderExchangeCapture> };
 export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; sourceLabel: string | null; model: string | null; attempts: number; updatedAt: number };
 
@@ -327,17 +328,34 @@ export function buildProviderComparisonRows(captures: ReadonlyArray<DurableProvi
   return Array.from(ids).map((id) => ({ id, original: originals.get(id) ?? "", baseline: baseline.get(id) ?? "", attempts: attempts.get(id) ?? [] }));
 }
 
-export async function loadMeaningComparisonRows(trackUri: string): Promise<{ captures: number; rows: ProviderComparisonRow[] }> {
-  if (typeof indexedDB === "undefined") return { captures: 0, rows: [] };
+function exchangeInstructions(exchange: ProviderExchangeCapture | undefined): string | null {
+  if (!exchange) return null;
+  const request = exchange.request as any;
+  const openAIText = request?.messages?.find?.((message: any) => message?.role === "user")?.content;
+  const geminiText = request?.contents?.find?.((content: any) => content?.role === "user")?.parts?.map?.((part: any) => part?.text ?? "")?.join?.("");
+  const text = typeof openAIText === "string" ? openAIText : typeof geminiText === "string" ? geminiText : "";
+  try {
+    const instructions = JSON.parse(text)?.instructions;
+    return typeof instructions === "string" && instructions.trim() ? instructions.trim() : null;
+  } catch { return null; }
+}
+
+export async function loadLayerComparisonRows(trackUri: string, layer: "meaning" | "sound"): Promise<MeaningComparisonDocument> {
+  if (typeof indexedDB === "undefined") return { captures: 0, rows: [], modelName: null, instructions: null };
   await writeChain;
   const { dbPromise, ObjectStores } = await import("../../db.ts");
   const records = (await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[])
-    .filter((record) => record.trackUri === trackUri && (record.layer ?? "meaning") === "meaning")
+    .filter((record) => record.trackUri === trackUri && (record.layer ?? "meaning") === layer)
     .sort((left, right) => left.createdAt - right.createdAt);
-  if (!records.length) return { captures: 0, rows: [] };
+  if (!records.length) return { captures: 0, rows: [], modelName: null, instructions: null };
   const latest = records.at(-1)!;
   const compatible = records.filter((record) => sameComparisonGroup(record, latest));
-  return { captures: compatible.length, rows: buildProviderComparisonRows(compatible) };
+  const latestExchange = latest.exchanges.at(-1);
+  return { captures: compatible.length, rows: buildProviderComparisonRows(compatible), modelName: latestExchange?.model ?? null, instructions: exchangeInstructions(latestExchange) };
+}
+
+export function loadMeaningComparisonRows(trackUri: string): Promise<MeaningComparisonDocument> {
+  return loadLayerComparisonRows(trackUri, "meaning");
 }
 
 export function getProviderCaptureMetadata(): { model: string; providerId: string; endpoint: string; attempts: number; versions: number; systemPrompt: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; source: LyricsSourceEvidence | null; updatedAt: number } | null {

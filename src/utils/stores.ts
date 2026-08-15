@@ -84,9 +84,14 @@ export const $aiSelectedModelsByProvider = persistAtom<string>("aiSelectedModels
 export const $aiSelectedModelDescriptorsByProvider = persistAtom<string>("aiSelectedModelDescriptorsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelDescriptor ?? "", openai: "" }));
 export const $aiDiscoveredModelsByProvider = persistAtom<string>("aiDiscoveredModelsByProvider", JSON.stringify({ gemini: _settings.aiDiscoveredModels ?? "[]", openai: "[]" }));
 export const $aiOpenAIBaseUrl = persistAtom<string>("aiOpenAIBaseUrl", "https://api.openai.com/v1");
-export const $aiInstructions = persistAtom<string>("aiInstructions", _settings.aiInstructions ?? _settings.aiSteeringInstructions ?? _settings.soundSteeringInstructions ?? "");
+export const $aiInstructions = persistAtom<string>("aiInstructions", _settings.aiInstructions ?? _settings.aiSteeringInstructions ?? "");
 export const $aiRefinementPresets = persistAtom<string>("aiRefinementPresets", "[]");
 export const $aiDefaultRefinementPreset = persistAtom<string>("aiDefaultRefinementPreset", "natural-contextual");
+const legacySoundSteering = typeof _settings.soundSteeringInstructions === "string" ? _settings.soundSteeringInstructions.trim() : "";
+export const $aiSoundRefinementPresets = persistAtom<string>("aiSoundRefinementPresets", legacySoundSteering ? JSON.stringify([{ id: "legacy-sound-steering", name: "Migrated sound steering", instructions: legacySoundSteering }]) : "[]");
+export const $aiDefaultSoundRefinementPreset = persistAtom<string>("aiDefaultSoundRefinementPreset", legacySoundSteering ? "legacy-sound-steering" : "readable-pronunciation");
+export type AIButtonBehavior = "generate_then_toggle" | "toggle_only";
+export const $aiButtonBehavior = persistAtom<AIButtonBehavior>("aiButtonBehavior", "generate_then_toggle");
 export const $lyricsSourceOrder = persistAtom<string>("lyricsSourceOrder", JSON.stringify(["spicy", "spotify", "lrclib"]));
 export const $lyricsSelectionMode = persistAtom<"smart" | "syncType" | "strict">("lyricsSelectionMode", "smart");
 export const $lyricsSourceOverrides = persistAtom<string>("lyricsSourceOverrides", "{}");
@@ -95,6 +100,7 @@ export const $meaningBackend = persistAtom<MeaningBackend>("meaningBackend", _se
 export type SoundBackend = "deterministic" | "ai_auto" | "ai_on_demand";
 export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
 export const $soundBackend = persistAtom<SoundBackend>("soundBackend", "deterministic");
+export const $googleSoundFallback = persistAtom<boolean>("googleSoundFallback", false);
 export const $soundTargetOrthography = persistAtom<SoundOrthography>("soundTargetOrthography", "Latin");
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.

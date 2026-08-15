@@ -50,7 +50,7 @@ async function getConfig(layer: DerivedLayer) {
     endpoint,
     model,
     targetLang: layer === "sound" ? $soundTargetOrthography.get() : (await import("../lyrics.ts")).translationTargetLang,
-    instructions: $aiInstructions.get(),
+    instructions: layer === "sound" ? "" : $aiInstructions.get(),
   };
 }
 
@@ -116,6 +116,7 @@ export function notifyAIRefinementConfigChanged(): void {
 }
 
 export function notifyAIRefinementCredentialChanged(): void {
+  syncAIRefinementBackends();
   aiRefinementCoordinator.notifyCredentialChanged();
   aiSoundCoordinator.notifyCredentialChanged();
 }
@@ -131,10 +132,11 @@ export async function clearAllAIRefinements(): Promise<void> {
 }
 
 export function syncAIRefinementBackends(): void {
+  const enabled = $aiConsentVersion.get() === AI_CONSENT_VERSION;
   aiRefinementCoordinator.setMode($meaningBackend.get() === "ai_auto" ? "auto" : "on_demand");
-  aiRefinementCoordinator.setEnabled($meaningBackend.get() !== "google");
+  aiRefinementCoordinator.setEnabled(enabled && $meaningBackend.get() !== "google");
   aiSoundCoordinator.setMode($soundBackend.get() === "ai_auto" ? "auto" : "on_demand");
-  aiSoundCoordinator.setEnabled($soundBackend.get() !== "deterministic");
+  aiSoundCoordinator.setEnabled(enabled && $soundBackend.get() !== "deterministic");
 }
 
 syncAIRefinementBackends();

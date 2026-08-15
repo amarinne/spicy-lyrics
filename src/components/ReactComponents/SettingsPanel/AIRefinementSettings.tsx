@@ -6,7 +6,7 @@ import { deleteAllProviderCaptures, deleteProviderCapture, downloadAllProviderCa
 import { downloadRefinementCacheRecord, listRefinementCacheInventory, type RefinementCacheInventoryItem } from "../../../utils/Lyrics/AIRefinement/IndexedDBCache.ts";
 import { geminiRefinementProvider, notifyAIRefinementConfigChanged, notifyAIRefinementCredentialChanged, openAIRefinementProvider } from "../../../utils/Lyrics/AIRefinement/singleton.ts";
 import type { ModelDescriptor, ProviderFailure, ProviderId } from "../../../utils/Lyrics/AIRefinement/types.ts";
-import { $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider } from "../../../utils/stores.ts";
+import { $aiButtonBehavior, $aiConsentVersion, $aiDiscoveredModelsByProvider, $aiInstructions, $aiOpenAIBaseUrl, $aiSelectedModelDescriptorsByProvider, $aiSelectedModelsByProvider, $aiSelectedProvider, $meaningBackend, $soundBackend, type AIButtonBehavior, type MeaningBackend, type SoundBackend } from "../../../utils/stores.ts";
 import { Row, Select, Toggle } from "./components.tsx";
 
 const encoder = new TextEncoder();
@@ -47,6 +47,9 @@ export default function AIRefinementSettings() {
   const discoveredModelsJson = useStore($aiDiscoveredModelsByProvider);
   const openAIBaseUrl = useStore($aiOpenAIBaseUrl);
   const instructions = useStore($aiInstructions);
+  const meaningBackend = useStore($meaningBackend);
+  const soundBackend = useStore($soundBackend);
+  const buttonBehavior = useStore($aiButtonBehavior);
   const providerId: ProviderId = selectedProviderValue === "openai" ? "openai" : "gemini";
   const providerName = providerId === "gemini" ? "Gemini" : "OpenAI-compatible";
   const selectedModels = useMemo(() => stringMap(selectedModelsJson), [selectedModelsJson]);
@@ -214,9 +217,18 @@ export default function AIRefinementSettings() {
 
   return (
     <div className="sl-ai-settings">
-      <Row label="Allow AI requests" description="Sends lyrics to the selected provider and may incur charges.">
-        <Toggle checked={consented} onChange={(enabled) => { cancelModelProbe(); $aiConsentVersion.set(enabled ? AI_CONSENT_VERSION : 0); notifyAIRefinementCredentialChanged(); }} />
+      <Row label="Enable AI features" description="Unlocks AI translation and pronunciation. Lyrics are sent to the selected provider and requests may incur charges.">
+        <Toggle checked={consented} onChange={(enabled) => {
+          cancelModelProbe();
+          if (enabled) {
+            if ($meaningBackend.get() === "google") $meaningBackend.set("ai_on_demand");
+            if ($soundBackend.get() === "deterministic") $soundBackend.set("ai_on_demand");
+          }
+          $aiConsentVersion.set(enabled ? AI_CONSENT_VERSION : 0);
+          notifyAIRefinementCredentialChanged();
+        }} />
       </Row>
+      {consented && <>
       <Row label="Provider">
         <Select value={providerId} options={["gemini", "openai"]} labels={["Gemini", "OpenAI-compatible"]} onChange={(value) => {
           cancelModelProbe(); $aiSelectedProvider.set(value); notifyAIRefinementConfigChanged();
@@ -256,7 +268,16 @@ export default function AIRefinementSettings() {
           notifyAIRefinementConfigChanged();
         }} disabled={!discoveredModels.length} />
       </Row>
-      <Row label="AI Instructions" description="Best-effort, text-only guidance for contextual AI translation. The model receives lyrics, metadata, and instructions—not audio—so pronunciation, phrasing, homophones, delivery, and outside artist context may be missed." stacked>
+      <Row label="AI translation" description="Choose whether AI translation runs automatically on song load or waits for a button/panel action.">
+        <Select value={meaningBackend === "google" ? "ai_on_demand" : meaningBackend} options={["ai_auto", "ai_on_demand"]} labels={["Always use AI", "AI on demand"]} onChange={(value) => { $meaningBackend.set(value as MeaningBackend); notifyAIRefinementConfigChanged(); }} />
+      </Row>
+      <Row label="AI pronunciation" description="Choose whether AI pronunciation runs automatically on song load or waits for a button/panel action.">
+        <Select value={soundBackend === "deterministic" ? "ai_on_demand" : soundBackend} options={["ai_auto", "ai_on_demand"]} labels={["Always use AI", "AI on demand"]} onChange={(value) => { $soundBackend.set(value as SoundBackend); notifyAIRefinementConfigChanged(); }} />
+      </Row>
+      <Row label="Translation & transliteration buttons" description="Choose whether a normal click may create missing AI output.">
+        <Select value={buttonBehavior} options={["generate_then_toggle", "toggle_only"]} labels={["Generate AI output, then toggle", "Toggle display only"]} onChange={(value) => $aiButtonBehavior.set(value as AIButtonBehavior)} />
+      </Row>
+      <Row label="AI Instructions" description="Best-effort, text-only guidance for AI translation. The model receives lyrics, metadata, and instructions—not audio—so pronunciation, phrasing, homophones, delivery, and outside artist context may be missed." stacked>
         <div className="sl-ai-secret-controls">
           <textarea className="sl-sp-text-input sl-ai-instructions" value={instructionsDraft} onChange={(event) => setInstructionsDraft(event.currentTarget.value)} placeholder="Preserve honorifics, explain cultural nuance naturally, or guide mixed-language phrasing." />
           <div className="sl-ai-actions"><button className="sl-sp-btn" type="button" disabled={instructionsDraft === instructions} onClick={() => { $aiInstructions.set(instructionsDraft); notifyAIRefinementConfigChanged(); }}>Apply</button></div>
@@ -331,6 +352,7 @@ export default function AIRefinementSettings() {
           </div>) : <span className="sl-ai-note">No saved AI results.</span>}
         </div>
       </section>
+      </>}
     </div>
   );
 }

@@ -200,7 +200,7 @@ export function getRomanizedText(entry: JapaneseReadable | undefined): string | 
 
 export function appendRomanizedBelow(
   lineElem: HTMLElement,
-  entry: JapaneseReadable,
+  entry: JapaneseReadable & { RomanizationSource?: string },
   options: ReadingRenderOptions
 ): boolean {
   if (!shouldRenderRomanization(entry, options)) return false;
@@ -213,6 +213,7 @@ export function appendRomanizedBelow(
   forceStackedLine(lineElem, options.oppositeAligned);
   const romanizedElem = document.createElement("div");
   romanizedElem.className = `romanized-below${options.romanizationPending && !hasDistinctRomanization ? " romanization-placeholder" : ""}`;
+  if (entry.RomanizationSource === "google") romanizedElem.classList.add("romanization-static");
   romanizedElem.textContent = hasDistinctRomanization ? romanizedText! : "";
   lineElem.appendChild(romanizedElem);
   return true;

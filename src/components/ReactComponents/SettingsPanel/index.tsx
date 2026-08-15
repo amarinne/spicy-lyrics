@@ -13,7 +13,7 @@ import { FilterDropdown, SearchBar } from "./components.tsx";
 const SECTIONS = [
   "Background",
   "Lyrics Display",
-  "AI providers",
+  "AI Features",
   "Playback",
   "Appearance",
   "Interface",

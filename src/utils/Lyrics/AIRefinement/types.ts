@@ -1,7 +1,7 @@
 export const AI_REFINEMENT_SCHEMA = 1;
 export const AI_SOUND_REFINEMENT_SCHEMA = 2;
 export const AI_ORIGINAL_SNAPSHOT_SCHEMA = 1;
-export const AI_PROMPT_VERSION = 4;
+export const AI_PROMPT_VERSION = 5;
 export const AI_ITERATION_PROMPT_VERSION = 3;
 export const AI_CHUNK_PLAN_VERSION = 4;
 export const AI_TOKEN_BUDGET = 12_000;
@@ -32,6 +32,7 @@ export type EnumeratedLine = {
   voice: VoiceHint | null;
   allowUnchanged: boolean;
   baselineTranslatedText?: string;
+  baselineProvenance?: "deterministic" | "google";
   target: Record<string, unknown> | null;
   targetField: "TranslatedText" | "RomanizedText" | null;
 };

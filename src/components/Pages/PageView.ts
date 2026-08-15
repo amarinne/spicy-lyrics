@@ -35,6 +35,12 @@ import { ScrollSimplebar } from "../../utils/Scrolling/Simplebar/ScrollSimplebar
 import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackground.ts";
 import {
   $adaptiveSectioning,
+  $aiButtonBehavior,
+  $aiConsentVersion,
+  $aiDefaultRefinementPreset,
+  $aiDefaultSoundRefinementPreset,
+  $aiRefinementPresets,
+  $aiSoundRefinementPresets,
   $currentLyricsData,
   $fixHanGlyphVariants,
   $lineHoverBackground,
@@ -44,6 +50,7 @@ import {
   $minimalLyricsMode,
   $meaningBackend,
   $soundBackend,
+  $googleSoundFallback,
   $soundTargetOrthography,
   $showVolumeSlider,
   $simpleLyricsMode,
@@ -86,6 +93,11 @@ import { aiRefinementCoordinator, aiSoundCoordinator, invalidateAIRefinementBase
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
 import { getDefaultAIRefinementRequest, openAIRefinementComposer, type AIRefinementComposerRequest } from "../../utils/openAISteeringEditor.tsx";
+import { loadLayerComparisonRows } from "../../utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { openAIOutputReviewPanel } from "../../utils/openAIOutputReviewPanel.tsx";
+import { allAIRefinementPresets } from "../../utils/AIRefinementPresets.ts";
+import { AI_CONSENT_VERSION } from "../../utils/Lyrics/AIRefinement/Credentials.ts";
+import { documentNeedsSoundOutput } from "../../utils/Lyrics/AIRefinement/document.ts";
 
 const pageLogger = new Logger("Page View");
 const controlsLogger = new Logger("View Controls");
@@ -511,6 +523,7 @@ function AppendViewControls(ReAppend: boolean = false) {
   const isNoLyrics =
     $currentLyricsData.get() === `NO_LYRICS:${SpotifyPlayer.GetUri()}`;
   const isTTMLMakerMode = $ttmlMakerMode.get();
+  const aiFeaturesEnabled = $aiConsentVersion.get() === AI_CONSENT_VERSION;
   elem.innerHTML = `
         ${
           Fullscreen.IsOpen || Fullscreen.CinemaViewOpen
@@ -526,23 +539,15 @@ function AppendViewControls(ReAppend: boolean = false) {
               }</button>`
             : ""
         }
-        <button id="RomanizationToggle" class="ViewControl">
+        <button id="RomanizationToggle" class="ViewControl${aiFeaturesEnabled && aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">
           ${
-            isRomanized
+            aiFeaturesEnabled && (aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining" || aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested")
+              ? Icons.Spinner.replaceAll("{SIZE}", "20")
+              : isRomanized
               ? Icons.DisableRomanization
               : Icons.EnableRomanization
           }
         </button>
-        ${
-          $soundBackend.get() !== "deterministic"
-            ? `<button id="AISoundToggle" class="ViewControl${aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">${
-                aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining"
-                  || aiSoundCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested"
-                  ? Icons.Spinner.replaceAll("{SIZE}", "20")
-                  : Icons.AIRefine
-              }</button>`
-            : ""
-        }
         ${
           $showChineseTranslitButton.get() && PageContainer.classList.contains("Lyrics_ChineseDetected")
             ? `<button id="ChineseTranslitToggle" class="ViewControl" style="font-size: 14px; font-weight: 600; line-height: 1;">${
@@ -550,8 +555,8 @@ function AppendViewControls(ReAppend: boolean = false) {
               }</button>`
             : ""
         }
-        <button id="TranslationToggle" class="ViewControl${aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">
-          ${aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining" || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested" ? Icons.Spinner.replaceAll("{SIZE}", "20") : $meaningVisible.get() ? Icons.DisableTranslation : Icons.EnableTranslation}
+        <button id="TranslationToggle" class="ViewControl${aiFeaturesEnabled && aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refined" ? " AIRefined" : ""}">
+          ${aiFeaturesEnabled && (aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "refining" || aiRefinementCoordinator.getState(SpotifyPlayer.GetUri() ?? "").status === "requested") ? Icons.Spinner.replaceAll("{SIZE}", "20") : $meaningVisible.get() ? Icons.DisableTranslation : Icons.EnableTranslation}
         </button>
         ${
           !Fullscreen.IsOpen &&
@@ -687,25 +692,6 @@ function AppendViewControls(ReAppend: boolean = false) {
             content: isRomanized ? `Disable Romanization` : `Enable Romanization`,
           });
         }
-        romanizationToggle.addEventListener("click", async () => {
-          const songUri = SpotifyPlayer.GetUri();
-          if (!songUri) return;
-          PageContainer?.querySelector(
-            ".LyricsContainer .LyricsContent"
-          )?.classList.add("HiddenTransitioned");
-          const lyrics = await fetchLyrics(songUri);
-
-          setRomanizedStatus(!isRomanized);
-
-          ApplyLyrics(lyrics);
-
-          setTimeout(() => {
-            AppendViewControls();
-            PageContainer?.querySelector(
-              ".LyricsContainer .LyricsContent"
-            )?.classList.remove("HiddenTransitioned");
-          }, 45);
-        });
       } catch (err) {
         controlsLogger.warn("Failed to setup Romanization tooltip", err);
       }
@@ -728,70 +714,100 @@ function AppendViewControls(ReAppend: boolean = false) {
       }
     }
 
-    const openAIComposer = (trackUri: string, initialLayer: "meaning" | "sound") => {
+    const openAIComposer = (trackUri: string, initialLayer: "meaning" | "sound", transition = false) => {
       const meaningState = aiRefinementCoordinator.getState(trackUri);
       const soundState = aiSoundCoordinator.getState(trackUri);
       const submit = (request: AIRefinementComposerRequest) => {
         const options = { instructions: request.instructions, model: request.model };
-        const runMeaning = () => {
+        if (initialLayer === "meaning") {
           if (meaningState.status === "refined") aiRefinementCoordinator.refineOutput(trackUri, options);
           else aiRefinementCoordinator.refine(trackUri, options);
-        };
-        const runSound = () => {
+        } else {
+          if ($soundBackend.get() === "deterministic") $soundBackend.set("ai_on_demand");
           if (soundState.status === "refined") aiSoundCoordinator.refineOutput(trackUri, options);
           else aiSoundCoordinator.refine(trackUri, options);
-        };
-        if (request.meaning && request.sound) {
-          const unsubscribe = aiRefinementCoordinator.subscribe((updatedTrackUri, updatedState) => {
-            if (updatedTrackUri !== trackUri || updatedState.status === "requested" || updatedState.status === "refining") return;
-            unsubscribe();
-            runSound();
-          });
-          runMeaning();
-        } else {
-          if (request.meaning) runMeaning();
-          if (request.sound) runSound();
         }
       };
       openAIRefinementComposer({
         initialLayer,
-        meaningAvailable: $meaningBackend.get() !== "google" && meaningState.status !== "requested" && meaningState.status !== "refining",
-        soundAvailable: $soundBackend.get() !== "deterministic" && soundState.status !== "requested" && soundState.status !== "refining",
+        available: $aiConsentVersion.get() === AI_CONSENT_VERSION && (initialLayer === "meaning"
+          ? meaningState.status !== "requested" && meaningState.status !== "refining"
+          : soundState.status !== "requested" && soundState.status !== "refining"),
         meaningRefined: meaningState.status === "refined",
         soundRefined: soundState.status === "refined",
         currentModelName: initialLayer === "meaning" ? meaningState.modelName : soundState.modelName,
         onSubmit: submit,
         onRestoreMeaning: () => aiRefinementCoordinator.restoreBaseline(trackUri),
         onRestoreSound: () => aiSoundCoordinator.restoreBaseline(trackUri),
+      }, transition);
+    };
+
+    const runDefaultAI = (trackUri: string, layer: "meaning" | "sound") => {
+      if ($aiConsentVersion.get() !== AI_CONSENT_VERSION) return;
+      const coordinator = layer === "sound" ? aiSoundCoordinator : aiRefinementCoordinator;
+      const state = coordinator.getState(trackUri);
+      if (state.status !== "idle") return;
+      if (layer === "sound" && !documentNeedsSoundOutput(aiSoundCoordinator.getBaselineDocument(trackUri), $soundTargetOrthography.get())) return;
+      const request = getDefaultAIRefinementRequest(layer);
+      if (!request) return;
+      if (layer === "sound" && $soundBackend.get() === "deterministic") $soundBackend.set("ai_on_demand");
+      if (layer === "meaning" && $meaningBackend.get() === "google") $meaningBackend.set("ai_on_demand");
+      coordinator.refine(trackUri, request);
+    };
+
+    const openAILanePanel = async (trackUri: string, layer: "meaning" | "sound") => {
+      if ($aiConsentVersion.get() !== AI_CONSENT_VERSION) return;
+      const coordinator = layer === "sound" ? aiSoundCoordinator : aiRefinementCoordinator;
+      const currentState = coordinator.getState(trackUri);
+      const effectiveStatus = layer === "sound" && !documentNeedsSoundOutput(aiSoundCoordinator.getBaselineDocument(trackUri), $soundTargetOrthography.get())
+        ? "covered" as const
+        : currentState.status;
+      const comparison = await loadLayerComparisonRows(trackUri, layer);
+      const hasAIOutput = comparison.rows.some((row) => row.attempts.length > 0);
+      if (!hasAIOutput) {
+        openAIComposer(trackUri, layer);
+        return;
+      }
+      const customJson = layer === "sound" ? $aiSoundRefinementPresets.get() : $aiRefinementPresets.get();
+      const defaultId = layer === "sound" ? $aiDefaultSoundRefinementPreset.get() : $aiDefaultRefinementPreset.get();
+      const presetName = allAIRefinementPresets(customJson, layer)
+        .find((preset) => comparison.instructions ? preset.instructions.trim() === comparison.instructions : preset.id === defaultId)?.name
+        ?? "Custom instructions";
+      openAIOutputReviewPanel({
+        trackUri,
+        layer,
+        authority: currentState.status === "refined" ? "ai" : "baseline",
+        status: effectiveStatus,
+        presetName,
+        modelName: comparison.modelName ?? currentState.modelName,
+        comparison,
+        onRefine: () => openAIComposer(trackUri, layer, true),
+        onRestore: () => coordinator.restoreBaseline(trackUri),
       });
     };
 
-    const soundToggle = elem.querySelector("#AISoundToggle");
-    if (soundToggle) {
-      const trackUri = SpotifyPlayer.GetUri();
-      const state = trackUri ? aiSoundCoordinator.getState(trackUri) : { status: "idle" as const };
-      if (!isPip) {
-        const cacheWarning = state.cacheWarning === "write_failed" ? " · not saved; retry after fixing storage" : "";
-        const label = state.status === "refined"
-          ? `Refine AI pronunciation${state.revisionNumber ? ` · revision ${state.revisionNumber}` : ""}`
-          : state.status === "refining" || state.status === "requested"
-            ? `Refining sound ${state.done ?? 0}/${state.total ?? 0}`
-            : state.status === "failed"
-              ? state.reason === "alignment_required" ? "AI sound is unavailable for syllable-timed lyrics." : `Sound failed: ${state.reason}${state.detail ? ` (${state.detail})` : ""}. Click to retry.`
-              : "Refine sound with AI";
-        const warningLabel = `${label}${cacheWarning}`;
-        Tooltips.AISound = Spicetify.Tippy(soundToggle, { ...Spicetify.TippyProps, content: warningLabel });
-      }
-      soundToggle.addEventListener("click", () => {
-        if (!trackUri || state.status === "refining" || state.status === "requested") return;
-        const request = getDefaultAIRefinementRequest();
-        if (!request) return;
-        if (state.status === "refined") aiSoundCoordinator.refineOutput(trackUri, request);
-        else aiSoundCoordinator.refine(trackUri, request);
+    if (romanizationToggle) {
+      romanizationToggle.addEventListener("click", async () => {
+        const trackUri = SpotifyPlayer.GetUri();
+        if (!trackUri) return;
+        const shouldGenerate = $aiConsentVersion.get() === AI_CONSENT_VERSION
+          && $aiButtonBehavior.get() === "generate_then_toggle"
+          && aiSoundCoordinator.getState(trackUri).status === "idle"
+          && documentNeedsSoundOutput(aiSoundCoordinator.getBaselineDocument(trackUri), $soundTargetOrthography.get());
+        PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.add("HiddenTransitioned");
+        const lyrics = await fetchLyrics(trackUri);
+        setRomanizedStatus(shouldGenerate ? true : !isRomanized);
+        ApplyLyrics(lyrics);
+        if (shouldGenerate) runDefaultAI(trackUri, "sound");
+        setTimeout(() => {
+          AppendViewControls();
+          PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.remove("HiddenTransitioned");
+        }, 45);
       });
-      soundToggle.addEventListener("contextmenu", (event) => {
+      romanizationToggle.addEventListener("contextmenu", (event) => {
         event.preventDefault();
-        if (trackUri) openAIComposer(trackUri, "sound");
+        const trackUri = SpotifyPlayer.GetUri();
+        if (trackUri) void openAILanePanel(trackUri, "sound");
       });
     }
 
@@ -807,12 +823,18 @@ function AppendViewControls(ReAppend: boolean = false) {
           });
         }
         translationToggle.addEventListener("click", () => {
-          $meaningVisible.set(!$meaningVisible.get());
+          if ($aiConsentVersion.get() === AI_CONSENT_VERSION
+            && $aiButtonBehavior.get() === "generate_then_toggle"
+            && state.status === "idle"
+            && trackUri) {
+            $meaningVisible.set(true);
+            runDefaultAI(trackUri, "meaning");
+          } else $meaningVisible.set(!$meaningVisible.get());
         });
-        translationToggle.addEventListener("contextmenu", (event) => {
+        translationToggle.addEventListener("contextmenu", async (event) => {
           event.preventDefault();
           if (!trackUri) return;
-          openAIComposer(trackUri, "meaning");
+          await openAILanePanel(trackUri, "meaning");
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Translation tooltip", err);
@@ -1064,6 +1086,13 @@ $soundBackend.listen(() => {
   syncAIRefinementBackends();
   if (PageContainer) AppendViewControls(true);
 });
+
+$aiConsentVersion.listen(() => {
+  syncAIRefinementBackends();
+  if (PageContainer) AppendViewControls(true);
+});
+
+$googleSoundFallback.listen(queueProcessingSettingsRefresh);
 
 $soundTargetOrthography.listen(() => aiSoundCoordinator.notifyConfigChanged());
 

@@ -1,6 +1,6 @@
 import { shouldTranslateLine } from "../Fork/Translation.ts";
 import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
-import { AI_ORIGINAL_SNAPSHOT_SCHEMA, type CanonicalOriginalSnapshot, type EnumeratedLine, type RefinementLineClass, type VoiceHint } from "./types.ts";
+import { AI_ORIGINAL_SNAPSHOT_SCHEMA, type CanonicalOriginalSnapshot, type EnumeratedLine, type RefinementLineClass, type SoundOrthography, type VoiceHint } from "./types.ts";
 
 const STRUCTURAL_HEADINGS = /^(?:intro|verse(?: \d+)?|pre-chorus|chorus|post-chorus|refrain|hook|bridge|interlude|instrumental|break|solo|outro)$/;
 const ADLIB_TOKENS = new Set(["ah", "aah", "eh", "hey", "hm", "hmm", "la", "na", "oh", "ooh", "uh", "woo", "woah", "yeah", "yo"]);
@@ -60,7 +60,7 @@ function soundRow(id: string, sourceText: string, target: any, voice: VoiceHint 
         : typeof target?.JapaneseReading?.romaji === "string"
           ? target.JapaneseReading.romaji
           : undefined;
-  return { id, class: lineClass, sendDisposition: lineClass === "structural" ? "structural" : "sent", sourceText, voice, allowUnchanged: true, baselineTranslatedText: baseline, target: target ?? null, targetField: target ? "RomanizedText" : null };
+  return { id, class: lineClass, sendDisposition: lineClass === "structural" ? "structural" : "sent", sourceText, voice, allowUnchanged: true, baselineTranslatedText: baseline, baselineProvenance: target?.RomanizationSource === "google" ? "google" : "deterministic", target: target ?? null, targetField: target ? "RomanizedText" : null };
 }
 
 export function enumerateSourceRows(document: any): Array<{ id: string; sourceText: string }> {
@@ -77,6 +77,35 @@ export function enumerateSourceRows(document: any): Array<{ id: string; sourceTe
     return rows;
   }
   throw new TypeError(`Unsupported lyrics type: ${String(document?.Type)}`);
+}
+
+export function documentNeedsSoundOutput(document: any, target: SoundOrthography): boolean {
+  if (!document) return false;
+  const targetScript = target === "Kana"
+    ? /[\p{Script=Hiragana}\p{Script=Katakana}]/u
+    : target === "Hangul"
+      ? /\p{Script=Hangul}/u
+      : target === "Cyrillic"
+        ? /\p{Script=Cyrillic}/u
+        : /\p{Script=Latin}/u;
+  const needsRespelling = (sourceText: string) => (sourceText.match(/\p{L}/gu) ?? [])
+    .some((letter) => !/\p{Script=Latin}/u.test(letter) && !targetScript.test(letter));
+  if (document.Type === "Syllable") {
+    if (document.HasTransliterations || document.IncludesRomanization) return false;
+    return enumerateSourceRows(document).some(({ sourceText }) => needsRespelling(sourceText));
+  }
+  try {
+    return enumerateSoundLines(document).some((line) => {
+      if (!needsRespelling(line.sourceText)) return false;
+      if (line.baselineProvenance === "google") return true;
+      const baseline = line.baselineTranslatedText?.trim() ?? "";
+      return !baseline || needsRespelling(baseline);
+    });
+  } catch { return false; }
+}
+
+export function soundLineNeedsOutput(line: Pick<EnumeratedLine, "sourceText" | "baselineTranslatedText" | "baselineProvenance">, target: SoundOrthography): boolean {
+  return documentNeedsSoundOutput({ Type: "Static", Lines: [{ Text: line.sourceText, RomanizedText: line.baselineTranslatedText, RomanizationSource: line.baselineProvenance }] }, target);
 }
 
 export function enumerateSoundLines(document: any): EnumeratedLine[] {

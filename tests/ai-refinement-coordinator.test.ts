@@ -111,7 +111,7 @@ test("an initial request can add one-off preset steering and select a model with
     assert.equal(runConfig.instructions, "Always preserve names.\nKeep mixed-language phrases natural.");
     assert.equal(request.instructions, "Always preserve names.\nKeep mixed-language phrases natural.");
     assert.equal(request.items[0].p, undefined);
-    return { ok: true, items: [{ id: "S0", t: "contextual AI" }], usage: { input: 5, output: 2 }, finish: "stop", raw: { bytes: 24 } };
+    return { ok: true, items: [{ id: "S0", t: "AI translation" }], usage: { input: 5, output: 2 }, finish: "stop", raw: { bytes: 24 } };
   }]);
   const cache = new MemoryRefinementCache();
   const customConfig = { ...config, instructions: "Always preserve names." };
@@ -388,7 +388,7 @@ test("exact Sound cache is checked before credential storage or provider work", 
   const paidProvider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "sarang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 32 } })]);
   const paid = new AIRefinementCoordinator({ layer: "sound", cache, provider: paidProvider, getConfig: async () => soundConfig, publish: () => undefined });
   paid.setEnabled(true); paid.onTrackChanged("spotify:track:test");
-  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "builtin" }], ProcessingPending: false, RomanizationPending: false };
+  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑" }], ProcessingPending: false, RomanizationPending: false };
   const snapshot = captureOriginalSnapshot(source, null);
   paid.acceptBaseline("spotify:track:test", source, "final", snapshot);
   paid.refine("spotify:track:test");
@@ -643,7 +643,7 @@ test("automatic AI Sound bills only the current track", async () => {
   coordinator.setEnabled(true);
   coordinator.setMode("auto");
   coordinator.onTrackChanged("spotify:track:current");
-  const old = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "builtin" }], ProcessingPending: false, RomanizationPending: false };
+  const old = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑" }], ProcessingPending: false, RomanizationPending: false };
   coordinator.acceptBaseline("spotify:track:prefetch", old, "final", captureOriginalSnapshot(old, null));
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(provider.calls.length, 0);
@@ -661,7 +661,7 @@ test("Sound coordinator publishes whole-line reading overlays and rejects syllab
   const coordinator = new AIRefinementCoordinator({ layer: "sound", cache, provider, getConfig: async () => soundConfig, publish: (_trackUri, document, origin) => publications.push({ document: structuredClone(document), origin }) });
   coordinator.setEnabled(true);
   coordinator.onTrackChanged("spotify:track:test");
-  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "sarang" }], ProcessingPending: false, RomanizationPending: false };
+  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑" }], ProcessingPending: false, RomanizationPending: false };
   const snapshot = captureOriginalSnapshot(source, null);
   coordinator.acceptBaseline("spotify:track:test", source, "final", snapshot);
   coordinator.refine("spotify:track:test");
@@ -673,12 +673,29 @@ test("Sound coordinator publishes whole-line reading overlays and rejects syllab
   const timed = new AIRefinementCoordinator({ layer: "sound", cache: new MemoryRefinementCache(), provider, getConfig: async () => soundConfig, publish: () => undefined });
   timed.setEnabled(true);
   timed.onTrackChanged("spotify:track:timed");
-  const timedSource = { Type: "Syllable", Language: "jpn", Content: [], ProcessingPending: false, RomanizationPending: false };
+  const timedSource = { Type: "Syllable", Language: "jpn", Content: [{ Type: "Vocal", Lead: { Syllables: [{ Text: "愛" }] }, Background: [] }], ProcessingPending: false, RomanizationPending: false };
   timed.acceptBaseline("spotify:track:timed", timedSource, "final", captureOriginalSnapshot(timedSource, null));
   timed.refine("spotify:track:timed");
   await waitFor(() => timed.getState("spotify:track:timed").status === "failed");
   assert.equal(timed.getState("spotify:track:timed").reason, "alignment_required");
   assert.equal(provider.calls.length, 1);
+});
+
+test("covered deterministic Sound suppresses auto work but remains manually processable", async () => {
+  const provider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "sa-rang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 32 } })]);
+  const soundConfig = { ...config, targetLang: "Latin" };
+  const coordinator = new AIRefinementCoordinator({ layer: "sound", cache: new MemoryRefinementCache(), provider, getConfig: async () => soundConfig, publish: () => undefined });
+  coordinator.setEnabled(true);
+  coordinator.setMode("auto");
+  coordinator.onTrackChanged("spotify:track:test");
+  const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑", RomanizedText: "sarang" }], ProcessingPending: false, RomanizationPending: false };
+  coordinator.acceptBaseline("spotify:track:test", source, "final", captureOriginalSnapshot(source, null));
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "covered");
+  assert.equal(provider.calls.length, 0);
+  coordinator.refine("spotify:track:test", { instructions: "Review the deterministic reading.", model });
+  await waitFor(() => coordinator.getState("spotify:track:test").status === "refined");
+  assert.equal(provider.calls.length, 1);
+  assert.equal(provider.calls[0].request.items[0].p, "sarang");
 });
 
 test("config change and global clear visibly restore the baseline", async () => {

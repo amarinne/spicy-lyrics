@@ -32,10 +32,6 @@ function sameSource(left: any, right: any): boolean {
   } catch { return false; }
 }
 
-function clearCompetingSoundFields(target: any): void {
-  for (const key of ["ReadingPlan", "RenderPlan", "ReadingRenderPlan", "ReadingAnnotation", "Annotations", "JapaneseReading", "Furigana", "FuriganaHtml", "FuriganaText", "FuriganaAnnotations", "FuriganaTargetStart", "FuriganaTargetEnd", "FuriganaSegments"]) delete target[key];
-}
-
 function applyMeaning(composed: any, overlay: any): void {
   const targets = targetRows(composed);
   for (const [id, source] of targetRows(overlay)) {
@@ -51,9 +47,15 @@ function applySound(composed: any, overlay: any): void {
     const target = targets.get(id);
     const text = typeof source?.RomanizedText === "string" ? source.RomanizedText : source?.TransliteratedText;
     if (!target || typeof text !== "string") continue;
-    clearCompetingSoundFields(target);
+    const existing = typeof target?.ReadingRenderPlan?.joinedDisplayText === "string"
+      ? target.ReadingRenderPlan.joinedDisplayText
+      : typeof target?.RomanizedText === "string" ? target.RomanizedText
+        : typeof target?.TransliteratedText === "string" ? target.TransliteratedText
+          : typeof target?.JapaneseReading?.romaji === "string" ? target.JapaneseReading.romaji : undefined;
+    if (existing === text) continue;
     target.RomanizedText = text;
     target.TransliteratedText = text;
+    target.RomanizationSource = "ai";
   }
   composed.HasTransliterations = true;
   composed.IncludesRomanization = true;
