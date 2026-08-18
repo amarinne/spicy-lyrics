@@ -53,7 +53,7 @@ const storage = new Map<string, string>();
   disconnect(): void {}
 };
 
-const { appendSyllableRomanizedBelow, hasFuriganaCrossingTimedUnits } = await import(
+const { appendSyllableRomanizedBelow, getRomanizedText, hasFuriganaCrossingTimedUnits } = await import(
   "../src/utils/Lyrics/Applyer/ReadingRenderer.ts"
 );
 const { renderExperimentalReadingPlan } = await import(
@@ -74,6 +74,12 @@ const plan = {
   }],
   joinedDisplayText: "watashi",
 };
+
+test("AI Sound text overrides deterministic render-plan display without deleting its metadata", () => {
+  const entry = { ReadingRenderPlan: plan, RomanizedText: "AI watashi", RomanizationSource: "ai" };
+  assert.equal(getRomanizedText(entry), "AI watashi");
+  assert.equal(entry.ReadingRenderPlan, plan);
+});
 
 function render(mode: "romaji" | "furigana" | "both"): FakeElement {
   $adaptiveSectioning.set(true);

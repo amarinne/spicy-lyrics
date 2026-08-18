@@ -31,12 +31,9 @@ test("Meaning and Sound overlays compose atomically and restore independently", 
   const source = baseline();
   composer.acceptBaseline("spotify:track:test", 7, source);
 
-  const meaning = structuredClone(source);
-  meaning.Lines[0].TranslatedText = "AI meaning";
+  const meaning = { S0: "AI meaning" };
   assert.equal(composer.acceptLayerPublication("spotify:track:test", "meaning", 7, meaning, "overlay"), true);
-  const sound = structuredClone(source);
-  sound.Lines[0].RomanizedText = "sa-rang";
-  sound.Lines[0].TransliteratedText = "sa-rang";
+  const sound = { S0: "sa-rang" };
   assert.equal(composer.acceptLayerPublication("spotify:track:test", "sound", 7, sound, "overlay"), true);
 
   const both = publications.at(-1)!.document;
@@ -47,12 +44,12 @@ test("Meaning and Sound overlays compose atomically and restore independently", 
   assert.equal(both.Lines[0].JapaneseReading.romaji, "sarang");
   assert.equal(both.Lines[0].RomanizationSource, "ai");
 
-  composer.acceptLayerPublication("spotify:track:test", "meaning", 7, source, "baseline");
+  composer.acceptLayerPublication("spotify:track:test", "meaning", 7, {}, "baseline");
   const soundOnly = publications.at(-1)!.document;
   assert.equal(soundOnly.Lines[0].TranslatedText, "love");
   assert.equal(soundOnly.Lines[0].RomanizedText, "sa-rang");
 
-  composer.acceptLayerPublication("spotify:track:test", "sound", 7, source, "baseline");
+  composer.acceptLayerPublication("spotify:track:test", "sound", 7, {}, "baseline");
   const restored = publications.at(-1)!.document;
   assert.equal(restored.Lines[0].TranslatedText, "love");
   assert.equal(restored.Lines[0].ReadingRenderPlan.joinedDisplayText, "sarang");
@@ -68,15 +65,17 @@ test("Meaning and Sound overlays compose atomically and restore independently", 
   assert.equal(reversePublications.at(-1).Lines[0].RomanizedText, "sa-rang");
 });
 
-test("composer rejects stale revisions and source mismatches", () => {
+test("composer rejects stale revisions and can defer the first composed publication", () => {
   const publications: any[] = [];
   const composer = new AIDerivedLayerComposer((_trackUri, document) => publications.push(structuredClone(document)));
-  composer.acceptBaseline("spotify:track:test", 2, baseline("new"));
-  const stale = baseline("old");
-  stale.Lines[0].TranslatedText = "stale AI";
+  composer.acceptBaseline("spotify:track:test", 2, baseline("new"), true);
 
-  assert.equal(composer.acceptLayerPublication("spotify:track:test", "meaning", 1, stale, "overlay"), false);
-  assert.equal(composer.acceptLayerPublication("spotify:track:test", "meaning", 2, stale, "overlay"), false);
+  assert.equal(composer.acceptLayerPublication("spotify:track:test", "meaning", 1, { S0: "stale AI" }, "overlay"), false);
+  assert.equal(composer.acceptLayerPublication("spotify:track:test", "meaning", 2, { S0: "current AI" }, "overlay"), true);
+  assert.equal(publications.length, 0);
+  assert.equal(composer.publishDeferred("spotify:track:test", 1), false);
+  assert.equal(composer.publishDeferred("spotify:track:test", 2), true);
   assert.equal(publications.length, 1);
   assert.equal(publications[0].Lines[0].Text, "new");
+  assert.equal(publications[0].Lines[0].TranslatedText, "current AI");
 });

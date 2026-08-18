@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { normalizeOpenAIBaseUrl, OpenAIRefinementProvider } from "../src/utils/Lyrics/AIRefinement/OpenAIProvider.ts";
-import { buildProviderComparisonRows, captureProviderAcceptedItems, captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, providerCaptureFilename } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { buildCurrentProviderComparisonRows, buildProviderComparisonRows, captureProviderAcceptedItems, captureProviderBaseline, captureProviderExchange, clearProviderCapture, finishProviderCapture, getActiveProviderCaptureId, getProviderCaptureMetadata, getProviderCaptureState, getProviderComparisonRows, providerCaptureFilename, selectCurrentComparisonCaptures } from "../src/utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { EMPTY_LYRIC_CONTEXT } from "../src/utils/Lyrics/AIRefinement/protocol.ts";
 
 const lyricContext = { title: "Song", artists: ["Artist"], album: "Album" };
@@ -171,6 +171,28 @@ test("same-song refinement runs compare original, first machine baseline, and ea
       { number: 2, text: "second AI", model: "model-b", repair: false, accepted: true },
     ],
   }]);
+});
+
+test("Sound comparison keeps Korean format history but isolates Chinese pronunciation systems", () => {
+  const request = (source: string) => ({ messages: [{ role: "user", content: JSON.stringify({ items: [{ id: "G0", c: "ordinary", v: "primary", s: source }] }) }] });
+  const response = (text: string) => ({ choices: [{ message: { content: JSON.stringify({ items: [{ id: "G0", t: text }] }) } }] });
+  const capture = (id: string, baseline: string, accepted: string, createdAt: number, pronunciationSystem = "mandarin-pinyin") => ({
+    id, schema: 1 as const, createdAt, updatedAt: createdAt, enabled: false, trackUri: "spotify:track:test", trackLabel: "Track", layer: "sound" as const,
+    pronunciationSystem, source: { provider: "spotify", label: "Spotify", format: "Line" as const }, baseline: [{ id: "G0", baseline }], accepted: { G0: accepted },
+    exchanges: [{ schema: 1 as const, capturedAt: new Date(createdAt).toISOString(), providerId: "openai", endpoint: "https://proxy", model: "model", repair: false, status: 200, request: request("한글"), response: response(accepted) }],
+  });
+  const oldFormat = capture("old", "han-geul", "hangeul", 1);
+  const currentRows = [{ id: "G0", original: "한글", baseline: "han-geul-eul" }];
+  assert.deepEqual(selectCurrentComparisonCaptures([oldFormat], { currentRows }).map((item) => item.id), ["old"]);
+  assert.deepEqual(buildCurrentProviderComparisonRows([oldFormat], currentRows), [{
+    id: "G0", original: "한글", baseline: "han-geul-eul", attempts: [{ number: 1, text: "hangeul", model: "model", repair: false, accepted: true }],
+  }]);
+  assert.deepEqual(selectCurrentComparisonCaptures([oldFormat], { currentRows, requireBaselineMatch: true, pronunciationSystem: "mandarin-pinyin" }), []);
+
+  const currentSystem = capture("current", "han-geul-eul", "hangeureul", 2);
+  const interleavedOtherSystem = capture("other-system", "hangeureul", "jyutping-ai", 3, "cantonese-jyutping");
+  const revision = capture("revision", "hangeureul", "han-geu-reul", 4);
+  assert.deepEqual(selectCurrentComparisonCaptures([oldFormat, currentSystem, interleavedOtherSystem, revision], { currentRows, requireBaselineMatch: true, pronunciationSystem: "mandarin-pinyin" }).map((item) => item.id), ["current", "revision"]);
 });
 
 test("capture export filename includes sanitized song, artist, and model", () => {

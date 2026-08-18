@@ -4,16 +4,21 @@ import { test } from "node:test";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
 
-test("IndexedDB v4 has isolated refinement, credential, and durable capture stores", () => {
+test("IndexedDB v5 has indexed refinement hydration and isolated credential/capture stores", () => {
   const source = read("src/utils/db.ts");
-  assert.match(source, /openDB\("spicylyrics", 4/);
+  assert.match(source, /openDB\("spicylyrics", 5/);
   assert.match(source, /AIRefinements: "aiRefinements"/);
   assert.match(source, /AICredentials: "aiCredentials"/);
   assert.match(source, /AICaptures: "aiCaptures"/);
   assert.match(source, /createIndex\("byTrackConfig", \["trackUri", "configId"\]\)/);
   assert.match(source, /createIndex\("byLastAccessedAt", "lastAccessedAt"\)/);
+  assert.match(source, /createIndex\("byTrack", "trackUri"\)/);
   assert.match(source, /createIndex\("byUpdatedAt", "updatedAt"\)/);
   assert.match(source, /createIndex\("byTrackUri", "trackUri"\)/);
+  const cache = read("src/utils/Lyrics/AIRefinement/IndexedDBCache.ts");
+  assert.match(cache, /getAllFromIndex\(ObjectStores\.AIRefinements, "byTrack", trackUri\)/);
+  assert.match(cache, /queueMicrotask/);
+  assert.doesNotMatch(cache.match(/async listByTrack[\s\S]*?\n  \}/)?.[0] ?? "", /\.getAll\(ObjectStores\.AIRefinements\)/);
 });
 
 test("credential UI edits in plaintext, confirms with a partial mask, and keeps provider keys separate", () => {
@@ -70,10 +75,24 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(stores, /_settings\.aiSteeringInstructions/);
   assert.match(stores, /_settings\.soundSteeringInstructions/);
   const page = read("src/components/Pages/PageView.ts");
+  const app = read("src/app.tsx");
   assert.match(page, /contextmenu/);
   assert.match(page, /openAIRefinementComposer/);
   assert.match(page, /openAIOutputReviewPanel/);
   assert.match(page, /loadLayerComparisonRows/);
+  assert.match(page, /requireBaselineMatch: baselineDocument\.DetectedChinese === true/);
+  assert.match(page, /\$koreanDisplayMode\.listen\(queueProcessingSettingsRefresh\)/);
+  assert.equal((page.match(/spicy-lyrics:processing-ready/g) ?? []).length, 1);
+  assert.equal((app.match(/spicy-lyrics:processing-ready/g) ?? []).length, 0);
+  assert.match(page, /sequence <= latestProcessingReadySequence/);
+  assert.match(page, /state\.status === "failed".*toast\.error/s);
+  const fetchSource = read("src/utils/Lyrics/fetchLyrics.ts");
+  assert.match(fetchSource, /acceptBaseline\(uri, processedLyrics, "final", snapshot, true\)/);
+  assert.doesNotMatch(fetchSource, /return \[processedLyrics, 200\]/);
+  assert.doesNotMatch(fetchSource, /return \[\{ \.\.\.lyricsFromCache/);
+  const singleton = read("src/utils/Lyrics/AIRefinement/singleton.ts");
+  assert.match(singleton, /AI_CACHE_HYDRATION_DEADLINE_MS = 60/);
+  assert.match(singleton, /composer\.publishDeferred\(trackUri, revision\)/);
   assert.match(page, /hasAIOutput/);
   assert.match(page, /if \(!hasAIOutput\).*openAIComposer\(trackUri, layer\)/s);
   assert.doesNotMatch(page, /id="AIRefinementToggle"/);
@@ -141,7 +160,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /Toggle display only/);
   assert.match(ui, /Use existing pronunciation as AI baseline/);
   assert.match(ui, /raw lyrics only/);
-  assert.match(read("src/utils/Lyrics/AIRefinement/singleton.ts"), /enabled && \$meaningBackend/);
+  assert.match(singleton, /enabled && \$meaningBackend/);
   assert.doesNotMatch(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
   assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /SelectionDiagnostics/);
   assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /current\?\.uri === trackUri/);

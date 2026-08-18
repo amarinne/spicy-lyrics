@@ -193,8 +193,9 @@ export function forceStackedLine(lineElem: HTMLElement, oppositeAligned?: boolea
   lineElem.classList.toggle("HasOppositeAlignedExtras", oppositeAligned === true);
 }
 
-export function getRomanizedText(entry: JapaneseReadable | undefined): string | undefined {
+export function getRomanizedText(entry: (JapaneseReadable & { RomanizationSource?: string }) | undefined): string | undefined {
   if (!entry) return undefined;
+  if (entry.RomanizationSource === "ai") return entry.RomanizedText || entry.TransliteratedText;
   return entry.ReadingRenderPlan?.joinedDisplayText || entry.RomanizedText || entry.TransliteratedText || entry.JapaneseReading?.romaji;
 }
 

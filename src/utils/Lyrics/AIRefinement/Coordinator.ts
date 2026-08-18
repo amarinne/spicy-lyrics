@@ -1,6 +1,6 @@
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
 import { cloneSnapshotDocument, documentNeedsSoundOutput, enumerateRefinementLines, enumerateSoundLines, soundLineNeedsOutput } from "./document.ts";
-import { refinementRecordKey, sumBudgetConsumed } from "./cache.ts";
+import { refinementRecordKey } from "./cache.ts";
 import { buildConfigId, buildDocumentDigest, normalizeLyricContext, normalizeSteeringInstructions, planChunks } from "./protocol.ts";
 import { sha256Hex } from "./identity.ts";
 import { executeChunk } from "./runtime.ts";
@@ -38,7 +38,7 @@ export class AIRefinementCoordinator {
     getContext?: (trackUri: string) => Partial<LyricContext> | null | undefined;
     getConfig: () => Promise<CoordinatorConfig | null>;
     getCredential?: (providerId?: string) => Promise<ProviderCredential | null>;
-    publish: (trackUri: string, document: any, origin: "baseline" | "overlay", publicationRevision: number) => void;
+    publish: (trackUri: string, items: Record<string, string>, origin: "baseline" | "overlay", publicationRevision: number) => void;
     ensurePersistence?: () => Promise<boolean>;
   };
   private baselines = new Map<string, BaselineSession>();
@@ -55,7 +55,6 @@ export class AIRefinementCoordinator {
   private credentialRevision = 0;
   private configRevision = 0;
   private enabled = false;
-  private unpersistedBudget = new Map<string, number>();
   private sessionTokens = { input: 0, output: 0 };
   private discardedRuns = new Set<number>();
 
@@ -68,11 +67,11 @@ export class AIRefinementCoordinator {
     getContext?: (trackUri: string) => Partial<LyricContext> | null | undefined;
     getConfig: () => Promise<CoordinatorConfig | null>;
     getCredential?: (providerId?: string) => Promise<ProviderCredential | null>;
-    publish: (trackUri: string, document: any, origin: "baseline" | "overlay", publicationRevision: number) => void;
+    publish: (trackUri: string, items: Record<string, string>, origin: "baseline" | "overlay", publicationRevision: number) => void;
     ensurePersistence?: () => Promise<boolean>;
   }) { this.layer = deps.layer ?? "meaning"; this.deps = deps; }
 
-  acceptBaseline(trackUri: string, document: any, stage: "intermediate" | "final", originalSnapshot: CanonicalOriginalSnapshot, publicationRevision?: number): void {
+  acceptBaseline(trackUri: string, document: any, stage: "intermediate" | "final", originalSnapshot: CanonicalOriginalSnapshot, publicationRevision?: number): Promise<void> {
     const revision = ++this.revision;
     const supersededActiveRun = this.active?.trackUri === trackUri;
     if (supersededActiveRun) this.cancel(trackUri, "baseline_superseded");
@@ -82,7 +81,7 @@ export class AIRefinementCoordinator {
     this.appliedRecords.delete(trackUri);
     this.publishBaseline(trackUri);
     if (!supersededActiveRun) this.setState(trackUri, { status: "idle", origin: "baseline" });
-    if (stage === "final") void this.prepareFinalBaseline(trackUri, revision);
+    return stage === "final" ? this.prepareFinalBaseline(trackUri, revision) : Promise.resolve();
   }
 
   onTrackChanged(trackUri: string | null): void {
@@ -189,6 +188,7 @@ export class AIRefinementCoordinator {
   private async prepareFinalBaseline(trackUri: string, revision: number, configRevision = this.configRevision): Promise<void> {
     const session = this.baselines.get(trackUri);
     if (!session || session.revision !== revision || session.stage !== "final") return;
+    if (!this.enabled) return;
     const config = await this.deps.getConfig();
     if (!config) return;
     const provider = this.providerFor(config);
@@ -216,7 +216,7 @@ export class AIRefinementCoordinator {
       : row) : allRows;
     const soundHasGaps = this.layer === "sound" && fallbackRows.some((row) => row.sendDisposition === "sent");
     const rows = this.layer === "sound" && !soundHasGaps ? allRows : fallbackRows;
-    const docDigest = await buildDocumentDigest(rows, session.context, this.layer === "sound");
+    const docDigest = await buildDocumentDigest(rows, session.context, this.layer === "sound" && config.useSoundBaseline !== false);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
     const configId = await this.configId(config, provider, session);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision) return;
@@ -226,13 +226,15 @@ export class AIRefinementCoordinator {
       return;
     }
     if (this.active?.trackUri === trackUri) return;
-    if (!this.enabled || !this.baselineEligible(trackUri, session)) return;
+    if (!this.baselineEligible(trackUri, session)) return;
     if (this.layer === "sound" && this.mode === "auto" && trackUri !== this.currentTrackUri) return;
     const baseKey = refinementRecordKey(trackUri, configId, docDigest, this.schema());
-    const cached = await this.deps.cache.get(baseKey);
+    const [cached, trackRecords] = await Promise.all([
+      this.deps.cache.get(baseKey),
+      this.deps.cache.listByTrack(trackUri),
+    ]);
     if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision || session.configId !== configId || session.docDigest !== docDigest) return;
-    const compatible = (await this.deps.cache.listByTrack(trackUri)).filter((record) => this.recordIsCompatible(record, session, config.targetLang, baseKey));
-    if (this.baselines.get(trackUri) !== session || session.revision !== revision || this.configRevision !== configRevision || session.configId !== configId || session.docDigest !== docDigest) return;
+    const compatible = trackRecords.filter((record) => this.recordIsCompatible(record, session, config, baseKey));
     const latest = compatible.sort((left, right) => right.createdAt - left.createdAt || (right.revisionNumber ?? 0) - (left.revisionNumber ?? 0) || right.key.localeCompare(left.key))[0];
     if (latest) {
       if (this.suppressed.has(this.suppressionKey(trackUri, latest.configId, docDigest))) return;
@@ -266,7 +268,7 @@ export class AIRefinementCoordinator {
     if (!identity.revision) {
       const baseKey = refinementRecordKey(trackUri, session.configId!, session.docDigest!, this.schema());
       const compatible = (await this.deps.cache.listByTrack(trackUri))
-        .filter((record) => this.recordIsCompatible(record, session!, config.targetLang, baseKey))
+        .filter((record) => this.recordIsCompatible(record, session!, config, baseKey))
         .sort((left, right) => right.createdAt - left.createdAt || (right.revisionNumber ?? 0) - (left.revisionNumber ?? 0) || right.key.localeCompare(left.key))[0];
       if (!this.identityCurrent(identity)) return;
       if (compatible) {
@@ -285,6 +287,7 @@ export class AIRefinementCoordinator {
       layer: this.layer, provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null,
       modelName: config.model.name, targetLang: config.targetLang,
       sourceLanguage: this.layer === "sound" ? String(session.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null,
+      pronunciationSystem: this.layer === "sound" ? this.pronunciationSystem(session) : null,
       soundMode: this.layer === "sound" ? "whole_line_v1" : null, instructions: config.instructions,
       soundBaselineMode: this.layer === "sound" ? config.useSoundBaseline === false ? "raw_source_v1" : "existing_output_v1" : null,
       promptVersion: AI_PROMPT_VERSION, iterationPromptVersion: AI_ITERATION_PROMPT_VERSION,
@@ -326,10 +329,10 @@ export class AIRefinementCoordinator {
         label: resolveLyricsSourceLabel(session.document?.source, session.document?.sourceDisplayName, session.document?.fetchProvider),
         format: ["Syllable", "Line", "Static"].includes(session.document?.Type) ? session.document.Type : null,
       },
+      this.layer === "sound" ? this.pronunciationSystem(session) : undefined,
     ) : null;
     let cacheWarning: "write_failed" | undefined;
     let persistenceWarning: "denied" | undefined;
-    const ledgerKey = `${trackUri}|${runConfigId}`;
     const runTokens = { input: 0, output: 0 };
     if (needsProviderRequest && this.deps.ensurePersistence) {
       if (!await this.deps.ensurePersistence()) persistenceWarning = "denied";
@@ -341,9 +344,7 @@ export class AIRefinementCoordinator {
         const existing = record.chunks[chunk.id];
         if (existing?.status === "complete") continue;
         this.setState(trackUri, { status: "refining", done: Object.keys(record.items).length, total: session.rows.filter((row) => row.sendDisposition === "sent").length, runId: identity.runId, revisionNumber: record.revisionNumber, modelName: record.modelName, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } });
-        const records = await this.deps.cache.listByTrackConfig(trackUri, runConfigId);
-        if (!this.identityCurrent(identity)) return;
-        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: effectiveInstructions, context: session.context, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, iteration: !!identity.revision, maxOutputTokens: 0, captureId: providerCaptureId }, signal: identity.controller.signal, budgetAlreadyConsumed: sumBudgetConsumed(records) + (this.unpersistedBudget.get(ledgerKey) ?? 0), previous: existing });
+        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: effectiveInstructions, context: session.context, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, iteration: !!identity.revision, maxOutputTokens: 0, captureId: providerCaptureId }, signal: identity.controller.signal, previous: existing });
         record.chunks[chunk.id] = execution.record;
         record.budgetConsumed += execution.budgetConsumed;
         record.tokens.input += execution.record.tokens.input - (existing?.tokens.input ?? 0);
@@ -361,18 +362,17 @@ export class AIRefinementCoordinator {
           const cancellation = String(identity.controller.signal.reason ?? "");
           if (!this.discardedRuns.has(identity.runId) && ["track_change", "user", "config_changed", "credential_changed", "baseline_superseded", "experiment_disabled"].includes(cancellation)) {
             record.status = execution.ok ? "partial" : "failed";
-            try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); }
-            catch { this.unpersistedBudget.set(ledgerKey, (this.unpersistedBudget.get(ledgerKey) ?? 0) + execution.budgetConsumed); }
+            try { await this.deps.cache.put(record); } catch {}
           }
           return;
         }
-        if (!execution.ok) { record.status = "failed"; try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); } catch { cacheWarning = "write_failed"; this.unpersistedBudget.set(ledgerKey, (this.unpersistedBudget.get(ledgerKey) ?? 0) + execution.budgetConsumed); } this.setState(trackUri, { status: "failed", reason: execution.failure.reason, detail: execution.failure.detail, revisionNumber: record.revisionNumber, modelName: record.modelName, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } }); return; }
+        if (!execution.ok) { record.status = "failed"; try { await this.deps.cache.put(record); } catch { cacheWarning = "write_failed"; } this.setState(trackUri, { status: "failed", reason: execution.failure.reason, detail: execution.failure.detail, revisionNumber: record.revisionNumber, modelName: record.modelName, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } }); return; }
         record.status = "partial";
-        try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); } catch { cacheWarning = "write_failed"; this.unpersistedBudget.set(ledgerKey, (this.unpersistedBudget.get(ledgerKey) ?? 0) + execution.budgetConsumed); }
+        try { await this.deps.cache.put(record); } catch { cacheWarning = "write_failed"; }
       }
       if (!this.identityCurrent(identity)) return;
       record.status = "complete";
-      try { await this.deps.cache.put(record); this.unpersistedBudget.delete(ledgerKey); } catch { cacheWarning = "write_failed"; }
+      try { await this.deps.cache.put(record); } catch { cacheWarning = "write_failed"; }
       this.applyRecord(trackUri, session, record, cacheWarning, persistenceWarning, runTokens);
     } catch {
       if (!identity.controller.signal.aborted) this.setState(trackUri, { status: "failed", reason: "delivery_unknown", cacheWarning });
@@ -396,20 +396,11 @@ export class AIRefinementCoordinator {
     this.setState(trackUri, { status: "refined", cacheWarning, persistenceWarning, origin: "overlay", revisionNumber: record.revisionNumber ?? 0, modelName: record.modelName, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } });
   }
 
-  private publishBaseline(trackUri: string): void { const session = this.baselines.get(trackUri); if (session) this.deps.publish(trackUri, this.renderable(session.document), "baseline", session.publicationRevision); }
+  private publishBaseline(trackUri: string): void { const session = this.baselines.get(trackUri); if (session) this.deps.publish(trackUri, {}, "baseline", session.publicationRevision); }
   private publishComposed(trackUri: string): void {
     const session = this.baselines.get(trackUri); const overlay = this.overlays.get(trackUri); if (!session || !overlay) return;
-    const composed = this.renderable(session.document);
-    const rows = this.layer === "sound" ? enumerateSoundLines(composed) : enumerateRefinementLines(composed, session.targetLang ?? "en");
-    for (const row of rows) if (row.target && overlay[row.id]) {
-      if (this.layer === "sound") { (row.target as any).RomanizedText = overlay[row.id]; (row.target as any).TransliteratedText = overlay[row.id]; (row.target as any).RomanizationSource = "ai"; }
-      else (row.target as any).TranslatedText = overlay[row.id];
-    }
-    if (this.layer === "sound") { composed.HasTransliterations = true; composed.IncludesRomanization = true; }
-    else composed.IncludesTranslation = true;
-    this.deps.publish(trackUri, composed, "overlay", session.publicationRevision);
+    this.deps.publish(trackUri, { ...overlay }, "overlay", session.publicationRevision);
   }
-  private renderable(document: any): any { const copy = structuredClone(document); delete copy.AIOriginalSnapshot; return copy; }
   private setState(trackUri: string, state: RefinementState): void { this.states.set(trackUri, state); for (const listener of this.listeners) listener(trackUri, state); }
   private suppressionKey(trackUri: string, configId: string, docDigest: string): string { return `${trackUri}|${configId}|${docDigest}`; }
   private identityCurrent(identity: ActiveRun): boolean {
@@ -437,18 +428,33 @@ export class AIRefinementCoordinator {
     return this.deps.provider;
   }
   private configId(config: CoordinatorConfig, provider: RefinementProvider, session: BaselineSession): Promise<string> {
-    return buildConfigId({ layer: this.layer, provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? String(session?.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null, soundMode: this.layer === "sound" ? "whole_line_v1" : null, soundBaselineMode: this.layer === "sound" ? config.useSoundBaseline === false ? "raw_source_v1" : "existing_output_v1" : null, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks" });
+    return buildConfigId({ layer: this.layer, provider: provider.id, providerVersion: config.providerVersion, endpoint: config.endpoint ?? null, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? String(session?.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase() : null, pronunciationSystem: this.layer === "sound" ? this.pronunciationSystem(session) : null, soundMode: this.layer === "sound" ? "whole_line_v1" : null, soundBaselineMode: this.layer === "sound" ? config.useSoundBaseline === false ? "raw_source_v1" : "existing_output_v1" : null, instructions: config.instructions, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks" });
   }
   private schema(): RefinementSchema { return this.layer === "sound" ? AI_SOUND_REFINEMENT_SCHEMA : AI_REFINEMENT_SCHEMA; }
   private sourceLanguage(session: BaselineSession): string {
     return String(session.snapshot.document?.Language ?? "und").normalize("NFC").toLowerCase();
   }
-  private recordIsCompatible(record: RefinementRecord, session: BaselineSession, targetLang: string, exactKey?: string): boolean {
+  private pronunciationSystem(session: BaselineSession): string {
+    const language = this.sourceLanguage(session);
+    let chineseMode: string | undefined;
+    try { chineseMode = JSON.parse(session.document?.ProcessingContextKey ?? "null")?.chineseTranslitMode; } catch {}
+    if (session.document?.DetectedChinese === true || /^(?:zh|zho|cmn|yue)(?:-|$)/.test(language)) {
+      return chineseMode === "jyutping" ? "cantonese-jyutping" : "mandarin-pinyin";
+    }
+    if (/^(?:ko|kor)(?:-|$)/.test(language)) return "korean";
+    return `source:${language}`;
+  }
+  private recordIsCompatible(record: RefinementRecord, session: BaselineSession, config: CoordinatorConfig, exactKey?: string): boolean {
     return record.status === "complete"
       && record.schema === this.schema()
       && record.docDigest === session.docDigest
-      && record.targetLang === targetLang
-      && (this.layer !== "sound" || record.sourceLanguage === this.sourceLanguage(session) || record.key === exactKey);
+      && record.targetLang === config.targetLang
+      && (this.layer !== "sound" || (
+        (record.sourceLanguage === this.sourceLanguage(session) || record.key === exactKey)
+        && (record.pronunciationSystem === this.pronunciationSystem(session)
+          || (record.pronunciationSystem === undefined && config.useSoundBaseline !== false)
+          || record.key === exactKey)
+      ));
   }
   private resetFailedChunks(record: RefinementRecord): RefinementRecord {
     const copy = structuredClone(record);
@@ -460,6 +466,6 @@ export class AIRefinementCoordinator {
   }
   private newRecord(key: string, trackUri: string, session: BaselineSession, config: CoordinatorConfig, provider: RefinementProvider, chunks: ReadonlyArray<{ id: string; items: ReadonlyArray<{ id: string }>; requestJson: string }>, configId = session.configId!, revision?: Pick<RefinementRecord, "parentRecordKey" | "rootRecordKey" | "parentOutputDigest" | "revisionInstructions" | "revisionNumber">): RefinementRecord {
     const now = Date.now();
-    return { key, trackUri, trackLabel: this.deps.getTrackLabel?.(trackUri), schema: this.schema(), layer: this.layer, configId, docDigest: session.docDigest!, chunkPlanVersion: AI_CHUNK_PLAN_VERSION, providerId: provider.id, providerVersion: config.providerVersion, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? this.sourceLanguage(session) : undefined, ...revision, createdAt: now, lastAccessedAt: now, bytes: 0, status: "partial", tokens: { input: 0, output: 0 }, usageEstimated: false, budgetConsumed: 0, items: {}, chunks: Object.fromEntries(chunks.map((chunk) => [chunk.id, { ids: chunk.items.map((item) => item.id), requestJson: chunk.requestJson, status: "pending", attempts: 0, repairs: 0, tokens: { input: 0, output: 0 }, usageEstimated: false }])) };
+    return { key, trackUri, trackLabel: this.deps.getTrackLabel?.(trackUri), schema: this.schema(), layer: this.layer, configId, docDigest: session.docDigest!, chunkPlanVersion: AI_CHUNK_PLAN_VERSION, providerId: provider.id, providerVersion: config.providerVersion, modelName: config.model.name, targetLang: config.targetLang, sourceLanguage: this.layer === "sound" ? this.sourceLanguage(session) : undefined, pronunciationSystem: this.layer === "sound" ? this.pronunciationSystem(session) : undefined, ...revision, createdAt: now, lastAccessedAt: now, bytes: 0, status: "partial", tokens: { input: 0, output: 0 }, usageEstimated: false, budgetConsumed: 0, items: {}, chunks: Object.fromEntries(chunks.map((chunk) => [chunk.id, { ids: chunk.items.map((item) => item.id), requestJson: chunk.requestJson, status: "pending", attempts: 0, repairs: 0, tokens: { input: 0, output: 0 }, usageEstimated: false }])) };
   }
 }

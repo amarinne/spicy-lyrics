@@ -102,8 +102,8 @@ function createAndAttachSnapshot(lyrics: any): CanonicalOriginalSnapshot {
   return snapshot;
 }
 
-function acceptBaseline(trackUri: string, lyrics: any, stage: "intermediate" | "final", snapshot: CanonicalOriginalSnapshot): void {
-  acceptAIRefinementBaseline(trackUri, lyrics, stage, snapshot);
+function acceptBaseline(trackUri: string, lyrics: any, stage: "intermediate" | "final", snapshot: CanonicalOriginalSnapshot, hydrateBeforePublish = false): Promise<void> {
+  return acceptAIRefinementBaseline(trackUri, lyrics, stage, snapshot, hydrateBeforePublish);
 }
 
 async function finishProcessingInBackground(trackId: string, trackUri: string, lyrics: any, snapshot: CanonicalOriginalSnapshot, session: LyricsRequestSession): Promise<void> {
@@ -118,7 +118,7 @@ async function finishProcessingInBackground(trackId: string, trackUri: string, l
     lyrics.TranslationPending = shouldTranslate;
     await setProcessedLyricsStoreItem(trackId, lyrics, session);
     if (!requestIsCurrent(session, trackUri)) return;
-    if (shouldRerenderAfterRomanization) acceptBaseline(trackUri, lyrics, shouldTranslate ? "intermediate" : "final", snapshot);
+    if (shouldRerenderAfterRomanization) void acceptBaseline(trackUri, lyrics, shouldTranslate ? "intermediate" : "final", snapshot);
   } catch (error) {
     lyrics.ProcessingPending = false;
     lyrics.RomanizationPending = false;
@@ -138,7 +138,7 @@ async function finishProcessingInBackground(trackId: string, trackUri: string, l
   lyrics.TranslationPending = false;
   await setProcessedLyricsStoreItem(trackId, lyrics, session);
   if (!requestIsCurrent(session, trackUri)) return;
-  acceptBaseline(trackUri, lyrics, "final", snapshot);
+  void acceptBaseline(trackUri, lyrics, "final", snapshot);
 }
 
 const RomanizableScriptQuickTest = /[぀-ヿ一-鿿가-힯ᄀ-ᇿ㄰-㆏Ѐ-ԯͰ-Ͽἀ-῿]/;
@@ -386,9 +386,9 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
           if (snapshot) {
             const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData, session);
             if (!processedLyrics || !requestIsCurrent(session, uri)) return null;
-            acceptBaseline(uri, processedLyrics, "final", snapshot);
+            await acceptBaseline(uri, processedLyrics, "final", snapshot, true);
             presentLyrics(processedLyrics, session);
-            return [processedLyrics, 200];
+            return null;
           }
           lyricsCacheLogger.debug("Ignoring saved lyrics without canonical original snapshot", { trackId });
         }
@@ -407,9 +407,9 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     const snapshot = createAndAttachSnapshot(lyricsData);
     const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData, session);
     if (!processedLyrics || !requestIsCurrent(session, uri)) return null;
-    acceptBaseline(uri, processedLyrics, "final", snapshot);
+    await acceptBaseline(uri, processedLyrics, "final", snapshot, true);
     presentLyrics(processedLyrics, session);
-    return [processedLyrics, 200];
+    return null;
   }
 
   // Local files have no real track id (uri.split(":")[2] is the URL-encoded
@@ -441,9 +441,9 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
         if (snapshot) {
           const lyricsFromCache = await ensureProcessingVersion(trackId, uri, cachedCandidate, session);
           if (!lyricsFromCache || !requestIsCurrent(session, uri)) return null;
-          acceptBaseline(uri, lyricsFromCache, "final", snapshot);
+          await acceptBaseline(uri, lyricsFromCache, "final", snapshot, true);
           presentLyrics(lyricsFromCache, session);
-          return [{ ...lyricsFromCache, fromCache: true }, 200];
+          return null;
         }
         lyricsCacheLogger.debug("Ignoring processed cache without canonical original snapshot", { trackId });
       }
@@ -506,20 +506,20 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
       markProcessedWithoutBackground(lyrics);
       await setProcessedLyricsStoreItem(trackId, lyrics, session);
       if (!requestIsCurrent(session, uri)) return null;
-      acceptBaseline(uri, lyrics, "final", originalSnapshot);
+      void acceptBaseline(uri, lyrics, "final", originalSnapshot);
       presentLyrics(lyrics, session);
-      return [{ ...lyrics, fromCache: false }, 200];
+      return null;
     }
 
     lyrics.ProcessingPending = true;
     lyrics.RomanizationPending = needsRomanization;
     lyrics.TranslationPending = needsTranslation;
     if (!requestIsCurrent(session, uri)) return null;
-    acceptBaseline(uri, lyrics, "intermediate", originalSnapshot);
+    void acceptBaseline(uri, lyrics, "intermediate", originalSnapshot);
 
     presentLyrics(lyrics, session);
     void finishProcessingInBackground(trackId, uri, lyrics, originalSnapshot, session);
-    return [{ ...lyrics, fromCache: false }, 200];
+    return null;
   } catch (error) {
     if (!requestIsCurrent(session, uri)) return null;
     lyricsLogger.error("Lyrics acquisition failed", { category: error instanceof SyntaxError ? "invalid-response" : "request-error" });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
-import { MemoryRefinementCache, measureRecordBytes, refinementRecordKey, sumBudgetConsumed, type RefinementRecord } from "../src/utils/Lyrics/AIRefinement/index.ts";
+import { MemoryRefinementCache, measureRecordBytes, refinementRecordKey, type RefinementRecord } from "../src/utils/Lyrics/AIRefinement/index.ts";
 
 function record(index: number, overrides: Partial<RefinementRecord> = {}): RefinementRecord {
   const key = refinementRecordKey(`spotify:track:${index}`, "config", "digest");
@@ -21,12 +21,11 @@ test("memory cache keeps paid records until an explicit clear", async () => {
   assert.equal(await cache.get(record(200).key), undefined);
 });
 
-test("cache write failure does not pretend to persist and budgets aggregate", async () => {
+test("cache write failure does not pretend to persist", async () => {
   const cache = new MemoryRefinementCache();
   cache.failWrites = true;
   await assert.rejects(() => cache.put(record(1)));
   assert.equal(cache.snapshot().length, 0);
-  assert.equal(sumBudgetConsumed([record(1), record(2, { budgetConsumed: 9 })]), 12);
 });
 
 test("private replay path is ignored, untracked, and production sources do not import it", () => {

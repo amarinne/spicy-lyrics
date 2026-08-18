@@ -117,12 +117,13 @@ test("iterative request identity and payload include only the latest accepted ou
 });
 
 test("Sound config identity includes source language, target orthography, and whole-line mode", async () => {
-  const base = { layer: "sound" as const, provider: "openai", providerVersion: "1", endpoint: "https://proxy.example/v1", modelName: "model", targetLang: "Latin", sourceLanguage: "ja", soundMode: "whole_line_v1" as const, instructions: "Keep names", promptVersion: 2, temperature: 0 as const, contextMode: "document_or_v1_chunks" as const };
+  const base = { layer: "sound" as const, provider: "openai", providerVersion: "1", endpoint: "https://proxy.example/v1", modelName: "model", targetLang: "Latin", sourceLanguage: "ja", pronunciationSystem: "japanese", soundMode: "whole_line_v1" as const, instructions: "Keep names", promptVersion: 2, temperature: 0 as const, contextMode: "document_or_v1_chunks" as const };
   const first = await buildConfigId(base);
   assert.notEqual(first, await buildConfigId({ ...base, sourceLanguage: "ko" }));
   assert.notEqual(first, await buildConfigId({ ...base, targetLang: "Hangul" }));
   assert.notEqual(first, await buildConfigId({ ...base, soundMode: null }));
   assert.notEqual(first, await buildConfigId({ ...base, soundBaselineMode: "raw_source_v1" }));
+  assert.notEqual(first, await buildConfigId({ ...base, pronunciationSystem: "mandarin-pinyin" }));
 });
 
 test("Sound protocol enumerates whole-line lyrics and rejects timed syllable documents", () => {
@@ -148,6 +149,7 @@ test("Sound cache identity includes its lower-priority fallback baseline", async
   const first = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "ฉัน", RomanizedText: "chan", RomanizationSource: "google" }] });
   const second = enumerateSoundLines({ Type: "Static", Lines: [{ Text: "ฉัน", RomanizedText: "chun", RomanizationSource: "google" }] });
   assert.notEqual(await buildDocumentDigest(first, null, true), await buildDocumentDigest(second, null, true));
+  assert.equal(await buildDocumentDigest(first, null, false), await buildDocumentDigest(second, null, false));
 });
 
 test("Sound and Meaning validation permit unchanged readable segments", () => {

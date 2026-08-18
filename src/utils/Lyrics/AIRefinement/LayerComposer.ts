@@ -1,10 +1,11 @@
-import { enumerateSourceRows } from "./document.ts";
 import type { DerivedLayer } from "./types.ts";
 
+type LayerItems = Record<string, string>;
 type LayerSession = {
   revision: number;
   baseline: any;
-  overlays: Partial<Record<DerivedLayer, any>>;
+  overlays: Partial<Record<DerivedLayer, LayerItems>>;
+  deferred: boolean;
 };
 
 function targetRows(document: any): Map<string, any> {
@@ -24,29 +25,20 @@ function targetRows(document: any): Map<string, any> {
   return rows;
 }
 
-function sameSource(left: any, right: any): boolean {
-  try {
-    const leftRows = enumerateSourceRows(left);
-    const rightRows = enumerateSourceRows(right);
-    return leftRows.length === rightRows.length && leftRows.every((row, index) => row.id === rightRows[index].id && row.sourceText === rightRows[index].sourceText);
-  } catch { return false; }
-}
-
-function applyMeaning(composed: any, overlay: any): void {
+function applyMeaning(composed: any, items: LayerItems): void {
   const targets = targetRows(composed);
-  for (const [id, source] of targetRows(overlay)) {
+  for (const [id, text] of Object.entries(items)) {
     const target = targets.get(id);
-    if (target && typeof source?.TranslatedText === "string") target.TranslatedText = source.TranslatedText;
+    if (target) target.TranslatedText = text;
   }
   composed.IncludesTranslation = true;
 }
 
-function applySound(composed: any, overlay: any): void {
+function applySound(composed: any, items: LayerItems): void {
   const targets = targetRows(composed);
-  for (const [id, source] of targetRows(overlay)) {
+  for (const [id, text] of Object.entries(items)) {
     const target = targets.get(id);
-    const text = typeof source?.RomanizedText === "string" ? source.RomanizedText : source?.TransliteratedText;
-    if (!target || typeof text !== "string") continue;
+    if (!target) continue;
     const existing = typeof target?.ReadingRenderPlan?.joinedDisplayText === "string"
       ? target.ReadingRenderPlan.joinedDisplayText
       : typeof target?.RomanizedText === "string" ? target.RomanizedText
@@ -63,24 +55,32 @@ function applySound(composed: any, overlay: any): void {
 
 export class AIDerivedLayerComposer {
   private sessions = new Map<string, LayerSession>();
-  private readonly publish: (trackUri: string, document: any, origin: "baseline" | "overlay") => void;
+  private readonly publish: (trackUri: string, document: any, origin: "baseline" | "overlay", revision: number) => void;
 
-  constructor(publish: (trackUri: string, document: any, origin: "baseline" | "overlay") => void) { this.publish = publish; }
+  constructor(publish: (trackUri: string, document: any, origin: "baseline" | "overlay", revision: number) => void) { this.publish = publish; }
 
-  acceptBaseline(trackUri: string, revision: number, document: any): void {
-    this.sessions.set(trackUri, { revision, baseline: structuredClone(document), overlays: {} });
-    this.publish(trackUri, this.renderable(document), "baseline");
+  acceptBaseline(trackUri: string, revision: number, document: any, deferred = false): void {
+    this.sessions.set(trackUri, { revision, baseline: structuredClone(document), overlays: {}, deferred });
+    if (!deferred) this.publish(trackUri, this.renderable(document), "baseline", revision);
   }
 
-  acceptLayerPublication(trackUri: string, layer: DerivedLayer, revision: number, document: any, origin: "baseline" | "overlay"): boolean {
+  acceptLayerPublication(trackUri: string, layer: DerivedLayer, revision: number, items: LayerItems, origin: "baseline" | "overlay"): boolean {
     const session = this.sessions.get(trackUri);
-    if (!session || session.revision !== revision || !sameSource(session.baseline, document)) return false;
+    if (!session || session.revision !== revision) return false;
     if (origin === "baseline") {
       if (!session.overlays[layer]) return true;
       delete session.overlays[layer];
     } else {
-      session.overlays[layer] = structuredClone(document);
+      session.overlays[layer] = { ...items };
     }
+    if (!session.deferred) this.publishComposed(trackUri, session);
+    return true;
+  }
+
+  publishDeferred(trackUri: string, revision: number): boolean {
+    const session = this.sessions.get(trackUri);
+    if (!session || session.revision !== revision) return false;
+    session.deferred = false;
     this.publishComposed(trackUri, session);
     return true;
   }
@@ -96,7 +96,7 @@ export class AIDerivedLayerComposer {
     const composed = this.renderable(session.baseline);
     if (session.overlays.sound) applySound(composed, session.overlays.sound);
     if (session.overlays.meaning) applyMeaning(composed, session.overlays.meaning);
-    this.publish(trackUri, composed, session.overlays.sound || session.overlays.meaning ? "overlay" : "baseline");
+    this.publish(trackUri, composed, session.overlays.sound || session.overlays.meaning ? "overlay" : "baseline", session.revision);
   }
 
   private renderable(document: any): any {

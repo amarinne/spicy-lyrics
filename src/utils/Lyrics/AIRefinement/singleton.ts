@@ -25,15 +25,17 @@ function selectedDescriptor(providerId: ProviderId): any | null {
   } catch { return null; }
 }
 
-function publishCurrent(trackUri: string, document: any, origin: "baseline" | "overlay"): void {
+let publicationSequence = 0;
+function publishCurrent(trackUri: string, document: any, origin: "baseline" | "overlay", revision: number): void {
   if (SpotifyPlayer.GetUri() !== trackUri) return;
   $currentLyricsData.set(JSON.stringify(document));
-  window.dispatchEvent(new CustomEvent("spicy-lyrics:processing-ready", { detail: { trackUri, trackId: trackUri.split(":")[2], lyrics: document, origin } }));
+  window.dispatchEvent(new CustomEvent("spicy-lyrics:processing-ready", { detail: { trackUri, trackId: trackUri.split(":")[2], lyrics: document, origin, revision, sequence: ++publicationSequence } }));
 }
 
 const cache = new IndexedDBRefinementCache();
 const composer = new AIDerivedLayerComposer(publishCurrent);
 let publicationRevision = 0;
+export const AI_CACHE_HYDRATION_DEADLINE_MS = 60;
 
 async function getConfig(layer: DerivedLayer) {
   const providerId = selectedProvider();
@@ -83,7 +85,7 @@ function coordinator(layer: DerivedLayer): AIRefinementCoordinator {
     },
     getConfig: () => getConfig(layer),
     getCredential,
-    publish: (trackUri, document, origin, revision) => { composer.acceptLayerPublication(trackUri, layer, revision, document, origin); },
+    publish: (trackUri, items, origin, revision) => { composer.acceptLayerPublication(trackUri, layer, revision, items, origin); },
     ensurePersistence,
   });
 }
@@ -91,11 +93,24 @@ function coordinator(layer: DerivedLayer): AIRefinementCoordinator {
 export const aiRefinementCoordinator = coordinator("meaning");
 export const aiSoundCoordinator = coordinator("sound");
 
-export function acceptAIRefinementBaseline(trackUri: string, document: any, stage: "intermediate" | "final", snapshot: CanonicalOriginalSnapshot): void {
+export async function acceptAIRefinementBaseline(trackUri: string, document: any, stage: "intermediate" | "final", snapshot: CanonicalOriginalSnapshot, hydrateBeforePublish = false): Promise<void> {
   const revision = ++publicationRevision;
-  composer.acceptBaseline(trackUri, revision, document);
-  aiRefinementCoordinator.acceptBaseline(trackUri, document, stage, snapshot, revision);
-  aiSoundCoordinator.acceptBaseline(trackUri, document, stage, snapshot, revision);
+  composer.acceptBaseline(trackUri, revision, document, hydrateBeforePublish);
+  const preparations = [
+    aiRefinementCoordinator.acceptBaseline(trackUri, document, stage, snapshot, revision),
+    aiSoundCoordinator.acceptBaseline(trackUri, document, stage, snapshot, revision),
+  ];
+  if (!hydrateBeforePublish) {
+    void Promise.allSettled(preparations);
+    return;
+  }
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  await Promise.race([
+    Promise.allSettled(preparations),
+    new Promise<void>((resolve) => { deadline = setTimeout(resolve, AI_CACHE_HYDRATION_DEADLINE_MS); }),
+  ]);
+  if (deadline) clearTimeout(deadline);
+  composer.publishDeferred(trackUri, revision);
 }
 
 export function onAIRefinementTrackChanged(trackUri: string | null): void {

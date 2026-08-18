@@ -21,7 +21,15 @@ function baseline(text = "愛", translated = "love") {
 
 function harness(provider = new FakeRefinementProvider(), cache = new MemoryRefinementCache(), getConfig = async () => config, getContext?: () => { title: string | null; artists: string[]; album: string | null }) {
   const publications: Array<{ trackUri: string; document: any; origin: string }> = [];
-  const coordinator = new AIRefinementCoordinator({ cache, provider, getConfig, getContext, publish: (trackUri, document, origin) => publications.push({ trackUri, document: structuredClone(document), origin }) });
+  let coordinator: AIRefinementCoordinator;
+  coordinator = new AIRefinementCoordinator({ cache, provider, getConfig, getContext, publish: (trackUri, items, origin) => {
+    const document = coordinator.getBaselineDocument(trackUri);
+    if (document?.Type === "Static") for (const [id, text] of Object.entries(items)) {
+      const index = Number(id.slice(1));
+      if (Number.isInteger(index) && document.Lines?.[index]) document.Lines[index].TranslatedText = text;
+    }
+    publications.push({ trackUri, document, origin });
+  } });
   coordinator.setEnabled(true);
   coordinator.onTrackChanged("spotify:track:test");
   return { coordinator, provider, cache, publications };
@@ -187,7 +195,7 @@ test("paid output never crosses document or target-language identity", async () 
   assert.equal(targetRevisit.publications.at(-1).origin, "baseline");
 });
 
-test("explicit retry after restart resets only failed chunk attempt caps and preserves paid accounting", async () => {
+test("explicit retry after restart ignores historical token totals, resets failed attempts, and preserves accounting", async () => {
   const firstProvider = new FakeRefinementProvider([
     { ok: true, items: [], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
     { ok: true, items: [], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 20 } },
@@ -198,7 +206,10 @@ test("explicit retry after restart resets only failed chunk attempt caps and pre
   first.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
   first.coordinator.refine("spotify:track:test");
   await waitFor(() => first.coordinator.getState("spotify:track:test").status === "failed");
-  const spent = cache.snapshot()[0].budgetConsumed;
+  const failedRecord = cache.snapshot()[0];
+  failedRecord.budgetConsumed = 50_000;
+  await cache.put(failedRecord);
+  const spent = failedRecord.budgetConsumed;
   const retryProvider = new FakeRefinementProvider([{ ok: true, items: [{ id: "S0", t: "retry success" }], usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 24 } }]);
   const reopened = harness(retryProvider, cache);
   reopened.coordinator.acceptBaseline("spotify:track:test", value.document, "final", value.snapshot);
@@ -426,6 +437,36 @@ test("Sound cache does not cross source-language identity", async () => {
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(revisit.getState("spotify:track:test").status, "idle");
   assert.equal(provider.calls.length, 0);
+});
+
+test("raw-source Sound cache separates Pinyin and Jyutping pronunciation systems", async () => {
+  const cache = new MemoryRefinementCache();
+  const soundConfig = { ...config, targetLang: "Latin", useSoundBaseline: false };
+  const pinyin = { Type: "Static", Language: "zho", DetectedChinese: true, ProcessingContextKey: JSON.stringify({ chineseTranslitMode: "pinyin" }), Lines: [{ Text: "行" }], ProcessingPending: false, RomanizationPending: false };
+  const snapshot = captureOriginalSnapshot(pinyin, null);
+  const paidProvider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "xing" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 24 } })]);
+  const paid = new AIRefinementCoordinator({ layer: "sound", cache, provider: paidProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  paid.setEnabled(true); paid.onTrackChanged("spotify:track:test");
+  paid.acceptBaseline("spotify:track:test", pinyin, "final", snapshot);
+  paid.refine("spotify:track:test");
+  await waitFor(() => paid.getState("spotify:track:test").status === "refined");
+  assert.equal(cache.snapshot()[0].pronunciationSystem, "mandarin-pinyin");
+
+  const pinyinProvider = new FakeRefinementProvider();
+  const pinyinRevisit = new AIRefinementCoordinator({ layer: "sound", cache, provider: pinyinProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  pinyinRevisit.setEnabled(true); pinyinRevisit.onTrackChanged("spotify:track:test");
+  pinyinRevisit.acceptBaseline("spotify:track:test", pinyin, "final", snapshot);
+  await waitFor(() => pinyinRevisit.getState("spotify:track:test").status === "refined");
+  assert.equal(pinyinProvider.calls.length, 0);
+
+  const jyutping = { ...pinyin, ProcessingContextKey: JSON.stringify({ chineseTranslitMode: "jyutping" }) };
+  const jyutpingProvider = new FakeRefinementProvider();
+  const jyutpingRevisit = new AIRefinementCoordinator({ layer: "sound", cache, provider: jyutpingProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  jyutpingRevisit.setEnabled(true); jyutpingRevisit.onTrackChanged("spotify:track:test");
+  jyutpingRevisit.acceptBaseline("spotify:track:test", jyutping, "final", snapshot);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(jyutpingRevisit.getState("spotify:track:test").status, "idle");
+  assert.equal(jyutpingProvider.calls.length, 0);
 });
 
 test("local tracks, missing credential and unsettled baselines fail closed", async () => {
@@ -658,7 +699,19 @@ test("Sound coordinator publishes whole-line reading overlays and rejects syllab
   const cache = new MemoryRefinementCache();
   const publications: any[] = [];
   const soundConfig = { ...config, targetLang: "Latin", instructions: "Use a readable pronunciation spelling." };
-  const coordinator = new AIRefinementCoordinator({ layer: "sound", cache, provider, getConfig: async () => soundConfig, publish: (_trackUri, document, origin) => publications.push({ document: structuredClone(document), origin }) });
+  let coordinator: AIRefinementCoordinator;
+  coordinator = new AIRefinementCoordinator({ layer: "sound", cache, provider, getConfig: async () => soundConfig, publish: (trackUri, items, origin) => {
+    const document = coordinator.getBaselineDocument(trackUri);
+    for (const [id, text] of Object.entries(items)) {
+      const index = Number(id.slice(1));
+      if (Number.isInteger(index) && document?.Lines?.[index]) {
+        document.Lines[index].RomanizedText = text;
+        document.Lines[index].TransliteratedText = text;
+      }
+    }
+    if (Object.keys(items).length) document.IncludesRomanization = true;
+    publications.push({ document, origin });
+  } });
   coordinator.setEnabled(true);
   coordinator.onTrackChanged("spotify:track:test");
   const source = { Type: "Static", Language: "kor", Lines: [{ Text: "사랑" }], ProcessingPending: false, RomanizationPending: false };

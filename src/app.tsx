@@ -838,13 +838,6 @@ async function main() {
       fetchLyrics(Spicetify.Player.data?.item?.uri).then(ApplyLyrics);
     });
 
-    window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) => {
-      const { trackId, lyrics } = event.detail ?? {};
-      if (!trackId || SpotifyPlayer.GetId() !== trackId) return;
-      ApplyLyrics([lyrics, 200]);
-      PageView.AppendViewControls(true);
-    }) as EventListener);
-
     new IntervalManager(ScrollingIntervalTime, () => {
       if (ScrollSimplebar) {
         ScrollToActiveLine(ScrollSimplebar);

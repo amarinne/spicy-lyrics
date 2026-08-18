@@ -39,12 +39,24 @@ export async function downloadRefinementCacheRecord(key: string): Promise<string
 }
 
 export class IndexedDBRefinementCache implements RefinementCache {
+  private deferTouch(key: string): void {
+    queueMicrotask(() => {
+      void (async () => {
+        const db = await dbPromise;
+        const tx = db.transaction(ObjectStores.AIRefinements, "readwrite");
+        const latest = await tx.store.get(key) as RefinementRecord | undefined;
+        if (latest) { latest.lastAccessedAt = Date.now(); await tx.store.put(latest); }
+        await tx.done;
+      })().catch(() => undefined);
+    });
+  }
+
   async get(key: string): Promise<RefinementRecord | undefined> {
     const db = await dbPromise;
     const record = await db.get(ObjectStores.AIRefinements, key) as RefinementRecord | undefined;
     if (!record) return undefined;
     record.lastAccessedAt = Date.now();
-    await db.put(ObjectStores.AIRefinements, record);
+    this.deferTouch(key);
     return record;
   }
   async put(record: RefinementRecord): Promise<void> {
@@ -66,8 +78,7 @@ export class IndexedDBRefinementCache implements RefinementCache {
     return await db.getAllFromIndex(ObjectStores.AIRefinements, "byTrackConfig", [trackUri, configId]) as RefinementRecord[];
   }
   async listByTrack(trackUri: string): Promise<RefinementRecord[]> {
-    const records = await (await dbPromise).getAll(ObjectStores.AIRefinements) as RefinementRecord[];
-    return records.filter((record) => record.trackUri === trackUri);
+    return await (await dbPromise).getAllFromIndex(ObjectStores.AIRefinements, "byTrack", trackUri) as RefinementRecord[];
   }
   pin(_key: string): void {}
   unpin(_key: string): void {}

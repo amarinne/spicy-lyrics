@@ -1,5 +1,5 @@
 import { validateProviderItems } from "./protocol.ts";
-import { AI_MAX_ATTEMPTS, AI_MAX_CONFIGURED_OUTPUT_TOKENS, AI_TOKEN_BUDGET, type ChunkFailure, type PlannedChunk, type ProviderConfig, type ProviderFailure, type RefinementChunkRecord, type RefinementProvider } from "./types.ts";
+import { AI_MAX_ATTEMPTS, AI_MAX_CONFIGURED_OUTPUT_TOKENS, type ChunkFailure, type PlannedChunk, type ProviderConfig, type ProviderFailure, type RefinementChunkRecord, type RefinementProvider } from "./types.ts";
 
 export type ChunkExecution = { ok: true; items: Array<{ id: string; t: string }>; record: RefinementChunkRecord; budgetConsumed: number } | { ok: false; failure: ChunkFailure; record: RefinementChunkRecord; budgetConsumed: number };
 
@@ -29,7 +29,6 @@ export async function executeChunk(args: {
   chunk: PlannedChunk;
   config: ProviderConfig;
   signal: AbortSignal;
-  budgetAlreadyConsumed: number;
   previous?: RefinementChunkRecord;
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
   deadlineMs?: number;
@@ -38,15 +37,9 @@ export async function executeChunk(args: {
   const previous = args.previous;
   if (previous?.status === "complete") throw new TypeError("completed chunk must not be resent");
   const record: RefinementChunkRecord = previous ? structuredClone(previous) : { ids: args.chunk.items.map((item) => item.id), requestJson: args.chunk.requestJson, status: "pending", attempts: 0, repairs: 0, tokens: { input: 0, output: 0 }, usageEstimated: false };
-  let totalBudget = args.budgetAlreadyConsumed;
+  let accountedTokens = 0;
   while (record.attempts < AI_MAX_ATTEMPTS) {
-    const remainingOutputBudget = AI_TOKEN_BUDGET - totalBudget - args.chunk.estimatedInputTokens;
-    const maxOutputTokens = Math.min(args.config.model.outputTokenLimit, AI_MAX_CONFIGURED_OUTPUT_TOKENS, remainingOutputBudget);
-    if (maxOutputTokens < args.chunk.estimatedOutputTokens) {
-      const failure = { reason: "budget_exceeded" } as const;
-      record.status = "failed"; record.failure = failure;
-      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
-    }
+    const maxOutputTokens = Math.min(args.config.model.outputTokenLimit, AI_MAX_CONFIGURED_OUTPUT_TOKENS);
     const reservation = args.chunk.estimatedInputTokens + maxOutputTokens;
     if (args.signal.aborted) throw args.signal.reason;
     record.attempts++;
@@ -58,51 +51,51 @@ export async function executeChunk(args: {
     try {
       result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, ...(args.chunk.instructions ? { instructions: args.chunk.instructions } : {}), items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, callController.signal);
     } catch {
-      totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
+      accountedTokens += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
       const failure = { reason: "delivery_unknown" } as const; record.status = "failed"; record.failure = failure;
-      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+      return { ok: false, failure, record, budgetConsumed: accountedTokens };
     } finally {
       clearTimeout(deadline); args.signal.removeEventListener("abort", abortCall);
     }
     if (!result.ok) {
       if (result.failure.kind === "protocol" && record.attempts < AI_MAX_ATTEMPTS) {
-        totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
+        accountedTokens += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
         record.repairs++; continue;
       }
       if (result.failure.kind === "rate_limited" && record.attempts < AI_MAX_ATTEMPTS) {
-        totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
+        accountedTokens += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
         try { await wait(Math.min(result.failure.retryAfterMs ?? 1000, 30_000), args.signal); }
         catch {
           const failure = { reason: "rate_limited" } as const; record.status = "failed"; record.failure = failure;
-          return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+          return { ok: false, failure, record, budgetConsumed: accountedTokens };
         }
         continue;
       }
-      totalBudget += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
+      accountedTokens += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
       const failure = mapFailure(result.failure); record.status = "failed"; record.failure = failure;
-      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+      return { ok: false, failure, record, budgetConsumed: accountedTokens };
     }
     const input = result.usage.input ?? args.chunk.estimatedInputTokens;
     const output = result.usage.output ?? maxOutputTokens;
     const estimated = result.usage.input === undefined || result.usage.output === undefined;
-    totalBudget += input + output; record.tokens.input += input; record.tokens.output += output; record.usageEstimated ||= estimated;
+    accountedTokens += input + output; record.tokens.input += input; record.tokens.output += output; record.usageEstimated ||= estimated;
     if (result.finish === "length") {
       const failure = { reason: "truncated" } as const; record.status = "failed"; record.failure = failure;
-      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+      return { ok: false, failure, record, budgetConsumed: accountedTokens };
     }
     if (result.finish !== "stop") {
       const failure = { reason: "provider_refused" } as const; record.status = "failed"; record.failure = failure;
-      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+      return { ok: false, failure, record, budgetConsumed: accountedTokens };
     }
     try {
       const items = validateProviderItems(result.items, args.chunk.items, args.config.layer ?? "meaning", args.config.targetLang);
       record.status = "complete"; delete record.failure;
-      return { ok: true, items, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+      return { ok: true, items, record, budgetConsumed: accountedTokens };
     } catch (error) {
       if (record.attempts < AI_MAX_ATTEMPTS) { record.repairs++; continue; }
       const failure = { reason: "protocol_invalid", detail: error instanceof Error ? error.message : "invalid" } as const;
       record.status = "failed"; record.failure = failure;
-      return { ok: false, failure, record, budgetConsumed: totalBudget - args.budgetAlreadyConsumed };
+      return { ok: false, failure, record, budgetConsumed: accountedTokens };
     }
   }
   throw new Error("unreachable attempt state");

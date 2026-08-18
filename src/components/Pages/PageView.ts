@@ -9,6 +9,7 @@ import {
   $forceDarkBackground,
   $japaneseReadingMode,
   $joinMandarinWords,
+  $koreanDisplayMode,
   $meaningVisible,
   $showChineseTranslitButton,
   $translationTargetLang,
@@ -93,14 +94,34 @@ import { aiRefinementCoordinator, aiSoundCoordinator, invalidateAIRefinementBase
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
 import { getDefaultAIRefinementRequest, openAIRefinementComposer, type AIRefinementComposerRequest } from "../../utils/openAISteeringEditor.tsx";
-import { loadLayerComparisonRows } from "../../utils/Lyrics/AIRefinement/DebugCapture.ts";
+import { loadLayerComparisonRows, type LayerComparisonOptions } from "../../utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { openAIOutputReviewPanel } from "../../utils/openAIOutputReviewPanel.tsx";
 import { allAIRefinementPresets } from "../../utils/AIRefinementPresets.ts";
 import { AI_CONSENT_VERSION } from "../../utils/Lyrics/AIRefinement/Credentials.ts";
-import { documentNeedsSoundOutput } from "../../utils/Lyrics/AIRefinement/document.ts";
+import { documentNeedsSoundOutput, enumerateSoundLines } from "../../utils/Lyrics/AIRefinement/document.ts";
+import type { RefinementState } from "../../utils/Lyrics/AIRefinement/Coordinator.ts";
+import { toast } from "sonner";
 
 const pageLogger = new Logger("Page View");
 const controlsLogger = new Logger("View Controls");
+
+function aiFailureMessage(layer: "meaning" | "sound", state: RefinementState): string {
+  const label = layer === "meaning" ? "translation" : "pronunciation";
+  switch (state.reason) {
+    case "no_credential": return `AI ${label} needs a saved provider key.`;
+    case "auth_rejected": return `AI ${label} provider authentication failed.`;
+    case "quota_exhausted": return `AI ${label} provider quota is exhausted.`;
+    case "rate_limited": return `AI ${label} was rate-limited. Try again later.`;
+    case "alignment_required": return `AI ${label} cannot preserve this song's syllable timing.`;
+    case "model_unavailable": return `The selected AI ${label} model is unavailable.`;
+    case "protocol_invalid": return `AI ${label} returned invalid structured output${state.detail ? `: ${state.detail}` : "."}`;
+    case "provider_refused": return `The provider refused the AI ${label} request.`;
+    case "truncated": return `The AI ${label} response was truncated.`;
+    case "delivery_unknown": return `AI ${label} delivery could not be confirmed; billing status is unknown.`;
+    case "oversized": return `This song is too large for the selected AI ${label} model.`;
+    default: return `AI ${label} failed${state.detail ? `: ${state.detail}` : "."}`;
+  }
+}
 
 interface TippyInstance {
   destroy: () => void;
@@ -762,7 +783,20 @@ function AppendViewControls(ReAppend: boolean = false) {
       const effectiveStatus = layer === "sound" && !documentNeedsSoundOutput(aiSoundCoordinator.getBaselineDocument(trackUri), $soundTargetOrthography.get())
         ? "covered" as const
         : currentState.status;
-      const comparison = await loadLayerComparisonRows(trackUri, layer);
+      const baselineDocument = layer === "sound" ? aiSoundCoordinator.getBaselineDocument(trackUri) : undefined;
+      let soundComparisonOptions: LayerComparisonOptions | undefined;
+      if (baselineDocument) {
+        try {
+          soundComparisonOptions = {
+            currentRows: enumerateSoundLines(baselineDocument).map((row) => ({ id: row.id, original: row.sourceText, baseline: row.baselineTranslatedText ?? "" })),
+            requireBaselineMatch: baselineDocument.DetectedChinese === true,
+            pronunciationSystem: baselineDocument.DetectedChinese === true
+              ? $chineseTranslitMode.get() === "jyutping" ? "cantonese-jyutping" : "mandarin-pinyin"
+              : undefined,
+          };
+        } catch {}
+      }
+      const comparison = await loadLayerComparisonRows(trackUri, layer, soundComparisonOptions);
       const hasAIOutput = comparison.rows.some((row) => row.attempts.length > 0);
       if (!hasAIOutput) {
         openAIComposer(trackUri, layer);
@@ -795,9 +829,8 @@ function AppendViewControls(ReAppend: boolean = false) {
           && aiSoundCoordinator.getState(trackUri).status === "idle"
           && documentNeedsSoundOutput(aiSoundCoordinator.getBaselineDocument(trackUri), $soundTargetOrthography.get());
         PageContainer?.querySelector(".LyricsContainer .LyricsContent")?.classList.add("HiddenTransitioned");
-        const lyrics = await fetchLyrics(trackUri);
         setRomanizedStatus(shouldGenerate ? true : !isRomanized);
-        ApplyLyrics(lyrics);
+        await fetchLyrics(trackUri).then(ApplyLyrics);
         if (shouldGenerate) runDefaultAI(trackUri, "sound");
         setTimeout(() => {
           AppendViewControls();
@@ -1128,6 +1161,7 @@ $chineseCharacterForm.listen(queueProcessingSettingsRefresh);
 $chineseTranslitMode.listen(queueProcessingSettingsRefresh);
 $chineseTones.listen(queueProcessingSettingsRefresh);
 $joinMandarinWords.listen(queueProcessingSettingsRefresh);
+$koreanDisplayMode.listen(queueProcessingSettingsRefresh);
 $translationTargetLang.listen(() => {
   aiRefinementCoordinator.notifyConfigChanged();
   queueProcessingSettingsRefresh();
@@ -1170,21 +1204,31 @@ $adaptiveSectioning.listen((enabled) => {
   rerenderCurrentLyrics();
 });
 
+let latestProcessingReadySequence = 0;
+let latestProcessingReadyRevision = 0;
 window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) => {
   const trackId = event.detail?.trackId;
-  if (trackId && trackId !== SpotifyPlayer.GetId()) return;
+  const revision = event.detail?.revision;
+  const sequence = event.detail?.sequence;
+  if (!trackId || trackId !== SpotifyPlayer.GetId() || event.detail?.trackUri !== SpotifyPlayer.GetUri()) return;
+  if (!Number.isSafeInteger(revision) || !Number.isSafeInteger(sequence)) return;
+  if (revision < latestProcessingReadyRevision || sequence <= latestProcessingReadySequence) return;
+  latestProcessingReadyRevision = revision;
+  latestProcessingReadySequence = sequence;
   ApplyLyrics([event.detail.lyrics, 200]).then(() => {
     AppendViewControls(true);
     setTimeout(() => triggerRemeasureLV(), 60);
   });
 }) as EventListener);
 
-aiRefinementCoordinator.subscribe((trackUri) => {
+aiRefinementCoordinator.subscribe((trackUri, state) => {
   if (trackUri === SpotifyPlayer.GetUri() && PageContainer) AppendViewControls(true);
+  if (trackUri === SpotifyPlayer.GetUri() && state.status === "failed") toast.error(aiFailureMessage("meaning", state), { id: `ai-meaning-failure:${trackUri}` });
 });
 
-aiSoundCoordinator.subscribe((trackUri) => {
+aiSoundCoordinator.subscribe((trackUri, state) => {
   if (trackUri === SpotifyPlayer.GetUri() && PageContainer) AppendViewControls(true);
+  if (trackUri === SpotifyPlayer.GetUri() && state.status === "failed") toast.error(aiFailureMessage("sound", state), { id: `ai-sound-failure:${trackUri}` });
 });
 
 $ttmlMakerMode.listen(() => {

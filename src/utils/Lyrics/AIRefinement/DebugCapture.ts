@@ -25,6 +25,7 @@ export type DurableProviderCapture = {
   trackUri: string | null;
   trackLabel: string | null;
   layer: "meaning" | "sound";
+  pronunciationSystem?: string;
   source?: LyricsSourceEvidence;
   baseline: Array<{ id: string; baseline: string }>;
   accepted?: Record<string, string>;
@@ -34,6 +35,8 @@ export type DurableProviderCapture = {
 export type ProviderComparisonAttempt = { number: number; text: string; model: string; repair: boolean; accepted: boolean };
 export type ProviderComparisonRow = { id: string; original: string; baseline: string; attempts: ProviderComparisonAttempt[] };
 export type MeaningComparisonDocument = { captures: number; rows: ProviderComparisonRow[]; modelName: string | null; instructions: string | null };
+export type CurrentComparisonRow = { id: string; original: string; baseline: string };
+export type LayerComparisonOptions = { currentRows: ReadonlyArray<CurrentComparisonRow>; requireBaselineMatch?: boolean; pronunciationSystem?: string };
 export type CaptureState = { enabled: boolean; durable: boolean; captureId: string | null; activeCaptureId: string | null; exchanges: ReadonlyArray<ProviderExchangeCapture> };
 export type ProviderCaptureSummary = { id: string; trackUri: string | null; trackLabel: string | null; layer: "meaning" | "sound"; sourceLabel: string | null; model: string | null; attempts: number; updatedAt: number };
 
@@ -57,6 +60,7 @@ function displayedCapture(): DurableProviderCapture | null { return selectedCapt
 function sameComparisonGroup(left: DurableProviderCapture, right: DurableProviderCapture): boolean {
   return left.trackUri === right.trackUri
     && (left.layer ?? "meaning") === (right.layer ?? "meaning")
+    && (left.pronunciationSystem ?? null) === (right.pronunciationSystem ?? null)
     && (left.source?.provider ?? null) === (right.source?.provider ?? null)
     && (left.source?.format ?? null) === (right.source?.format ?? null);
 }
@@ -161,11 +165,11 @@ export async function deleteAllProviderCaptures(): Promise<boolean> {
   return true;
 }
 
-export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>, layer: "meaning" | "sound" = "meaning", source?: LyricsSourceEvidence): string {
+export function captureProviderBaseline(trackUri: string, trackLabel: string | null, rows: ReadonlyArray<{ id: string; baselineTranslatedText?: string }>, layer: "meaning" | "sound" = "meaning", source?: LyricsSourceEvidence, pronunciationSystem?: string): string {
   const now = Date.now();
   const activeCapture = {
     id: newId(), schema: 1, createdAt: now, updatedAt: now, enabled: true, trackUri, trackLabel, layer,
-    source: source ? structuredClone(source) : undefined,
+    source: source ? structuredClone(source) : undefined, pronunciationSystem,
     baseline: rows.map((row) => ({ id: row.id, baseline: row.baselineTranslatedText ?? "" })), accepted: {}, exchanges: [],
   };
   activeCaptures.set(activeCapture.id, activeCapture);
@@ -286,6 +290,47 @@ function exchangeRequestItems(exchange: ProviderExchangeCapture): Array<{ id: st
   return Array.isArray(parsed?.items) ? parsed.items.filter((item: any) => typeof item?.id === "string" && typeof item?.s === "string").map((item: any) => ({ id: item.id, s: item.s })) : [];
 }
 
+function captureOriginals(capture: DurableProviderCapture): Map<string, string> {
+  const originals = new Map<string, string>();
+  for (const exchange of capture.exchanges) {
+    for (const item of exchangeRequestItems(exchange)) if (!originals.has(item.id)) originals.set(item.id, item.s);
+  }
+  return originals;
+}
+
+function sameBaseline(left: ReadonlyArray<{ id: string; baseline: string }>, right: ReadonlyArray<CurrentComparisonRow>): boolean {
+  if (left.length !== right.length) return false;
+  const rightById = new Map(right.map((row) => [row.id, row.baseline]));
+  return left.every((row) => rightById.get(row.id) === row.baseline);
+}
+
+function continuesCapture(previous: DurableProviderCapture, current: DurableProviderCapture): boolean {
+  if (!sameComparisonGroup(previous, current) || previous.baseline.length !== current.baseline.length) return false;
+  const previousBaseline = new Map(previous.baseline.map((row) => [row.id, row.baseline]));
+  const currentBaseline = new Map(current.baseline.map((row) => [row.id, row.baseline]));
+  return previous.baseline.every((row) => currentBaseline.get(row.id) === (previous.accepted?.[row.id] ?? previousBaseline.get(row.id)));
+}
+
+function matchesCurrentSource(capture: DurableProviderCapture, currentRows: ReadonlyArray<CurrentComparisonRow>): boolean {
+  if (capture.baseline.length !== currentRows.length) return false;
+  const currentById = new Map(currentRows.map((row) => [row.id, row]));
+  if (!capture.baseline.every((row) => currentById.has(row.id))) return false;
+  for (const [id, source] of captureOriginals(capture)) if (currentById.get(id)?.original !== source) return false;
+  return true;
+}
+
+export function selectCurrentComparisonCaptures(records: ReadonlyArray<DurableProviderCapture>, options: LayerComparisonOptions): DurableProviderCapture[] {
+  const ordered = records.filter((record) => matchesCurrentSource(record, options.currentRows)
+    && (!options.pronunciationSystem || record.pronunciationSystem === options.pronunciationSystem)).sort((left, right) => left.createdAt - right.createdAt);
+  if (!options.requireBaselineMatch) return ordered;
+  const selected: DurableProviderCapture[] = [];
+  for (const record of ordered) {
+    // Revisions inherit compatibility from their own prior accepted output, even when another mode's run is interleaved.
+    if (sameBaseline(record.baseline, options.currentRows) || selected.some((previous) => continuesCapture(previous, record))) selected.push(record);
+  }
+  return selected;
+}
+
 function exchangeResponseItems(exchange: ProviderExchangeCapture): Array<{ id: string; t: string }> {
   const response = exchange.response as any;
   const openAIContent = response?.choices?.[0]?.message?.content;
@@ -328,6 +373,11 @@ export function buildProviderComparisonRows(captures: ReadonlyArray<DurableProvi
   return Array.from(ids).map((id) => ({ id, original: originals.get(id) ?? "", baseline: baseline.get(id) ?? "", attempts: attempts.get(id) ?? [] }));
 }
 
+export function buildCurrentProviderComparisonRows(captures: ReadonlyArray<DurableProviderCapture>, currentRows: ReadonlyArray<CurrentComparisonRow>): ProviderComparisonRow[] {
+  const attemptsById = new Map(buildProviderComparisonRows(captures).map((row) => [row.id, row.attempts]));
+  return currentRows.map((row) => ({ ...row, attempts: attemptsById.get(row.id) ?? [] }));
+}
+
 function exchangeInstructions(exchange: ProviderExchangeCapture | undefined): string | null {
   if (!exchange) return null;
   const request = exchange.request as any;
@@ -340,18 +390,20 @@ function exchangeInstructions(exchange: ProviderExchangeCapture | undefined): st
   } catch { return null; }
 }
 
-export async function loadLayerComparisonRows(trackUri: string, layer: "meaning" | "sound"): Promise<MeaningComparisonDocument> {
+export async function loadLayerComparisonRows(trackUri: string, layer: "meaning" | "sound", options?: LayerComparisonOptions): Promise<MeaningComparisonDocument> {
   if (typeof indexedDB === "undefined") return { captures: 0, rows: [], modelName: null, instructions: null };
   await writeChain;
   const { dbPromise, ObjectStores } = await import("../../db.ts");
-  const records = (await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[])
+  let records = (await (await dbPromise).getAll(ObjectStores.AICaptures) as DurableProviderCapture[])
     .filter((record) => record.trackUri === trackUri && (record.layer ?? "meaning") === layer)
     .sort((left, right) => left.createdAt - right.createdAt);
+  if (options) records = selectCurrentComparisonCaptures(records, options);
   if (!records.length) return { captures: 0, rows: [], modelName: null, instructions: null };
   const latest = records.at(-1)!;
   const compatible = records.filter((record) => sameComparisonGroup(record, latest));
   const latestExchange = latest.exchanges.at(-1);
-  return { captures: compatible.length, rows: buildProviderComparisonRows(compatible), modelName: latestExchange?.model ?? null, instructions: exchangeInstructions(latestExchange) };
+  const rows = options ? buildCurrentProviderComparisonRows(compatible, options.currentRows) : buildProviderComparisonRows(compatible);
+  return { captures: compatible.length, rows, modelName: latestExchange?.model ?? null, instructions: exchangeInstructions(latestExchange) };
 }
 
 export function loadMeaningComparisonRows(trackUri: string): Promise<MeaningComparisonDocument> {

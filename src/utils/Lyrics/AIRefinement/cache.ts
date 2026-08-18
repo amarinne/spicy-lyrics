@@ -41,7 +41,3 @@ export class MemoryRefinementCache implements RefinementCache {
   unpin(_key: string): void {}
   snapshot(): RefinementRecord[] { return Array.from(this.records.values()).map((record) => structuredClone(record)); }
 }
-
-export function sumBudgetConsumed(records: ReadonlyArray<RefinementRecord>): number {
-  return records.reduce((sum, record) => sum + record.budgetConsumed, 0);
-}

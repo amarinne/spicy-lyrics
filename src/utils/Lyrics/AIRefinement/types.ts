@@ -4,7 +4,6 @@ export const AI_ORIGINAL_SNAPSHOT_SCHEMA = 1;
 export const AI_PROMPT_VERSION = 5;
 export const AI_ITERATION_PROMPT_VERSION = 3;
 export const AI_CHUNK_PLAN_VERSION = 4;
-export const AI_TOKEN_BUDGET = 12_000;
 export const AI_MAX_DOCUMENT_ROWS = 512;
 export const AI_MAX_DOCUMENT_SOURCE_BYTES = 64 * 1024;
 export const AI_MAX_SOURCE_ITEM_BYTES = 2 * 1024;
@@ -109,7 +108,7 @@ export type PlannedChunk = {
 };
 export type ChunkPlan = { version: typeof AI_CHUNK_PLAN_VERSION; chunks: ReadonlyArray<PlannedChunk>; enumerableRows: number; canonicalSourceUtf8Bytes: number };
 
-export type RefinementFailureReason = "no_credential" | "baseline_unavailable" | "alignment_required" | "model_unavailable" | "auth_rejected" | "quota_exhausted" | "rate_limited" | "delivery_unknown" | "protocol_invalid" | "request_rejected" | "provider_refused" | "truncated" | "oversized" | "budget_exceeded";
+export type RefinementFailureReason = "no_credential" | "baseline_unavailable" | "alignment_required" | "model_unavailable" | "auth_rejected" | "quota_exhausted" | "rate_limited" | "delivery_unknown" | "protocol_invalid" | "request_rejected" | "provider_refused" | "truncated" | "oversized";
 export type CancellationReason = "track_change" | "user" | "config_changed" | "credential_changed" | "baseline_superseded" | "experiment_disabled";
 export type ChunkFailure = { reason: RefinementFailureReason; status?: number; detail?: string };
 export type RefinementChunkRecord = { ids: string[]; requestJson: string; status: "pending" | "complete" | "failed"; attempts: number; repairs: number; tokens: { input: number; output: number }; usageEstimated: boolean; failure?: ChunkFailure };
@@ -126,6 +125,7 @@ export type RefinementRecord = {
   modelName: string;
   targetLang: string;
   sourceLanguage?: string;
+  pronunciationSystem?: string;
   layer?: DerivedLayer;
   parentRecordKey?: string;
   rootRecordKey?: string;

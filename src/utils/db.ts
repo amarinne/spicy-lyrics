@@ -13,8 +13,8 @@ export const ObjectStores = {
   AICaptures: "aiCaptures",
 }
 
-export const dbPromise = openDB("spicylyrics", 4, {
-  upgrade(db) {
+export const dbPromise = openDB("spicylyrics", 5, {
+  upgrade(db, _oldVersion, _newVersion, transaction) {
     dbLogger.debug("Upgrade invoked");
     if (!db.objectStoreNames.contains(ObjectStores.LyricsStore)) {
       db.createObjectStore(ObjectStores.LyricsStore);
@@ -24,12 +24,12 @@ export const dbPromise = openDB("spicylyrics", 4, {
       db.createObjectStore(ObjectStores.JapaneseAssets);
       dbLogger.debug("Created '", ObjectStores.JapaneseAssets, "' store");
     }
-    if (!db.objectStoreNames.contains(ObjectStores.AIRefinements)) {
-      const store = db.createObjectStore(ObjectStores.AIRefinements, { keyPath: "key" });
-      store.createIndex("byTrackConfig", ["trackUri", "configId"]);
-      store.createIndex("byLastAccessedAt", "lastAccessedAt");
-      dbLogger.debug("Created AI refinement store and indexes");
-    }
+    const refinementStore = db.objectStoreNames.contains(ObjectStores.AIRefinements)
+      ? transaction.objectStore(ObjectStores.AIRefinements)
+      : db.createObjectStore(ObjectStores.AIRefinements, { keyPath: "key" });
+    if (!refinementStore.indexNames.contains("byTrackConfig")) refinementStore.createIndex("byTrackConfig", ["trackUri", "configId"]);
+    if (!refinementStore.indexNames.contains("byLastAccessedAt")) refinementStore.createIndex("byLastAccessedAt", "lastAccessedAt");
+    if (!refinementStore.indexNames.contains("byTrack")) refinementStore.createIndex("byTrack", "trackUri");
     if (!db.objectStoreNames.contains(ObjectStores.AICredentials)) {
       db.createObjectStore(ObjectStores.AICredentials);
       dbLogger.debug("Created AI credential store");
