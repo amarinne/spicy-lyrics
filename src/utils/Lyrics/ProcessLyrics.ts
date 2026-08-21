@@ -5,7 +5,7 @@ import Logger from "../Logger.ts";
 import { convertChineseLyricsText } from "./ChineseCharacterConversion.ts";
 import { $chineseCharacterForm } from "../uiState.ts";
 import { $googleSoundFallback, $soundTargetOrthography } from "../stores.ts";
-import { chineseTones, chineseTranslitMode, cyrillicKeepSigns, cyrillicRomanizationMode, joinMandarinWords, koreanDisplayMode } from "./lyrics.ts";
+import { chineseReadingPlacement, chineseTones, chineseTranslitMode, cyrillicKeepSigns, cyrillicRomanizationMode, joinMandarinWords, koreanDisplayMode } from "./lyrics.ts";
 import {
   ChineseTextTest,
   JapaneseTextTest,
@@ -40,7 +40,7 @@ import { DefaultCanonicalLineBuilder } from "./Processing/Canonical.ts";
 import { annotateKoreanLine } from "./Processing/Korean/KoreanAnnotationProcessor.ts";
 import { DefaultRenderPlanBuilder, validateRenderPlan } from "./Processing/RenderPlan.ts";
 import { japaneseDictionariesReady, processJapanesePackageLine, processJapanesePackageTextTarget } from "./Processing/Japanese/JapanesePackageProcessor.ts";
-import { buildLineFallbackPlan, buildTimedGenericPlan } from "./Processing/GenericReadingProcessor.ts";
+import { buildLineAttachedPlan, buildLineFallbackPlan, buildTimedGenericPlan } from "./Processing/GenericReadingProcessor.ts";
 import { romanizeChineseDominantCjkText } from "./Processing/CjkLanguageRouting.ts";
 import type { ParsedLine } from "./Processing/Model.ts";
 import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
@@ -373,7 +373,12 @@ const postProcessSyllableRomanization = async (
           group,
           fullRomaji,
           isChineseLine ? "Chinese" : "Generic",
-          { mandarinWordLayout },
+          {
+            mandarinWordLayout,
+            ...(isChineseLine && chineseReadingPlacement !== "lineBelow"
+              ? { attachedReadings: { translitMode: chineseTranslitMode, tones: chineseTones } }
+              : {}),
+          },
         );
         if (plan) {
           group.ReadingRenderPlan = plan;
@@ -592,7 +597,11 @@ export const ProcessLyrics = async (
         if (joinMandarinWords && chineseTranslitMode === "pinyin" && cjkLineRoute === "Chinese") {
           display = joinMandarinReadingWords(entry.target.Text || "", display);
         }
-        entry.target.ReadingRenderPlan = buildLineFallbackPlan(entry.target.Text || "", display, `line-${index}`);
+        const attachedPlan = chineseReadingPlacement !== "lineBelow" && cjkLineRoute === "Chinese"
+          ? buildLineAttachedPlan(entry.target.Text || "", display, `line-${index}`, chineseTranslitMode, chineseTones)
+          : undefined;
+        entry.target.ReadingRenderPlan = attachedPlan
+          ?? buildLineFallbackPlan(entry.target.Text || "", display, `line-${index}`);
         delete entry.target.RomanizedText;
         delete entry.target.TransliteratedText;
       });

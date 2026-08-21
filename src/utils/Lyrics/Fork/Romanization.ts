@@ -93,12 +93,60 @@ export async function romanizeCantonese(
   }
 
   const parts: string[] = [];
-  for (let index = 0; index < text.length;) {
+  for (const piece of walkCantoneseReadings(text, tones)) {
+    if (piece.reading) parts.push(piece.reading);
+  }
+
+  const result = parts.join(" ").replace(/\s+/g, " ").trim();
+  return result || undefined;
+}
+
+/**
+ * One source substring and the jyutping it produced, in source order.
+ *
+ * `romanizeCantonese` joins these into a line string; attached-reading placement needs the same
+ * walk but keeps each piece's position. Sharing the traversal is the point — two copies would
+ * drift, and a reading whose range disagrees with the text it reads is worse than no reading.
+ *
+ * Offsets are code points, matching `TextRange`, while the walk itself is UTF-16 because the
+ * phrase table is matched with `startsWith`.
+ */
+export type CantoneseReadingPiece = {
+  readonly startCp: number;
+  readonly endCp: number;
+  readonly text: string;
+  readonly reading: string;
+  readonly isHan: boolean;
+  /** A multi-character dictionary entry: its reading cannot be split per character. */
+  readonly isPhrase: boolean;
+};
+
+export function* walkCantoneseReadings(text: string, tones = true): Generator<CantoneseReadingPiece> {
+  let index = 0;
+  let startCp = 0;
+  const advance = (nextIndex: number): number => {
+    const consumed = Array.from(text.slice(index, nextIndex)).length;
+    index = nextIndex;
+    startCp += consumed;
+    return consumed;
+  };
+
+  while (index < text.length) {
+    const from = index;
+    const fromCp = startCp;
+
     const phrase = JYUTPING_PHRASE_KEYS.find((key) => text.startsWith(key, index));
     if (phrase) {
       const reading = JYUTPING_PHRASES[phrase];
-      parts.push(tones ? reading : stripJyutpingTones(reading));
-      index += phrase.length;
+      advance(index + phrase.length);
+      yield {
+        startCp: fromCp,
+        endCp: startCp,
+        text: phrase,
+        reading: tones ? reading : stripJyutpingTones(reading),
+        isHan: true,
+        isPhrase: Array.from(phrase).length > 1,
+      };
       continue;
     }
 
@@ -112,20 +160,30 @@ export async function romanizeCantonese(
         end += nextChar.length;
       }
 
-      const span = text.slice(index, end).trim();
-      if (span) parts.push(span);
-      index = end;
+      advance(end);
+      yield {
+        startCp: fromCp,
+        endCp: startCp,
+        text: text.slice(from, end),
+        reading: text.slice(from, end).trim(),
+        isHan: false,
+        isPhrase: false,
+      };
       continue;
     }
 
     const list = getJyutpingList(char);
-    const reading = list?.[0]?.[1] || char;
-    if (reading.trim()) parts.push(tones ? reading : stripJyutpingTones(reading));
-    index += char.length;
+    const charReading = list?.[0]?.[1] || char;
+    advance(index + char.length);
+    yield {
+      startCp: fromCp,
+      endCp: startCp,
+      text: char,
+      reading: charReading.trim() ? (tones ? charReading : stripJyutpingTones(charReading)) : "",
+      isHan: true,
+      isPhrase: false,
+    };
   }
-
-  const result = parts.join(" ").replace(/\s+/g, " ").trim();
-  return result || undefined;
 }
 
 export function stripJyutpingTones(text: string): string {
@@ -153,9 +211,22 @@ export function romanizeMandarin(text: string, tones = true): string {
   return readings.join(" ").replace(/\s+/gu, " ").trim();
 }
 
+export type MandarinToken = {
+  readonly startCp: number;
+  readonly endCp: number;
+  readonly text: string;
+  readonly isHan: boolean;
+};
+
 export type MandarinWordLayout = {
   tokenCount: number;
   continuationTokenIndices: ReadonlySet<number>;
+  /**
+   * The same tokens the count walks, carrying their source positions. Empty when the segmenter's
+   * parts do not reconstruct the input — attached readings must not guess at a range they cannot
+   * prove, so callers fall back to a line-level reading instead.
+   */
+  tokens: readonly MandarinToken[];
 };
 
 export function buildMandarinWordLayout(text: string): MandarinWordLayout {
@@ -165,7 +236,10 @@ export function buildMandarinWordLayout(text: string): MandarinWordLayout {
     toneSandhi: false,
   });
   const continuationTokenIndices = new Set<number>();
+  const tokens: MandarinToken[] = [];
   let tokenCount = 0;
+  let cursorCp = 0;
+  let reconstructed = "";
 
   for (const group of groups) {
     const isHanWord = group.length > 1 && group.every((part) => {
@@ -174,13 +248,28 @@ export function buildMandarinWordLayout(text: string): MandarinWordLayout {
     });
 
     for (let index = 0; index < group.length; index += 1) {
-      if (!group[index].trim()) continue;
+      const part = group[index];
+      const startCp = cursorCp;
+      // Blank parts still consume source text, so the cursor advances even when they are skipped.
+      cursorCp += Array.from(part).length;
+      reconstructed += part;
+      if (!part.trim()) continue;
       if (isHanWord && index > 0) continuationTokenIndices.add(tokenCount);
+      tokens.push({
+        startCp,
+        endCp: cursorCp,
+        text: part,
+        isHan: Array.from(part).every((character) => isChineseHanChar(character)),
+      });
       tokenCount += 1;
     }
   }
 
-  return { tokenCount, continuationTokenIndices };
+  return {
+    tokenCount,
+    continuationTokenIndices,
+    tokens: reconstructed === text ? tokens : [],
+  };
 }
 
 export function joinMandarinReadingWords(text: string, reading: string): string {

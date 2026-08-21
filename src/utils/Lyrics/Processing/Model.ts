@@ -66,6 +66,22 @@ export type ScriptRun = {
   readonly canonicalRange: TextRange;
 };
 
+/**
+ * A reading attached to the characters it reads, rather than to the line. `spanIds` is what keeps
+ * grouping honest: one id is a reading of a single span, several ids is a reading the provider
+ * already owns as one group. A segment never claims timing beyond the spans it names, so display
+ * grouping can never rewrite the plan.
+ */
+export type AttachedReadingKind = "mandarinPinyin" | "cantoneseJyutping";
+
+export type AttachedReadingSegment = {
+  readonly canonicalRange: TextRange;
+  readonly spanIds: readonly string[];
+  readonly reading: string;
+  readonly kind: AttachedReadingKind;
+  readonly provenance: ReadingProvenance;
+};
+
 export type ReadingUnit = {
   readonly canonicalRange: TextRange;
   readonly text: string;
@@ -80,6 +96,7 @@ export type ReadingAnnotation = {
   readonly provenance: ReadingProvenance;
   readonly units: readonly ReadingUnit[];
   readonly furigana?: readonly unknown[];
+  readonly attachedReadings?: readonly AttachedReadingSegment[];
 };
 
 export type TimedReadingUnit = {
@@ -97,6 +114,7 @@ export type RenderPlan = {
   readonly joinedDisplayText: string;
   readonly translation?: string;
   readonly furigana?: readonly unknown[];
+  readonly attachedReadings?: readonly AttachedReadingSegment[];
 };
 
 export type LanguageContext = {

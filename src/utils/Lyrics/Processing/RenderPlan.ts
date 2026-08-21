@@ -12,6 +12,8 @@ export class DefaultRenderPlanBuilder implements RenderPlanBuilder {
   build(line: ParsedLine, canonical: CanonicalLine, annotations: readonly ReadingAnnotation[]): RenderPlan {
     const readingUnits = annotations.flatMap((annotation) => annotation.units)
       .sort((a, b) => a.canonicalRange.startCp - b.canonicalRange.startCp);
+    const attachedReadings = annotations.flatMap((annotation) => annotation.attachedReadings ?? [])
+      .sort((a, b) => a.canonicalRange.startCp - b.canonicalRange.startCp);
     const timedReadingUnits: TimedReadingUnit[] = readingUnits.flatMap((unit) =>
       unit.timingRefs.map((spanId) => ({
         spanId,
@@ -26,6 +28,7 @@ export class DefaultRenderPlanBuilder implements RenderPlanBuilder {
       readingUnits,
       timedReadingUnits,
       joinedDisplayText: readingUnits.map((unit) => unit.text).join(""),
+      ...(attachedReadings.length ? { attachedReadings } : {}),
     };
   }
 }

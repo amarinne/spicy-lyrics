@@ -1,6 +1,7 @@
 import { DefaultCanonicalLineBuilder } from "./Canonical.ts";
 import { DefaultRenderPlanBuilder, validateRenderPlan } from "./RenderPlan.ts";
 import type { ParsedLine, ReadingAnnotation, RenderPlan } from "./Model.ts";
+import { buildChineseAttachedReadings } from "./ChineseReadingSegments.ts";
 
 function align(chunks: string[], display: string): string[] {
   const out = [...chunks];
@@ -60,6 +61,11 @@ type TimedGenericPlanOptions = {
   mandarinWordLayout?: {
     tokenCount: number;
     continuationTokenIndices: ReadonlySet<number>;
+  };
+  /** Set when readings attach to spans instead of the line, so the plan carries their ranges. */
+  attachedReadings?: {
+    translitMode: "pinyin" | "jyutping";
+    tones: boolean;
   };
 };
 
@@ -153,10 +159,50 @@ export function buildTimedGenericPlan(
   const chunks = processor === "Chinese"
     ? alignChineseTimedUnits(rawChunks, display, sourceTexts, options)
     : align(rawChunks, display);
+  const attached = options.attachedReadings
+    ? buildChineseAttachedReadings(
+      canonical.text,
+      options.attachedReadings.translitMode,
+      options.attachedReadings.tones,
+      canonical.spanMappings,
+    )
+    : [];
   const annotation: ReadingAnnotation = { processor, mode: "local", provenance: "local",
     units: canonical.spanMappings.map((mapping, index) => ({ canonicalRange: mapping.canonicalRange,
       text: chunks[index], kind: chunks[index].trim() === (syllables[index].Text || "").trim() ? "passthrough" : "transformed",
-      logicalGroupId: `generic-${index}`, timingRefs: [mapping.spanId] })) };
+      logicalGroupId: `generic-${index}`, timingRefs: [mapping.spanId] })),
+    ...(attached.length ? { attachedReadings: attached } : {}) };
+  const plan = new DefaultRenderPlanBuilder().build(parsed, canonical, [annotation]);
+  return validateRenderPlan(plan).valid ? plan : undefined;
+}
+
+/**
+ * Line-tier plan for attached placement.
+ *
+ * The fallback plan owns the line as a single span, so a per-character reading could not name what
+ * it covers and would be dropped. Untimed lines have no provider spans to preserve, so here the
+ * characters themselves are the spans — grouping still comes from whatever produced each reading,
+ * never from the renderer.
+ */
+export function buildLineAttachedPlan(
+  source: string,
+  display: string,
+  id: string,
+  translitMode: "pinyin" | "jyutping",
+  tones: boolean,
+): RenderPlan | undefined {
+  const characters = Array.from(source);
+  if (!characters.length) return undefined;
+  const parsed: ParsedLine = { id, displayText: source, paragraphProvenance: "lineBoundary",
+    spans: characters.map((character, index) => ({ id: String(index), rawText: character,
+      cleanText: character, startMs: 0, endMs: 0, providerPartOfWord: false })) };
+  const canonical = new DefaultCanonicalLineBuilder().build(parsed);
+  const attached = buildChineseAttachedReadings(canonical.text, translitMode, tones, canonical.spanMappings);
+  if (!attached.length) return undefined;
+  const annotation: ReadingAnnotation = { processor: "Fallback", mode: "line", provenance: "local",
+    units: [{ canonicalRange: { startCp: 0, endCp: Array.from(canonical.text).length }, text: display,
+      kind: "transformed", logicalGroupId: "line", timingRefs: [] }],
+    attachedReadings: attached };
   const plan = new DefaultRenderPlanBuilder().build(parsed, canonical, [annotation]);
   return validateRenderPlan(plan).valid ? plan : undefined;
 }
