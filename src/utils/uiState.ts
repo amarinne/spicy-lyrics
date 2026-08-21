@@ -82,6 +82,13 @@ export const $romanization = persistAtom<boolean>("romanization", false);
 export const $chineseTranslitMode = persistAtom<"pinyin" | "jyutping">("chineseTranslitMode", "pinyin");
 export const $chineseTones = persistAtom<boolean>("chineseTones", true);
 export const $joinMandarinWords = persistAtom<boolean>("joinMandarinWords", false);
+/**
+ * Where a Chinese reading sits relative to the characters it reads. `wordAbove` is ruby position,
+ * the same slot furigana uses for Japanese — which is why this never applies to Japanese lines.
+ * Governs jyutping as well as pinyin; both are readings of Han characters.
+ */
+export type ChineseReadingPlacement = "lineBelow" | "wordBelow" | "wordAbove";
+export const $chineseReadingPlacement = persistAtom<ChineseReadingPlacement>("chineseReadingPlacement", "lineBelow");
 export const $chineseCharacterForm = persistAtom<ChineseCharacterForm>("chineseCharacterForm", "original");
 export const $japaneseReadingMode = persistAtom<"romaji" | "furigana" | "both">("japaneseReadingMode", "romaji");
 export type KoreanDisplayMode = "wordTranslit" | "rrStandard" | "rrPronunciation" | "vnPronunciation";

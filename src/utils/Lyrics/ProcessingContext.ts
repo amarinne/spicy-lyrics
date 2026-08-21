@@ -1,4 +1,5 @@
 import type { ChineseCharacterForm } from "./ChineseCharacterConversion.ts";
+import type { ChineseReadingPlacement } from "../uiState.ts";
 import type { MeaningBackend } from "../stores.ts";
 
 export type ProcessingContext = {
@@ -8,6 +9,7 @@ export type ProcessingContext = {
   chineseTranslitMode: "pinyin" | "jyutping";
   chineseTones: boolean;
   joinMandarinWords: boolean;
+  chineseReadingPlacement: ChineseReadingPlacement;
   chineseCharacterForm: ChineseCharacterForm;
   koreanDisplayMode: "wordTranslit" | "rrStandard" | "rrPronunciation" | "vnPronunciation";
   cyrillicRomanizationMode: "Russian" | "Ukrainian";
@@ -21,6 +23,7 @@ export function buildProcessingContextKey(context: ProcessingContext): string {
     chineseTranslitMode: context.chineseTranslitMode,
     chineseTones: context.chineseTones,
     joinMandarinWords: context.joinMandarinWords,
+    chineseReadingPlacement: context.chineseReadingPlacement,
     chineseCharacterForm: context.chineseCharacterForm,
     koreanDisplayMode: context.koreanDisplayMode,
     cyrillicRomanizationMode: context.cyrillicRomanizationMode,

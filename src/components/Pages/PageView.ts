@@ -8,6 +8,7 @@ import {
   $forceCompactMode,
   $forceDarkBackground,
   $japaneseReadingMode,
+  $chineseReadingPlacement,
   $joinMandarinWords,
   $koreanDisplayMode,
   $meaningVisible,
@@ -1161,6 +1162,7 @@ $chineseCharacterForm.listen(queueProcessingSettingsRefresh);
 $chineseTranslitMode.listen(queueProcessingSettingsRefresh);
 $chineseTones.listen(queueProcessingSettingsRefresh);
 $joinMandarinWords.listen(queueProcessingSettingsRefresh);
+$chineseReadingPlacement.listen(queueProcessingSettingsRefresh);
 $koreanDisplayMode.listen(queueProcessingSettingsRefresh);
 $translationTargetLang.listen(() => {
   aiRefinementCoordinator.notifyConfigChanged();

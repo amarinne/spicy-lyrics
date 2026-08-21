@@ -19,6 +19,7 @@ import {
   $cyrillicKeepSigns,
   $cyrillicRomanizationMode,
   $japaneseReadingMode,
+  $chineseReadingPlacement,
   $joinMandarinWords,
   $koreanDisplayMode,
   $lyricsCopyFormat,
@@ -92,6 +93,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const chineseTones = useStore($chineseTones);
   const chineseCharacterForm = useStore($chineseCharacterForm);
   const joinMandarinWords = useStore($joinMandarinWords);
+  const chineseReadingPlacement = useStore($chineseReadingPlacement);
   const japaneseReadingMode = useStore($japaneseReadingMode);
   const koreanDisplayMode = useStore($koreanDisplayMode);
   const cyrillicRomanizationMode = useStore($cyrillicRomanizationMode);
@@ -115,6 +117,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showChineseTones = matches(query, "Chinese Tones", "Show Mandarin tone marks and Cantonese jyutping tone numbers.");
   const showChineseCharacterForm = matches(query, "Chinese Character Form", "Keep original characters or convert Chinese lyrics locally.");
   const showMandarinWordGrouping = matches(query, "Group Pinyin by Word", "Keep Pinyin syllables together when they form one Mandarin word.");
+  const showChineseReadingPlacement = matches(query, "Chinese Reading Placement", "Put the reading under the line, under each word, or above each word.");
   const showJapaneseReadingDisplay = matches(query, "Japanese Reading Display", "Choose romaji, furigana, or both for Japanese lyrics.");
   const showKoreanDisplay = matches(query, "Korean Display", "Choose Korean transliteration mode for the extra romanized line.");
   const showCyrillicRomanization = matches(query, "Cyrillic Language", "Choose Russian or Ukrainian Cyrillic romanization rules.");
@@ -136,6 +139,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
     showChineseTones ||
     showChineseCharacterForm ||
     showMandarinWordGrouping ||
+    showChineseReadingPlacement ||
     showJapaneseReadingDisplay ||
     showKoreanDisplay ||
     showCyrillicRomanization ||
@@ -247,16 +251,32 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
         </Row>
       )}
 
+      {showChineseReadingPlacement && (
+        <Row
+          label="Chinese Reading Placement"
+          description="Put the reading under the line, under each word, or above each word."
+        >
+          <Select
+            value={chineseReadingPlacement}
+            options={["lineBelow", "wordBelow", "wordAbove"]}
+            labels={["Under the line", "Under each word", "Above each word"]}
+            onChange={(value) => $chineseReadingPlacement.set(value as typeof chineseReadingPlacement)}
+          />
+        </Row>
+      )}
+
       {showMandarinWordGrouping && (
         <Row
           label="Group Pinyin by Word"
           description="Keep Pinyin syllables together when they form one detected Mandarin word."
-          disabled={chineseTranslitMode !== "pinyin"}
-          disabledReason="Choose Mandarin Pinyin first."
+          disabled={chineseTranslitMode !== "pinyin" || chineseReadingPlacement !== "lineBelow"}
+          disabledReason={chineseTranslitMode !== "pinyin"
+            ? "Choose Mandarin Pinyin first."
+            : "Readings already sit on their own words."}
         >
           <Toggle
             checked={joinMandarinWords}
-            disabled={chineseTranslitMode !== "pinyin"}
+            disabled={chineseTranslitMode !== "pinyin" || chineseReadingPlacement !== "lineBelow"}
             onChange={(value) => $joinMandarinWords.set(value)}
           />
         </Row>
