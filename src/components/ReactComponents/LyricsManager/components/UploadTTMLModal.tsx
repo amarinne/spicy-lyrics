@@ -65,14 +65,14 @@ export default function UploadTTMLModal({ onBack, onDone }: UploadTTMLModalProps
           onDone("persistent");
         } else {
           toast("Found TTML, Parsing...", { duration: 3000 });
-          const result = await ParseTTML(ttml);
+          const result = ParseTTML(ttml);
           if (!result) {
             toast.error("Failed to parse TTML.", { duration: 5000 });
             setUploading(false);
             return;
           }
           const dataToSave = {
-            ...result?.Result,
+            ...result,
             uri,
           };
           const originalSnapshot = captureOriginalSnapshot(dataToSave, translationEnabled ? translationTargetLang : null);
