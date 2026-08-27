@@ -97,7 +97,8 @@
     padding-left 0.4s;
   display: flex;
   flex-direction: column;
-  margin-bottom: 45cqh;
+  /* Final-line bottom anchor is owned by the virtualizer's half-viewport spacer; this margin only needs a small floor. */
+  margin-bottom: 6cqh;
   margin-top: 25cqh;
 }
 
