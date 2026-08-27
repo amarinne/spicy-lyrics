@@ -1,4 +1,4 @@
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 
 /**
  * Minimal, privacy-safe stand-in for the fork's shared Logger.
@@ -450,6 +450,14 @@ export function parseTTML(ttmlInput: string): ParsedTTMLLyrics | null {
 }
 
 function convertTTML(ttmlInput: string): ParsedTTMLLyrics | null {
+  // fast-xml-parser's parse() is permissive and accepts malformed XML, so the
+  // document must be validated first. Only a fixed message is emitted: the
+  // validator's error text and the raw document are never logged.
+  if (XMLValidator.validate(ttmlInput) !== true) {
+    ttmlLogger.error("TTML XML failed validation, rejecting");
+    return null;
+  }
+
   let ttml: TtmlDocument;
   try {
     ttml = parser.parse(ttmlInput) as TtmlDocument;
@@ -889,8 +897,9 @@ function convertTimeToSeconds(timeValue: TtmlTime | null | undefined): number | 
   const timeString = String(timeValue).trim();
   if (timeString === "") return undefined;
 
-  // Clock time: [hh:]mm:ss[.fraction] — a 4th component is SMPTE frames, which
-  // needs ttp:frameRate to interpret, so it is dropped rather than guessed at.
+  // Clock time: [hh:]mm:ss[.fraction]. A 4th component is SMPTE frames, which
+  // needs ttp:frameRate to interpret, so the whole value is rejected rather
+  // than guessed at by dropping the frame component.
   if (timeString.includes(":")) {
     const parts = timeString.split(":");
     if (parts.length < 2 || parts.length > 4) {
@@ -898,17 +907,24 @@ function convertTimeToSeconds(timeValue: TtmlTime | null | undefined): number | 
       return undefined;
     }
 
+    if (parts.length === 4) {
+      ttmlLogger.debug("SMPTE frame clock time in TTML, ignoring", { timeString });
+      return undefined;
+    }
+
+    // Each component must be a complete finite decimal number; parseFloat
+    // alone would accept junk suffixes like "01oops".
+    const clockPartPattern = /^(?:[0-9]+(?:\.[0-9]+)?|\.[0-9]+)$/;
     const reversed = parts.slice().reverse();
-    const offset = parts.length === 4 ? 1 : 0;
 
     let seconds = 0;
-    for (let i = offset; i < reversed.length; i++) {
-      const part = parseFloat(reversed[i]);
-      if (!Number.isFinite(part)) {
+    for (let i = 0; i < reversed.length; i++) {
+      const part = reversed[i];
+      if (!clockPartPattern.test(part)) {
         ttmlLogger.debug("Unparseable clock time in TTML, ignoring", { timeString });
         return undefined;
       }
-      seconds += part * Math.pow(60, i - offset);
+      seconds += Number(part) * Math.pow(60, i);
     }
 
     return toFiniteSeconds(seconds);
@@ -1173,6 +1189,13 @@ export function GetLyricsType(ttmlXml: string): TTMLLyricsType | string | null {
   }
 
   let ttml: TtmlDocument;
+  // fast-xml-parser's parse() is permissive and accepts malformed XML, so the
+  // document must be validated first. Only a fixed message is emitted: the
+  // validator's error text and the raw document are never logged.
+  if (XMLValidator.validate(ttmlXml) !== true) {
+    ttmlLogger.error("TTML XML failed validation, rejecting");
+    return null;
+  }
   try {
     ttml = parser.parse(ttmlXml) as TtmlDocument;
   } catch (parseError) {
