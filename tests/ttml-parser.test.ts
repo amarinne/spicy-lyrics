@@ -36,9 +36,25 @@ test("background vocals and duet alignment remain structured", () => {
 test("empty malformed unsupported frame and tick timing fail safely", () => {
   assert.equal(parseTTML(""), null);
   assert.equal(parseTTML("<tt><body>"), null);
+  assert.equal(parseTTML(tt("None", "<p>Hello</div>")), null);
+  assert.equal(parseTTML(`${tt("None", "<p>Hello</p>")} trailing junk`), null);
   assert.equal(parseTTML(tt("Unknown", "<p>Hello</p>")), null);
   const frames = parseTTML(tt("Line", '<p begin="10f" end="20f">Frame</p>'));
   const ticks = parseTTML(tt("Line", '<p begin="10t" end="20t">Tick</p>'));
+  const frameClock = parseTTML(
+    tt("Line", '<p begin="00:01:02:15" end="00:01:03:00">Frame clock</p>')
+  );
+  const malformedClock = parseTTML(
+    tt("Line", '<p begin="00:01oops" end="00:02oops">Bad clock</p>')
+  );
   assert.equal(frames?.Type === "Line" ? frames.Content[0].StartTime : undefined, undefined);
   assert.equal(ticks?.Type === "Line" ? ticks.Content[0].StartTime : undefined, undefined);
+  assert.equal(
+    frameClock?.Type === "Line" ? frameClock.Content[0].StartTime : undefined,
+    undefined
+  );
+  assert.equal(
+    malformedClock?.Type === "Line" ? malformedClock.Content[0].StartTime : undefined,
+    undefined
+  );
 });
