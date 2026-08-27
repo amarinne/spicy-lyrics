@@ -12,8 +12,9 @@
     "test:processing-context": "node --experimental-strip-types --test tests/processing-context.test.ts",
     "test:lyrics-sources": "node --experimental-strip-types --test tests/lyrics-source-*.test.ts tests/lyrics-request-session.test.ts tests/lyrics-candidate-selector.test.ts",
     "test": "node --experimental-strip-types --test tests/*.test.ts",
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
+    "lint": "oxlint -c oxlint.config.mjs --report-unused-disable-directives-severity=error",
+    "lint:fix": "oxlint -c oxlint.config.mjs --fix",
+    "lint:plugins": "oxlint -c oxlint.config.mjs .oxlint-plugins/__fixtures__ --report-unused-disable-directives-severity=error",
     "fmt": "oxfmt"
   },
   "dependencies": {

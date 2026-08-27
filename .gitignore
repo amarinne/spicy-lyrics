@@ -149,7 +149,10 @@ dist_legacy/
 
 src/utils/SpicyHasher.ts
 
-.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/quality.yml
 
 src/components/PopupModal/
 src/components/PopupModal/PopupModal.ts

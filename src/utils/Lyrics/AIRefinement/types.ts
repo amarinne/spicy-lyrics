@@ -50,7 +50,7 @@ export type ModelDescriptor = ModelLimits & {
   supportedGenerationMethods: ReadonlyArray<string>;
 };
 export type ProviderCredential = { secret: string };
-export type ProviderConfig = {
+export type ProviderBaseConfig = {
   endpoint?: string;
   providerVersion: string;
   model: ModelDescriptor;
@@ -64,9 +64,10 @@ export type ProviderConfig = {
   credential: Readonly<ProviderCredential>;
   repair: boolean;
   iteration?: boolean;
-  maxOutputTokens: number;
   captureId?: string | null;
 };
+/** Configuration safe to hand to a provider call. Invalid zero-budget placeholders cannot exist. */
+export type ProviderConfig = ProviderBaseConfig & { maxOutputTokens: number };
 
 export type ProviderFailure =
   | { kind: "auth" }

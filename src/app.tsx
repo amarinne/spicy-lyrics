@@ -959,7 +959,6 @@ async function main() {
       let lastLoopType: LoopType | null = null;
       // These interval managers are intentionally not stored in variables that are used elsewhere
       // They are self-running background processes that continue to run throughout the app lifecycle
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(Infinity, () => {
         const LoopState = Spicetify.Player.getRepeat();
         const LoopType: LoopType = LoopState === 1 ? "context" : LoopState === 2 ? "track" : "none";
@@ -974,7 +973,6 @@ async function main() {
     {
       type ShuffleType = "smart" | "normal" | "none";
       let lastShuffleType: ShuffleType | null = null;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(Infinity, () => {
         const ShuffleType: ShuffleType = (Spicetify.Player as any).origin._state.smartShuffle
           ? "smart"
@@ -1015,7 +1013,6 @@ async function main() {
 
     {
       let lastPosition = 0;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(0.5, () => {
         const pos = SpotifyPlayer.GetPosition();
         if (pos !== lastPosition) {
@@ -1027,7 +1024,6 @@ async function main() {
 
     /* {
       let lastPosition = 0;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(Infinity, () => {
         const pos = SpotifyPlayer.GetPosition();
         if (pos !== lastPosition) {

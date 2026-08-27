@@ -344,7 +344,7 @@ export class AIRefinementCoordinator {
         const existing = record.chunks[chunk.id];
         if (existing?.status === "complete") continue;
         this.setState(trackUri, { status: "refining", done: Object.keys(record.items).length, total: session.rows.filter((row) => row.sendDisposition === "sent").length, runId: identity.runId, revisionNumber: record.revisionNumber, modelName: record.modelName, cacheWarning, persistenceWarning, tokens: { refine: { ...runTokens }, session: { ...this.sessionTokens } } });
-        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: effectiveInstructions, context: session.context, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, iteration: !!identity.revision, maxOutputTokens: 0, captureId: providerCaptureId }, signal: identity.controller.signal, previous: existing });
+        const execution = await executeChunk({ provider, chunk, config: { layer: this.layer, endpoint: config.endpoint, providerVersion: config.providerVersion, model: config.model, targetLang: config.targetLang, instructions: effectiveInstructions, context: session.context, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential, repair: false, iteration: !!identity.revision, captureId: providerCaptureId }, signal: identity.controller.signal, previous: existing });
         record.chunks[chunk.id] = execution.record;
         record.budgetConsumed += execution.budgetConsumed;
         record.tokens.input += execution.record.tokens.input - (existing?.tokens.input ?? 0);

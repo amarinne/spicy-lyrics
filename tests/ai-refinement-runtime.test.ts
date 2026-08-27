@@ -9,12 +9,12 @@ import {
   exportReplay,
   importReplay,
   planChunks,
-  type ProviderConfig,
+  type ProviderBaseConfig,
   type ReplayEntry,
 } from "../src/utils/Lyrics/AIRefinement/index.ts";
 
 const descriptor = { name: "fake-model", version: "1", inputTokenLimit: 32_768, outputTokenLimit: 1_000, supportedGenerationMethods: ["generateContent"] };
-const config: ProviderConfig = { providerVersion: "1", model: descriptor, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "never-log" }, repair: false, maxOutputTokens: 0 };
+const config: ProviderBaseConfig = { providerVersion: "1", model: descriptor, targetLang: "en", context: EMPTY_LYRIC_CONTEXT, promptVersion: AI_PROMPT_VERSION, temperature: 0, contextMode: "document_or_v1_chunks", credential: { secret: "never-log" }, repair: false };
 const row = { id: "S0", class: "ordinary" as const, sendDisposition: "sent" as const, sourceText: "hola", voice: null, allowUnchanged: false, target: {}, targetField: "TranslatedText" as const };
 const chunk = planChunks([row], "en", descriptor).chunks[0];
 
@@ -32,6 +32,7 @@ test("full-chunk structural repair uses byte-identical user JSON including steer
   assert.equal(JSON.stringify(provider.calls[0].request), steeredChunk.requestJson);
   assert.equal(provider.calls[0].request.instructions, "Preserve names.");
   assert.equal(provider.calls[1].config.repair, true);
+  assert.ok(provider.calls.every((call) => call.config.maxOutputTokens > 0));
   assert.equal(provider.calls.length, 2);
 });
 

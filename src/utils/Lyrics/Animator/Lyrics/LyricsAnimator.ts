@@ -466,7 +466,6 @@ const resetSyllableLineToNotSung = (words: SyllableLead[] | undefined): void => 
 };
 
 // DotGroup Springs Function - for animating the entire dotGroup element
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _createDotGroupSprings = () => {
   /*   if ($simpleLyricsMode.get()) {
     return {
@@ -728,7 +727,6 @@ export function Animate(position: number): void {
   }; */
 
   // These utility functions are not used but kept for future reference
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _calculateOpacity = (percentage: number): number => {
     if (percentage <= 0.65) {
       return percentage * 100;
@@ -737,7 +735,6 @@ export function Animate(position: number): void {
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _calculateLineGlowOpacity = (percentage: number): number => {
     if (percentage <= 0.5) {
       return percentage * 200;
@@ -821,7 +818,6 @@ export function Animate(position: number): void {
             let targetGlow: number;
             let targetGradientPos: number;
 
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const totalDuration = word.EndTime - word.StartTime; // Kept for future reference
 
             if (wordState === "Active") {

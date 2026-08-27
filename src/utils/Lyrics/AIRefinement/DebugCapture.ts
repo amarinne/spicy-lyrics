@@ -76,7 +76,10 @@ function persist(record: DurableProviderCapture): void {
     const { dbPromise, ObjectStores } = await import("../../db.ts");
     const db = await dbPromise;
     await db.put(ObjectStores.AICaptures, snapshot);
-  }).catch(() => undefined);
+  }).catch((error: unknown) => {
+    console.warn("[SpicyLyricsAI] capture persistence failed",
+      error instanceof Error ? error.name : "unknown");
+  });
 }
 
 export function getProviderCaptureState(): CaptureState {

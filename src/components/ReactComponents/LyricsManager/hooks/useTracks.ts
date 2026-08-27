@@ -46,7 +46,6 @@ export function useTracks(uris: string[]): UseTracksResult {
     return () => {
       controller.abort();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stableKey]);
 
   return { tracksByUri, loading, error };

@@ -47,7 +47,10 @@ export class IndexedDBRefinementCache implements RefinementCache {
         const latest = await tx.store.get(key) as RefinementRecord | undefined;
         if (latest) { latest.lastAccessedAt = Date.now(); await tx.store.put(latest); }
         await tx.done;
-      })().catch(() => undefined);
+      })().catch((error: unknown) => {
+        console.warn("[SpicyLyricsAI] cache touch failed",
+          error instanceof Error ? error.name : "unknown");
+      });
     });
   }
 

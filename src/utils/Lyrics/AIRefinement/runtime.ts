@@ -1,5 +1,5 @@
 import { validateProviderItems } from "./protocol.ts";
-import { AI_MAX_ATTEMPTS, AI_MAX_CONFIGURED_OUTPUT_TOKENS, type ChunkFailure, type PlannedChunk, type ProviderConfig, type ProviderFailure, type RefinementChunkRecord, type RefinementProvider } from "./types.ts";
+import { AI_MAX_ATTEMPTS, AI_MAX_CONFIGURED_OUTPUT_TOKENS, type ChunkFailure, type PlannedChunk, type ProviderBaseConfig, type ProviderConfig, type ProviderFailure, type RefinementChunkRecord, type RefinementProvider } from "./types.ts";
 
 export type ChunkExecution = { ok: true; items: Array<{ id: string; t: string }>; record: RefinementChunkRecord; budgetConsumed: number } | { ok: false; failure: ChunkFailure; record: RefinementChunkRecord; budgetConsumed: number };
 
@@ -27,7 +27,7 @@ function abortableWait(ms: number, signal: AbortSignal): Promise<void> {
 export async function executeChunk(args: {
   provider: RefinementProvider;
   chunk: PlannedChunk;
-  config: ProviderConfig;
+  config: ProviderBaseConfig;
   signal: AbortSignal;
   previous?: RefinementChunkRecord;
   wait?: (ms: number, signal: AbortSignal) => Promise<void>;
@@ -49,7 +49,8 @@ export async function executeChunk(args: {
     const deadline = setTimeout(() => callController.abort("timeout"), args.deadlineMs ?? 60_000);
     let result;
     try {
-      result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, ...(args.chunk.instructions ? { instructions: args.chunk.instructions } : {}), items: args.chunk.items }, { ...args.config, repair: record.repairs > 0, maxOutputTokens }, callController.signal);
+      const callConfig: ProviderConfig = { ...args.config, repair: record.repairs > 0, maxOutputTokens };
+      result = await args.provider.translateChunk({ context: args.chunk.context, target: args.config.targetLang, ...(args.chunk.instructions ? { instructions: args.chunk.instructions } : {}), items: args.chunk.items }, callConfig, callController.signal);
     } catch {
       accountedTokens += reservation; record.usageEstimated = true; record.tokens.input += args.chunk.estimatedInputTokens; record.tokens.output += maxOutputTokens;
       const failure = { reason: "delivery_unknown" } as const; record.status = "failed"; record.failure = failure;

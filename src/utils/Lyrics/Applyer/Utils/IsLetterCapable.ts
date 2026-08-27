@@ -17,7 +17,6 @@ const SimpleLyricsModeCapable = (letterLength: number, totalDuration: number) =>
   return totalDuration >= minDuration; // && totalDuration <= maxDuration;
 };
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _Complex = (letterLength: number, totalDuration: number) => {
   // Enforce a maximum letter length of 12
   if (letterLength > 12) {

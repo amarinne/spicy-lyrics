@@ -172,7 +172,6 @@ export function ClearLyricsContentArrays() {
 // const THROTTLE_TIME = 0;
 
 // Using underscore prefix to indicate it's intentionally unused but kept for future use
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 /* const _LyricsInterval = new IntervalManager(THROTTLE_TIME, () => {
   if (!$lyricsContainerExists.get()) return;
   const progress = SpotifyPlayer.GetPosition();
