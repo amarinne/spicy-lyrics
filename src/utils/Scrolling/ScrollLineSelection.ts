@@ -59,7 +59,29 @@ export function selectScrollLineIndex(
 
   if (activeIndices.length === 0) return null;
 
-  const anchorIndex = resolveToLeadIndex(lines, activeIndices[0]);
+  // Collapse active rows to unique resolved lead groups, in source order.
+  const activeLeadGroups: { leadIndex: number; firstRowIndex: number }[] = [];
+  const seenLeadIndices = new Set<number>();
+  for (const index of activeIndices) {
+    const leadIndex = resolveToLeadIndex(lines, index);
+    if (seenLeadIndices.has(leadIndex)) continue;
+    seenLeadIndices.add(leadIndex);
+    activeLeadGroups.push({ leadIndex, firstRowIndex: index });
+  }
+
+  // A sustained old background tail must not keep an expired lead group
+  // selected when a later lead group is active, so drop leading groups that
+  // are only active through background rows while another group follows.
+  const activeRowIndexSet = new Set(activeIndices);
+  let first = 0;
+  while (
+    first < activeLeadGroups.length - 1 &&
+    !activeRowIndexSet.has(activeLeadGroups[first].leadIndex)
+  ) {
+    first += 1;
+  }
+
+  const anchorIndex = activeLeadGroups[first].leadIndex;
   const lookaheadLine = getLookaheadLine(lines, anchorIndex);
   if (
     lookaheadLine === null ||
@@ -68,7 +90,7 @@ export function selectScrollLineIndex(
     return anchorIndex;
   }
 
-  const firstIndex = activeIndices[0];
+  const firstIndex = activeLeadGroups[first].firstRowIndex;
   const lastIndex = activeIndices[activeIndices.length - 1];
   return resolveToLeadIndex(lines, lastIndex - firstIndex <= 1 ? firstIndex : lastIndex);
 }

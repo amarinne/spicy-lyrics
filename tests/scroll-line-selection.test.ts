@@ -52,3 +52,22 @@ test("background lines do not consume lookahead slots", () => {
   ];
   assert.equal(selectScrollLineIndex(lines, 6), 0);
 });
+
+test("sustained old background tail yields to a later active lead", () => {
+  const lines: ScrollTimingLine[] = [
+    { StartTime: 0, EndTime: 4 },
+    { StartTime: 0, EndTime: 12, BGLine: true },
+    { StartTime: 6, EndTime: 10 },
+    { StartTime: 14, EndTime: 18 },
+  ];
+  assert.equal(selectScrollLineIndex(lines, 7), 2);
+});
+
+test("background-only active group keeps its owning lead", () => {
+  const lines: ScrollTimingLine[] = [
+    { StartTime: 0, EndTime: 4 },
+    { StartTime: 0, EndTime: 12, BGLine: true },
+    { StartTime: 14, EndTime: 18 },
+  ];
+  assert.equal(selectScrollLineIndex(lines, 7), 0);
+});
