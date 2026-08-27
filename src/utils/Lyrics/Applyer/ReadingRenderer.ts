@@ -14,6 +14,7 @@ import {
   type JapaneseReading,
 } from "../Reading/JapaneseReading.ts";
 import type { RenderPlan } from "../Processing/Model.ts";
+import StripZeroWidth from "./Utils/StripZeroWidth.ts";
 import { renderExperimentalReadingPlan } from "./ExperimentalReadingPlanRenderer.ts";
 import {
   resolveHanLanguageTag,
@@ -82,7 +83,10 @@ function appendBaseText(parent: HTMLElement, text: string, context?: HanLanguage
     const element = document.createElement("span");
     element.className = "lyric-base-run";
     if (run.language) element.lang = run.language;
-    element.textContent = run.text;
+    // Render-only: strip invisible markers at final text assignment so they
+    // never appear as visible spans. Source text (and thus furigana segment
+    // offsets computed above) stays untouched.
+    element.textContent = StripZeroWidth(run.text);
     parent.appendChild(element);
   }
 }
@@ -139,7 +143,7 @@ export function appendFuriganaText(
     const baseText = text.slice(segment.start, segment.end);
     const language = resolveHanLanguageTagForContext(baseText, context);
     if (language) base.lang = language;
-    base.textContent = baseText;
+    base.textContent = StripZeroWidth(baseText);
 
     cluster.append(reading, base);
     parent.appendChild(cluster);

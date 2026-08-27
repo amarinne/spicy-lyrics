@@ -27,6 +27,7 @@ import { ApplyLyricsCredits } from "../Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "../OnApply.ts";
 import Emphasize from "../Utils/Emphasize.ts";
 import { IsLetterCapable } from "../Utils/IsLetterCapable.ts";
+import StripZeroWidth from "../Utils/StripZeroWidth.ts";
 import { ApplyLyricsProvider } from "../Credits/ApplyProvider.ts";
 import {
   appendSyllableRomanizedBelow,
@@ -117,12 +118,19 @@ const createSyllableWord = (
 ): HTMLElement => {
   let word = document.createElement("span");
   const totalDuration = ConvertTime(syllable.EndTime) - ConvertTime(syllable.StartTime);
-  const letterLength = syllable.Text.split("").length;
+  // Render-only: strip invisible markers before the letter-capable count/split
+  // so they never receive letter timing slots. Source text stays untouched.
+  const renderText = StripZeroWidth(syllable.Text || "");
+  const letterLength = renderText.split("").length;
   const hasFurigana = shouldRenderFurigana(syllable, renderOptions);
   const reservesFuriganaRow = hasFurigana || (renderOptions.reserveFurigana === true && useRomanized);
   // Package-backed Japanese words need a registered word element in every
   // display mode. Letter emphasis returns before timing registration.
-  const letterCapable = IsLetterCapable(letterLength, totalDuration) && !isRtl(syllable.Text) && !reservesFuriganaRow && !syllable.JapaneseReading;
+  const letterCapable = renderText.length > 0
+    && IsLetterCapable(letterLength, totalDuration)
+    && !isRtl(renderText)
+    && !reservesFuriganaRow
+    && !syllable.JapaneseReading;
   const sizeVar = isBackground ? "var(--font-size)" : "var(--DefaultLyricsSize)";
   const wordLanguage = resolveHanLanguageTagForContext(syllable.Text, renderOptions.hanLanguageContext);
   if (wordLanguage) word.lang = wordLanguage;
@@ -130,7 +138,7 @@ const createSyllableWord = (
   if (letterCapable) {
     word = document.createElement("div");
     if (wordLanguage) word.lang = wordLanguage;
-    Emphasize(syllable.Text.split(""), word, syllable, isBackground);
+    Emphasize(renderText.split(""), word, syllable, isBackground);
     applyWordPositionClasses(word, syllable, index, all);
 
     if (!$simpleLyricsMode.get()) {
