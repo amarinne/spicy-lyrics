@@ -36,6 +36,9 @@ export default function Emphasize(
     letterElem.textContent = letter;
     letterElem.classList.add("letter");
     letterElem.classList.add("Emphasis");
+    if (letter.trim().length === 0) {
+      letterElem.classList.add("SpaceLetter");
+    }
     const isLastLetter = index === letters.length - 1;
     // Calculate start and end time for each letter
     const letterStartTime = StartTime + index * letterDuration;
