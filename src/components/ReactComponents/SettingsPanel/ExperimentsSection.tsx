@@ -38,4 +38,3 @@ export default function ExperimentsSection({ query, sectionFilter, onOpen }: Pro
     </>
   );
 }
-

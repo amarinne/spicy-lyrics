@@ -11,6 +11,7 @@ import {
   $translationEnabled,
   $translationTargetLang,
   type KoreanDisplayMode,
+  type ChineseReadingPlacement,
 } from "../uiState.ts";
 import Global from "../../components/Global/Global.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
