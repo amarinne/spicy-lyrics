@@ -25,6 +25,10 @@
   --StrongTextGlowDef: rgba(255, 255, 255, 0.68) 0px 0px 16.4px;
   --StrongerTextGlowDef: rgba(255, 255, 255, 0.74) 0px 0px 16px;
   --DefaultLyricsSize: clamp(1.85rem, calc(1cqw * 7), 3.5rem);
+  --japanese-ruby-ratio: 0.46em;
+  --japanese-ruby-gap: 0.12em;
+  --japanese-romaji-ratio: 0.48;
+  --japanese-translation-ratio: 0.44;
   --amll-lyric-player-font-size: var(--DefaultLyricsSize);
   --Simplebar-Scrollbar-Color: rgba(255, 255, 255, 0.6);
   --vertical-gap: 0px;
@@ -69,11 +73,6 @@
   font-weight: 700 !important;
 }
 
-body.SpicySidebarLyrics__Active #SpicyLyricsPage .LyricsContainer .LyricsContent {
-  --DefaultLyricsSize: clamp(2.1rem, calc(1cqw * 7), 3.5rem);
-  --vertical-gap: 0.95cqh;
-}
-
 .spicy-pip-wrapper #SpicyLyricsPage .LyricsContainer .LyricsContent {
   /* Compact sizing tuned for the popup: comfortably readable at the default
      popup size (the floor dominates here, since the popup container is
@@ -98,7 +97,8 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage .LyricsContainer .LyricsContent
     padding-left 0.4s;
   display: flex;
   flex-direction: column;
-  margin-bottom: 45cqh;
+  /* Final-line bottom anchor is owned by the virtualizer's half-viewport spacer; this margin only needs a small floor. */
+  margin-bottom: 6cqh;
   margin-top: 25cqh;
 }
 
@@ -124,8 +124,13 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   overflow: visible;
 }
 
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line {
+  /* Derived rows are roughly 46% of the main lyric size. Scale defocus by the
+     same ratio so ruby, romaji, and translations keep the owning line's depth. */
+  --DerivedTextBlurAmount: clamp(0px, calc(var(--BlurAmount, 0px) * 0.46), 3.25px);
+}
+
 #SpicyLyricsPage .LyricsContainer .LyricsContent .line.HasExtras {
-  --ExtraLineBlurAmount: clamp(0px, calc(var(--BlurAmount, 0px) * 0.14), 1.25px);
   display: block;
 }
 
@@ -134,8 +139,8 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .has-furigana {
-  --furigana-rt-size: 0.38em;
-  --furigana-rt-gap: 0.12em;
+  --furigana-rt-size: var(--japanese-ruby-ratio);
+  --furigana-rt-gap: var(--japanese-ruby-gap);
   overflow: visible;
 }
 
@@ -179,7 +184,14 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   -webkit-text-fill-color: rgba(255, 255, 255, 0.72);
   color: rgba(255, 255, 255, 0.72);
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+  --FuriganaBlurAmount: var(--DerivedTextBlurAmount, 0px);
+  filter: blur(var(--FuriganaBlurAmount));
+}
+
+#SpicyLyricsPage
+  .SpicyLyricsScrollContainer[data-lyrics-type="Line"]
+  .furigana-reading {
+  transition: filter 0.3s cubic-bezier(0.37, 0, 0.63, 1);
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .furigana-reading.furigana-placeholder {
@@ -195,18 +207,71 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   display: inline-block;
 }
 
+#SpicyLyricsPage .LyricsContainer .LyricsContent .semantic-word-group {
+  display: inline;
+  white-space: normal;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .semantic-word-group {
+  display: inline-flex;
+  white-space: nowrap;
+}
+
+/* Timed fragments inside one Japanese token are not provider word breaks. */
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .semantic-word-group > .word:not(:last-child)::after {
+  margin-right: 0;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .reading-plan-row {
+  display: block;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .reading-plan-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+}
+
+#SpicyLyricsPage .LyricsContainer .LyricsContent .reading-plan-group {
+  display: inline;
+  white-space: normal;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .reading-plan-group {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  min-width: 0;
+  max-width: 100%;
+  white-space: nowrap;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .reading-plan-group > .romanized-syllable {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: break-word;
+}
+
 #SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below {
   display: block;
   width: 100%;
   margin-top: 0.15em;
-  font-size: calc(var(--DefaultLyricsSize) * 0.42);
+  font-size: calc(var(--DefaultLyricsSize) * var(--japanese-romaji-ratio));
   font-weight: 400;
   line-height: 1.2;
   color: rgba(255, 255, 255, 0.55);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+  --RomanizedSidecarBlurAmount: var(--DerivedTextBlurAmount, 0px);
+  filter: blur(var(--RomanizedSidecarBlurAmount));
   background: none;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .romanized-below {
+  text-wrap: pretty;
+  overflow-wrap: break-word;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .romanized-below.romanization-placeholder {
@@ -228,29 +293,57 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   background-clip: text;
   background-image: linear-gradient(
     var(--gradient-degrees, 90deg),
-    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -20%),
-    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -20%) + 20% + var(--gradient-offset, 0%))
+    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -40%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -40%) + 40% + var(--gradient-offset, 0%))
   );
-  --gradient-position: -20%;
+  --gradient-position: -40%;
   --gradient-degrees: 90deg;
   --gradient-alpha-end: 0.35;
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+}
+
+#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below,
+#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .translated-below {
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  background-image: linear-gradient(
+    var(--gradient-degrees, 180deg),
+    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -40%),
+    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -40%) + 40%)
+  );
+  background-clip: text;
+  -webkit-background-clip: text;
+}
+
+#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below.romanization-static {
+  color: rgba(255, 255, 255, 0.55);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.55);
+  background: none;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below {
   display: block;
   width: 100%;
   margin-top: 0.12em;
-  font-size: calc(var(--DefaultLyricsSize) * 0.38);
+  font-size: calc(var(--DefaultLyricsSize) * var(--japanese-translation-ratio));
   font-weight: 400;
   line-height: 1.2;
   color: rgba(255, 255, 255, 0.45);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
   font-style: italic;
   text-shadow: inherit;
-  filter: blur(var(--ExtraLineBlurAmount, 0px));
+  --TranslatedSidecarBlurAmount: var(--DerivedTextBlurAmount, 0px);
+  filter: blur(var(--TranslatedSidecarBlurAmount));
   background: none;
+}
+
+#SpicyLyricsPage.MeaningHidden .LyricsContainer .LyricsContent .translated-below {
+  display: none !important;
+}
+
+#SpicyLyricsPage.AdaptiveSectioning .LyricsContainer .LyricsContent .translated-below {
+  text-wrap: pretty;
+  overflow-wrap: break-word;
 }
 
 #SpicyLyricsPage .LyricsContainer .LyricsContent .translated-below.translation-placeholder {

@@ -1,6 +1,5 @@
-import { $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
+import { $adaptiveSectioning, $fixHanGlyphVariants, $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
 import { PageContainer } from "../../../../components/Pages/PageView.ts";
-import { isSpicySidebarMode } from "../../../../components/Utils/SidebarLyrics.ts";
 import { applyStyles, removeAllStyles } from "../../../CSS/Styles.ts";
 import {
   ClearScrollSimplebar,
@@ -28,15 +27,23 @@ import { ApplyLyricsCredits } from "../Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "../OnApply.ts";
 import Emphasize from "../Utils/Emphasize.ts";
 import { IsLetterCapable } from "../Utils/IsLetterCapable.ts";
+import StripZeroWidth from "../Utils/StripZeroWidth.ts";
 import { ApplyLyricsProvider } from "../Credits/ApplyProvider.ts";
 import {
   appendSyllableRomanizedBelow,
+  hasFuriganaCrossingTimedUnits,
   isJapaneseEntry,
   renderBaseTextWithReadings,
   shouldRenderFurigana,
 } from "../ReadingRenderer.ts";
 import type { ReadingRenderOptions } from "../ReadingRenderer.ts";
 import type { TimedSyllableEntry, TimedSyllableGroup } from "../../Reading/JapaneseReading.ts";
+import { timedLogicalGroupIds } from "../../Processing/Japanese/TimedGroupIds.ts";
+import {
+  applyHanLanguageTag,
+  createHanLanguageContext,
+  resolveHanLanguageTagForContext,
+} from "../../HanLanguage.ts";
 
 // Define the data structure for syllable lyrics
 type SyllableData = TimedSyllableEntry;
@@ -63,7 +70,7 @@ const joinSyllableDisplayText = (syllables: SyllableData[]): string => {
   return syllables.reduce((acc, syl, index) => {
     const text = syl.Text || "";
     if (index === 0) return text;
-    return `${acc}${syl.IsPartOfWord ? "" : " "}${text}`;
+    return `${acc}${syllables[index - 1]?.BoundaryAfter === true ? " " : ""}${text}`;
   }, "").trim();
 };
 
@@ -75,7 +82,7 @@ const applyWordPositionClasses = (
 ): void => {
   if (index === all.length - 1) {
     element.classList.add("LastWordInLine");
-  } else if (syllable.IsPartOfWord) {
+  } else if (syllable.BoundaryAfter !== true) {
     element.classList.add("PartOfWord");
   }
 };
@@ -111,15 +118,27 @@ const createSyllableWord = (
 ): HTMLElement => {
   let word = document.createElement("span");
   const totalDuration = ConvertTime(syllable.EndTime) - ConvertTime(syllable.StartTime);
-  const letterLength = syllable.Text.split("").length;
+  // Render-only: strip invisible markers before the letter-capable count/split
+  // so they never receive letter timing slots. Source text stays untouched.
+  const renderText = StripZeroWidth(syllable.Text || "");
+  const letterLength = renderText.split("").length;
   const hasFurigana = shouldRenderFurigana(syllable, renderOptions);
   const reservesFuriganaRow = hasFurigana || (renderOptions.reserveFurigana === true && useRomanized);
-  const letterCapable = IsLetterCapable(letterLength, totalDuration) && !isRtl(syllable.Text) && !reservesFuriganaRow;
+  // Package-backed Japanese words need a registered word element in every
+  // display mode. Letter emphasis returns before timing registration.
+  const letterCapable = renderText.length > 0
+    && IsLetterCapable(letterLength, totalDuration)
+    && !isRtl(renderText)
+    && !reservesFuriganaRow
+    && !syllable.JapaneseReading;
   const sizeVar = isBackground ? "var(--font-size)" : "var(--DefaultLyricsSize)";
+  const wordLanguage = resolveHanLanguageTagForContext(syllable.Text, renderOptions.hanLanguageContext);
+  if (wordLanguage) word.lang = wordLanguage;
 
   if (letterCapable) {
     word = document.createElement("div");
-    Emphasize(syllable.Text.split(""), word, syllable, isBackground);
+    if (wordLanguage) word.lang = wordLanguage;
+    Emphasize(renderText.split(""), word, syllable, isBackground);
     applyWordPositionClasses(word, syllable, index, all);
 
     if (!$simpleLyricsMode.get()) {
@@ -135,7 +154,7 @@ const createSyllableWord = (
   renderBaseTextWithReadings(word, syllable, renderOptions);
 
   if (!$simpleLyricsMode.get()) {
-    word.style.setProperty("--gradient-position", isBackground ? `0%` : `-20%`);
+    word.style.setProperty("--gradient-position", isBackground ? `0%` : `-40%`);
     word.style.setProperty("--text-shadow-opacity", `0%`);
     word.style.setProperty("--text-shadow-blur-radius", `4px`);
     word.style.scale = IdleLyricsScale.toString();
@@ -149,22 +168,47 @@ const createSyllableWord = (
   return word;
 };
 
+const createLineLevelJapaneseWord = (
+  group: TimedSyllableGroup,
+  sourceText: string,
+  renderOptions: ReadingRenderOptions,
+  isBackground: boolean = false
+): HTMLElement => {
+  const word = document.createElement("span");
+  const totalDuration = ConvertTime(group.EndTime) - ConvertTime(group.StartTime);
+  const sizeVar = isBackground ? "var(--font-size)" : "var(--DefaultLyricsSize)";
+  renderBaseTextWithReadings(word, { ...group, Text: sourceText }, renderOptions);
+
+  if (!$simpleLyricsMode.get()) {
+    word.style.setProperty("--gradient-position", isBackground ? "0%" : "-40%");
+    word.style.setProperty("--text-shadow-opacity", "0%");
+    word.style.setProperty("--text-shadow-blur-radius", "4px");
+    word.style.scale = IdleLyricsScale.toString();
+    word.style.transform = `translateY(calc(${sizeVar} * 0.01))`;
+  }
+
+  if (isBackground) word.classList.add("bg-word");
+  word.classList.add("word", "line-level-japanese-word");
+  registerSyllableWord(word, { Text: sourceText, StartTime: group.StartTime, EndTime: group.EndTime }, totalDuration, isBackground);
+  return word;
+};
+
 const appendGroupedWord = (
   lineElement: HTMLElement,
   word: HTMLElement,
   syllable: SyllableData,
-  previous: SyllableData | undefined,
   currentGroup: HTMLSpanElement | null
 ): HTMLSpanElement | null => {
-  if (syllable.IsPartOfWord || (previous?.IsPartOfWord && currentGroup)) {
-    const group = currentGroup ?? document.createElement("span");
-    if (!currentGroup) {
-      group.classList.add("word-group");
-      lineElement.appendChild(group);
-    }
-
+  if (currentGroup) {
+    currentGroup.appendChild(word);
+    return syllable.BoundaryAfter === true ? null : currentGroup;
+  }
+  if (syllable.BoundaryAfter !== true) {
+    const group = document.createElement("span");
+    group.classList.add("word-group");
+    lineElement.appendChild(group);
     group.appendChild(word);
-    return !syllable.IsPartOfWord && previous?.IsPartOfWord ? null : group;
+    return group;
   }
 
   lineElement.appendChild(word);
@@ -307,16 +351,31 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       line.Lead.Syllables.some((s) => isJapaneseEntry(s)) ||
       line.Background?.some((bg) => bg.Syllables.some((s) => isJapaneseEntry(s))) === true
     );
-
+  const adaptiveSectioning = $adaptiveSectioning.get();
+  const fixHanGlyphVariants = $fixHanGlyphVariants.get();
   data.Content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
     lineElem.classList.add("line");
+    const leadSourceText = line.Lead.JapaneseReading?.sourceText || joinSyllableDisplayText(line.Lead.Syllables);
+    const primaryScript = line.Lead.JapaneseReading ||
+      line.Lead.Syllables.some((syllable) => isJapaneseEntry(syllable)) ||
+      (data as any).Language === "jpn"
+      ? "Japanese" as const
+      : (data as any).DetectedChinese ? "Chinese" as const : undefined;
+    const hanLanguageContext = createHanLanguageContext(
+      data,
+      leadSourceText,
+      fixHanGlyphVariants,
+      primaryScript,
+    );
+    applyHanLanguageTag(lineElem, hanLanguageContext);
     const lineRenderOptions = {
       useRomanized: UseRomanized,
       romanizationPending,
       translationPending,
       isJapaneseLyrics,
       oppositeAligned: line.OppositeAligned,
+      hanLanguageContext,
     };
 
     const nextLineStartTime = arr[index + 1]?.Lead.StartTime ?? 0;
@@ -325,7 +384,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       nextLineStartTime !== 0 ? nextLineStartTime - line.Lead.EndTime : 0;
 
     const lineEndTime =
-      $minimalLyricsMode.get() || isSpicySidebarMode
+      $minimalLyricsMode.get()
         ? nextLineStartTime === 0
           ? line.Lead.EndTime
           : lineEndTimeAndNextLineStartTimeDistance < getLyricsBetweenShow() &&
@@ -350,19 +409,35 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     lineElements.push(lineElem);
 
     let currentWordGroup: HTMLSpanElement | null = null;
-    const leadHasFurigana = line.Lead.Syllables.some((s) => shouldRenderFurigana(s, lineRenderOptions));
+    let currentSemanticGroupId: string | undefined;
+    const leadHasFurigana = shouldRenderFurigana(line.Lead, lineRenderOptions) || line.Lead.Syllables.some((s) => shouldRenderFurigana(s, lineRenderOptions));
+    const leadUsesSemanticGroups = adaptiveSectioning && line.Lead.Syllables.some((s) => !!s.JapaneseReading) && !!line.Lead.ReadingRenderPlan;
     const leadRenderOptions = { ...lineRenderOptions, reserveFurigana: leadHasFurigana };
+    const leadFuriganaCrossesTiming = leadHasFurigana && hasFuriganaCrossingTimedUnits(line.Lead.ReadingRenderPlan);
+    const leadLogicalGroupIds = timedLogicalGroupIds(line.Lead.ReadingRenderPlan);
 
-    line.Lead.Syllables.forEach((lead, iL, aL) => {
+    if (leadFuriganaCrossesTiming) {
+      lineElem.appendChild(createLineLevelJapaneseWord(line.Lead, leadSourceText, leadRenderOptions));
+    } else line.Lead.Syllables.forEach((lead, iL, aL) => {
       if (isRtl(lead.Text) && !lineElem.classList.contains("rtl")) {
         lineElem.classList.add("rtl");
       }
 
       const word = createSyllableWord(lead, iL, aL, leadRenderOptions, UseRomanized);
-      currentWordGroup = appendGroupedWord(lineElem, word, lead, aL[iL - 1], currentWordGroup);
+      const semanticGroupId = leadLogicalGroupIds.get(String(iL));
+      if (leadUsesSemanticGroups && semanticGroupId) {
+        if (!currentWordGroup || semanticGroupId !== currentSemanticGroupId) {
+          currentWordGroup = document.createElement("span");
+          currentWordGroup.classList.add("word-group", "semantic-word-group");
+          lineElem.appendChild(currentWordGroup);
+          currentSemanticGroupId = semanticGroupId;
+        }
+        currentWordGroup.appendChild(word);
+      } else {
+        currentWordGroup = appendGroupedWord(lineElem, word, lead, currentWordGroup);
+      }
     });
 
-    const leadSourceText = joinSyllableDisplayText(line.Lead.Syllables);
     const leadRomanizedText = line.Lead.RomanizedText || line.Lead.TransliteratedText;
     const leadEntries = LyricsObject.Types.Syllable.Lines[CurrentLineLyricsObject]?.Syllables?.Lead;
     appendSyllableRomanizedBelow(
@@ -372,6 +447,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       leadRomanizedText,
       line.Lead.TranslatedText,
       leadEntries,
+      line.Lead.ReadingRenderPlan,
       lineRenderOptions
     );
 
@@ -379,9 +455,23 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
       line.Background.forEach((bg) => {
         const lineE = document.createElement("div");
         lineE.classList.add("line", "bg-line");
+        const bgSourceText = bg.JapaneseReading?.sourceText || joinSyllableDisplayText(bg.Syllables);
+        const bgPrimaryScript = bg.JapaneseReading ||
+          bg.Syllables.some((syllable) => isJapaneseEntry(syllable)) ||
+          (data as any).Language === "jpn"
+          ? "Japanese" as const
+          : (data as any).DetectedChinese ? "Chinese" as const : undefined;
+        const bgHanLanguageContext = createHanLanguageContext(
+          data,
+          bgSourceText,
+          fixHanGlyphVariants,
+          bgPrimaryScript,
+        );
+        applyHanLanguageTag(lineE, bgHanLanguageContext);
         const bgRenderOptions = {
           ...lineRenderOptions,
           oppositeAligned: line.OppositeAligned,
+          hanLanguageContext: bgHanLanguageContext,
         };
 
         LyricsObject.Types.Syllable.Lines.push({
@@ -399,19 +489,35 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         lineElements.push(lineE);
 
         let currentBGWordGroup: HTMLSpanElement | null = null;
-        const bgHasFurigana = bg.Syllables.some((s) => shouldRenderFurigana(s, bgRenderOptions));
+        let currentBGSemanticGroupId: string | undefined;
+        const bgHasFurigana = shouldRenderFurigana(bg, bgRenderOptions) || bg.Syllables.some((s) => shouldRenderFurigana(s, bgRenderOptions));
+        const bgUsesSemanticGroups = adaptiveSectioning && bg.Syllables.some((s) => !!s.JapaneseReading) && !!bg.ReadingRenderPlan;
         const bgWordRenderOptions = { ...bgRenderOptions, reserveFurigana: bgHasFurigana };
+        const bgFuriganaCrossesTiming = bgHasFurigana && hasFuriganaCrossingTimedUnits(bg.ReadingRenderPlan);
+        const bgLogicalGroupIds = timedLogicalGroupIds(bg.ReadingRenderPlan);
 
-        bg.Syllables.forEach((bw, bI, bA) => {
+        if (bgFuriganaCrossesTiming) {
+          lineE.appendChild(createLineLevelJapaneseWord(bg, bgSourceText, bgWordRenderOptions, true));
+        } else bg.Syllables.forEach((bw, bI, bA) => {
           if (isRtl(bw.Text) && !lineE.classList.contains("rtl")) {
             lineE.classList.add("rtl");
           }
 
           const word = createSyllableWord(bw, bI, bA, bgWordRenderOptions, UseRomanized, true);
-          currentBGWordGroup = appendGroupedWord(lineE, word, bw, bA[bI - 1], currentBGWordGroup);
+          const semanticGroupId = bgLogicalGroupIds.get(String(bI));
+          if (bgUsesSemanticGroups && semanticGroupId) {
+            if (!currentBGWordGroup || semanticGroupId !== currentBGSemanticGroupId) {
+              currentBGWordGroup = document.createElement("span");
+              currentBGWordGroup.classList.add("word-group", "semantic-word-group");
+              lineE.appendChild(currentBGWordGroup);
+              currentBGSemanticGroupId = semanticGroupId;
+            }
+            currentBGWordGroup.appendChild(word);
+          } else {
+            currentBGWordGroup = appendGroupedWord(lineE, word, bw, currentBGWordGroup);
+          }
         });
 
-        const bgSourceText = joinSyllableDisplayText(bg.Syllables);
         const bgRomanizedText = bg.RomanizedText || bg.TransliteratedText;
         const allEntries = LyricsObject.Types.Syllable.Lines[CurrentLineLyricsObject]?.Syllables?.Lead || [];
         const bgEntries = allEntries.filter((entry: any) => entry.BGWord);
@@ -422,6 +528,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
           bgRomanizedText,
           bg.TranslatedText,
           bgEntries,
+          bg.ReadingRenderPlan,
           bgRenderOptions
         );
       });

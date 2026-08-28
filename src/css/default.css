@@ -23,6 +23,8 @@
   top: 0;
   width: 100%;
   font-weight: 700;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   user-select: none;
   -webkit-user-drag: none;
   opacity: 1;
@@ -36,15 +38,50 @@
   transform: translateY(100%);
 }
 
-body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) {
-  border-radius: var(--radius-sm);
-}
-
 #SpicyLyricsPage.UseSpicyFont,
 #SpicyLyricsPage.UseSpicyFont *,
 .SpicyLyricsFontPixel,
 .SpicyLyricsFontPixel * {
   font-family: SpicyLyrics, "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont),
+#SpicyLyricsPage:not(.UseSpicyFont) *:not(.musical-line, .musical-line *) {
+  font-family: var(--spicy-system-font, var(--encore-body-font-stack, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"] * {
+  font-family: var(--spicy-system-font-ja, var(--spicy-system-font, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"] *,
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"] * {
+  font-family: var(--spicy-system-font-zh, var(--spicy-system-font, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"],
+#SpicyLyricsPage:not(.UseSpicyFont).FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"] * {
+  font-family: var(--spicy-system-font-zh-hant, var(--spicy-system-font, sans-serif)), "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="ja"] * {
+  font-family: SpicyLyrics, "Noto Sans JP", "Noto Sans SC", "Noto Sans TC", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh"] *,
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hans"] * {
+  font-family: SpicyLyrics, "Noto Sans SC", "Noto Sans TC", "Noto Sans JP", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
+}
+
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"],
+#SpicyLyricsPage.UseSpicyFont.FixHanGlyphVariants :is(.lyric-base-run, .word, .translated-below)[lang="zh-Hant"] * {
+  font-family: SpicyLyrics, "Noto Sans TC", "Noto Sans SC", "Noto Sans JP", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
 }
 
 .Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child,
@@ -91,7 +128,6 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) {
 
 
 /* :root:has(.SpicyBG.BackgroundLayer)
-  body:not(.SpicySidebarLyrics__Active)
   #SpicyLyricsPage:not(.Fullscreen)
   .ViewControls,
 :root:has(.lucid-bg-wrapper) #SpicyLyricsPage:not(.Fullscreen) .ViewControls {
@@ -105,10 +141,6 @@ body.player-floating:has(.glassify-bg) #SpicyLyricsPage:not(.Fullscreen) .ViewCo
 :root:has(.lucid-bg) #SpicyLyricsPage:not(.Fullscreen) .ViewControls {
   bottom: 80px !important;
 } */
-
-body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) .ViewControls {
-  --ViewControlSize: 90cqh;
-}
 
 #SpicyLyricsPage:not(.Fullscreen):hover .ViewControls {
   opacity: 0.7;
@@ -158,7 +190,7 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) .ViewControls 
 }
 
 #SpicyLyricsPage .ViewControls .ViewControl:active {
-  scale: 0.94;
+  scale: 0.96;
 }
 
 #SpicyLyricsPage.FlatViewControls .ViewControls .ViewControl {
@@ -201,6 +233,24 @@ body.SpicySidebarLyrics__Active #SpicyLyricsPage:not(.Fullscreen) .ViewControls 
 
 #SpicyLyricsPage .ViewControls .ViewControl#Close svg {
   scale: 1.15;
+}
+
+#SpicyLyricsPage .ViewControls .ViewControl.AIRefined {
+  color: #1ed760;
+  background: rgba(30, 215, 96, 0.16);
+  box-shadow:
+    0 10px 28px -8px rgba(30, 215, 96, 0.42),
+    inset 0 1px 0 rgba(200, 255, 218, 0.34),
+    inset 0 0 0 1px rgba(30, 215, 96, 0.36);
+}
+
+#SpicyLyricsPage .ViewControls .ViewControl.AIRefined:hover {
+  color: #43e57c;
+  background: rgba(30, 215, 96, 0.24);
+  box-shadow:
+    0 12px 32px -8px rgba(30, 215, 96, 0.52),
+    inset 0 1px 0 rgba(220, 255, 231, 0.42),
+    inset 0 0 0 1px rgba(67, 229, 124, 0.48);
 }
 
 /* #SpicyLyricsPage:not(.Fullscreen, .NowBarSide__Right) .ViewControls:hover {
@@ -353,10 +403,6 @@ body:not(.SpicyLyrics_StaticBackground)
   transform: translateY(2px);
 }
 
-body.SpicySidebarLyrics__Active button:has(#SpicyLyricsPageSvg) {
-  display: none !important;
-}
-
 button:has(#SpicyLyricsPageSvg)::after {
   transform: translateX(-370%) translateY(-40%) !important;
 }
@@ -419,51 +465,6 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
 .QdB2YtfEq0ks5O4QbtwX:has(#SpicyLyricsPage) .DJcMUKFwkFECf5ksmSfU {
   display: none !important;
 } */
-
-body.SpicySidebarLyrics__Active .eguwzH_QWTBXry7hiNj3:has([id="settings.showFriendActivity"]),
-body.SpicySidebarLyrics__Active .x-settings-row:has([id="settings.showFriendActivity"]) {
-  display: none !important;
-}
-
-body.SpicySidebarLyrics__Active .Root__right-sidebar .XOawmCGZcQx4cesyNfVO > :not(#SpicyLyricsPage),
-body.SpicySidebarLyrics__Active
-  .Root__right-sidebar
-  .oXO9_yYs6JyOwkBn8E4a
-  > :not(#SpicyLyricsPage) {
-  display: none !important;
-}
-
-body.SpicySidebarLyrics__Active [data-testid="control-button-queue"] {
-  color: rgba(var(--spice-rgb-selected-row), 0.7) !important;
-}
-
-body.SpicySidebarLyrics__Active [data-testid="control-button-queue"]::after {
-  display: none !important;
-}
-
-body.SpicySidebarLyrics__Active #SpicyLyricsPage .NowBar {
-  display: none !important;
-}
-
-body.SpicySidebarLyrics__Active #SpicyLyricsPage {
-  --LyricsLeftSidePadding: 12cqw !important;
-  --LyricsRightSidePadding: 7.5cqw !important;
-}
-
-#SpicyLyricsPage.SidebarTransition__Opening {
-  left: 100%;
-}
-
-#SpicyLyricsPage.SidebarTransition__Closing {
-  left: -100%;
-}
-
-*:has(
-    > #SpicyLyricsPage.SidebarTransition__Opening,
-    > #SpicyLyricsPage.SidebarTransition__Closing
-  ) {
-  overflow: hidden !important;
-}
 
 #SpicyLyricsPage:not(.Lyrics_RomanizationAvailable) .ViewControls #RomanizationToggle,
 #SpicyLyricsPage:not(.SpicyRenderer) .ViewControls #RomanizationToggle {
@@ -935,8 +936,4 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay-animated.Active .sl-modal-co
   left: 50%;
   transform: translate(-50%);
   inline-size: 4px !important;
-}
-
-body.SpicySidebarLyrics__Active .Root__right-sidebar > div:first-of-type > :not(#SpicyLyricsPage) {
-  display: none;
 }

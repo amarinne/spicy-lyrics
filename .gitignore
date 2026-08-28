@@ -149,7 +149,10 @@ dist_legacy/
 
 src/utils/SpicyHasher.ts
 
-.github/
+.github/*
+!.github/workflows/
+.github/workflows/*
+!.github/workflows/quality.yml
 
 src/components/PopupModal/
 src/components/PopupModal/PopupModal.ts
@@ -178,7 +181,7 @@ src/components/cli-sync
 
 CHANGELOG.md
 
-# Local agent/editor notes
+# Local-only docs, agent, and editor material — never publish
 .pi/
 .codex/
 .agents/
@@ -187,6 +190,12 @@ CHANGELOG.md
 CLAUDE.md
 AGENTS.md
 project/*.md
+docs/
+tests/private/ai-refinement-replay/
 
 # Release/build artifacts
 builds/
+tools/.cache/
+
+skills-lock.json
+docs/SPICETIFY_2440_REGRESSION.md

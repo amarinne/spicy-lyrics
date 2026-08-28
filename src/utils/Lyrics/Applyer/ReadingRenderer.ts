@@ -13,6 +13,15 @@ import {
   type JapaneseReadable,
   type JapaneseReading,
 } from "../Reading/JapaneseReading.ts";
+import type { RenderPlan } from "../Processing/Model.ts";
+import StripZeroWidth from "./Utils/StripZeroWidth.ts";
+import { renderExperimentalReadingPlan } from "./ExperimentalReadingPlanRenderer.ts";
+import {
+  resolveHanLanguageTag,
+  resolveHanLanguageTagForContext,
+  splitHanLanguageRuns,
+  type HanLanguageContext,
+} from "../HanLanguage.ts";
 
 export type ReadingRenderOptions = {
   useRomanized: boolean;
@@ -21,10 +30,11 @@ export type ReadingRenderOptions = {
   isJapaneseLyrics?: boolean;
   oppositeAligned?: boolean;
   reserveFurigana?: boolean;
+  hanLanguageContext?: HanLanguageContext;
 };
 
 type SyllableLike = JapaneseReadable & {
-  IsPartOfWord?: boolean;
+  BoundaryAfter?: boolean;
   RomajiSpaceBefore?: boolean;
 };
 
@@ -36,6 +46,21 @@ export function getJapaneseReading(entry: JapaneseReadable | undefined): Japanes
 
 export function hasFurigana(entry: JapaneseReadable | undefined): boolean {
   return (getJapaneseReading(entry)?.furigana.length || 0) > 0;
+}
+
+/**
+ * Ruby geometry belongs to the complete Japanese line, not karaoke fragments.
+ * A renderer can safely re-base only ruby fully contained by one timed source
+ * unit. Crossing ruby must use the whole-line path; otherwise its full reading
+ * is drawn once for every intersecting fragment.
+ */
+export function hasFuriganaCrossingTimedUnits(readingPlan: RenderPlan | undefined): boolean {
+  const ruby = (readingPlan?.furigana || []) as Array<{ start?: number; end?: number }>;
+  const sourceUnits = readingPlan?.sourceUnits || [];
+  return ruby.some((segment) =>
+    typeof segment.start === "number" && typeof segment.end === "number" &&
+    !sourceUnits.some((unit) => segment.start! >= unit.canonicalRange.startCp && segment.end! <= unit.canonicalRange.endCp)
+  );
 }
 
 export function isJapaneseEntry(entry: JapaneseReadable | undefined, isJapaneseLyrics?: boolean): boolean {
@@ -53,7 +78,20 @@ export function shouldRenderRomanization(entry: JapaneseReadable | undefined, op
   return !isJapanese || $japaneseReadingMode.get() !== "furigana";
 }
 
-function appendPlainText(parent: HTMLElement, text: string): void {
+function appendBaseText(parent: HTMLElement, text: string, context?: HanLanguageContext): void {
+  for (const run of splitHanLanguageRuns(text, context)) {
+    const element = document.createElement("span");
+    element.className = "lyric-base-run";
+    if (run.language) element.lang = run.language;
+    // Render-only: strip invisible markers at final text assignment so they
+    // never appear as visible spans. Source text (and thus furigana segment
+    // offsets computed above) stays untouched.
+    element.textContent = StripZeroWidth(run.text);
+    parent.appendChild(element);
+  }
+}
+
+function appendPlainText(parent: HTMLElement, text: string, context?: HanLanguageContext): void {
   if (!text) return;
 
   const cluster = document.createElement("span");
@@ -65,13 +103,18 @@ function appendPlainText(parent: HTMLElement, text: string): void {
 
   const base = document.createElement("span");
   base.className = "furigana-base";
-  base.textContent = text;
+  appendBaseText(base, text, context);
 
   cluster.append(reading, base);
   parent.appendChild(cluster);
 }
 
-export function appendFuriganaText(parent: HTMLElement, text: string, rawSegments: FuriganaSegment[]): void {
+export function appendFuriganaText(
+  parent: HTMLElement,
+  text: string,
+  rawSegments: FuriganaSegment[],
+  context?: HanLanguageContext,
+): void {
   parent.textContent = "";
 
   const segments = [...rawSegments]
@@ -86,7 +129,7 @@ export function appendFuriganaText(parent: HTMLElement, text: string, rawSegment
   let cursor = 0;
   for (const segment of segments) {
     if (segment.start < cursor) continue;
-    appendPlainText(parent, text.slice(cursor, segment.start));
+    appendPlainText(parent, text.slice(cursor, segment.start), context);
 
     const cluster = document.createElement("span");
     cluster.className = "furigana-cluster";
@@ -97,14 +140,17 @@ export function appendFuriganaText(parent: HTMLElement, text: string, rawSegment
 
     const base = document.createElement("span");
     base.className = "furigana-base";
-    base.textContent = text.slice(segment.start, segment.end);
+    const baseText = text.slice(segment.start, segment.end);
+    const language = resolveHanLanguageTagForContext(baseText, context);
+    if (language) base.lang = language;
+    base.textContent = StripZeroWidth(baseText);
 
     cluster.append(reading, base);
     parent.appendChild(cluster);
     cursor = segment.end;
   }
 
-  appendPlainText(parent, text.slice(cursor));
+  appendPlainText(parent, text.slice(cursor), context);
 }
 
 export function renderBaseTextWithReadings(
@@ -117,7 +163,7 @@ export function renderBaseTextWithReadings(
 
   if (shouldRenderFurigana(entry, options) && reading) {
     element.classList.add("has-furigana");
-    appendFuriganaText(element, text, reading.furigana);
+    appendFuriganaText(element, text, reading.furigana, options.hanLanguageContext);
     return true;
   }
 
@@ -128,7 +174,7 @@ export function renderBaseTextWithReadings(
     isJapaneseEntry(entry, options.isJapaneseLyrics)
   ) {
     element.classList.add("has-furigana");
-    appendPlainText(element, text);
+    appendPlainText(element, text, options.hanLanguageContext);
     return true;
   }
 
@@ -141,7 +187,8 @@ export function renderBaseTextWithReadings(
     element.classList.add("furigana-pending");
   }
 
-  element.textContent = text;
+  element.textContent = "";
+  appendBaseText(element, text, options.hanLanguageContext);
   return false;
 }
 
@@ -150,14 +197,15 @@ export function forceStackedLine(lineElem: HTMLElement, oppositeAligned?: boolea
   lineElem.classList.toggle("HasOppositeAlignedExtras", oppositeAligned === true);
 }
 
-export function getRomanizedText(entry: JapaneseReadable | undefined): string | undefined {
+export function getRomanizedText(entry: (JapaneseReadable & { RomanizationSource?: string }) | undefined): string | undefined {
   if (!entry) return undefined;
-  return entry.RomanizedText || entry.TransliteratedText || entry.JapaneseReading?.romaji;
+  if (entry.RomanizationSource === "ai") return entry.RomanizedText || entry.TransliteratedText;
+  return entry.ReadingRenderPlan?.joinedDisplayText || entry.RomanizedText || entry.TransliteratedText || entry.JapaneseReading?.romaji;
 }
 
 export function appendRomanizedBelow(
   lineElem: HTMLElement,
-  entry: JapaneseReadable,
+  entry: JapaneseReadable & { RomanizationSource?: string },
   options: ReadingRenderOptions
 ): boolean {
   if (!shouldRenderRomanization(entry, options)) return false;
@@ -170,6 +218,7 @@ export function appendRomanizedBelow(
   forceStackedLine(lineElem, options.oppositeAligned);
   const romanizedElem = document.createElement("div");
   romanizedElem.className = `romanized-below${options.romanizationPending && !hasDistinctRomanization ? " romanization-placeholder" : ""}`;
+  if (entry.RomanizationSource === "google") romanizedElem.classList.add("romanization-static");
   romanizedElem.textContent = hasDistinctRomanization ? romanizedText! : "";
   lineElem.appendChild(romanizedElem);
   return true;
@@ -188,6 +237,10 @@ export function appendTranslatedBelow(
   const translatedElem = document.createElement("div");
   translatedElem.className = `translated-below${options.translationPending && !hasDistinctTranslation ? " translation-placeholder" : ""}`;
   translatedElem.textContent = hasDistinctTranslation ? translatedText! : "";
+  if (hasDistinctTranslation) {
+    const language = resolveHanLanguageTag(translatedText!);
+    if (language) translatedElem.lang = language;
+  }
   lineElem.appendChild(translatedElem);
   return true;
 }
@@ -208,6 +261,7 @@ export function appendSyllableRomanizedBelow(
   groupRomanizedText: string | undefined,
   groupTranslatedText: string | undefined,
   animatorEntries: Array<{ RomajiElement?: HTMLElement }> | undefined,
+  readingPlan: RenderPlan | undefined,
   options: ReadingRenderOptions
 ): void {
   const groupEntry: JapaneseReadable = {
@@ -217,7 +271,13 @@ export function appendSyllableRomanizedBelow(
     JapaneseReading: syllables.find((s) => s.JapaneseReading)?.JapaneseReading,
   };
 
-  if (shouldRenderRomanization(groupEntry, options)) {
+  if (shouldRenderRomanization(groupEntry, options) && readingPlan?.timedReadingUnits.length) {
+    forceStackedLine(lineElem, options.oppositeAligned);
+    renderExperimentalReadingPlan(lineElem, readingPlan, (spanId, element) => {
+      const index = Number(spanId);
+      if (Number.isInteger(index) && animatorEntries?.[index]) animatorEntries[index].RomajiElement = element;
+    });
+  } else if (shouldRenderRomanization(groupEntry, options)) {
     const hasDistinctRomanization = isMeaningfullyDifferent(groupRomanizedText, sourceText);
     if (hasDistinctRomanization || options.romanizationPending) {
       forceStackedLine(lineElem, options.oppositeAligned);
@@ -234,7 +294,7 @@ export function appendSyllableRomanizedBelow(
           const romajiSpan = document.createElement("span");
           romajiSpan.textContent = romaji;
           romajiSpan.className = "romanized-syllable";
-          if (syl.RomajiSpaceBefore || (!syl.IsPartOfWord && index > 0)) {
+          if (syl.RomajiSpaceBefore || (index > 0 && syllables[index - 1]?.BoundaryAfter === true)) {
             romajiSpan.style.marginLeft = "0.25em";
           }
           romanizedDiv.appendChild(romajiSpan);

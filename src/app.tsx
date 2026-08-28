@@ -32,30 +32,27 @@ import LoadFonts, { ApplyFontPixel } from "./components/Styling/Fonts.ts";
 import { Icons } from "./components/Styling/Icons.ts";
 import Fullscreen, { EnterSpicyLyricsFullscreen, ExitFullscreenElement } from "./components/Utils/Fullscreen.ts";
 import { UpdateNowBar } from "./components/Utils/NowBar.ts";
-import {
-  CloseSidebarLyrics,
-  OpenSidebarLyrics,
-  RegisterSidebarLyrics,
-  getQueueContainer,
-  isSpicySidebarMode,
-} from "./components/Utils/SidebarLyrics.ts";
 import { IsPlaying } from "./utils/Addons.ts";
 import { requestPositionSync } from "./utils/Gets/GetProgress.ts";
 import { IntervalManager } from "./utils/IntervalManager.ts";
 import fetchLyrics, { PrefetchLyrics } from "./utils/Lyrics/fetchLyrics.ts";
+import { shouldRefetchAfterApply } from "./utils/Lyrics/PostApplyRefetch.ts";
+import { onAIRefinementTrackChanged } from "./utils/Lyrics/AIRefinement/singleton.ts";
 import ApplyLyrics from "./utils/Lyrics/Global/Applyer.ts";
 import { ScrollingIntervalTime } from "./utils/Lyrics/lyrics.ts";
 import { ScrollToActiveLine } from "./utils/Scrolling/ScrollToActiveLine.ts";
 import { ScrollSimplebar } from "./utils/Scrolling/Simplebar/ScrollSimplebar.ts";
-import { $fromVersion, $lastFetchedUri, $prefetchNextLyrics, $previousVersion, $sidebarStatus } from "./utils/uiState.ts";
+import { $fromVersion, $lastFetchedUri, $prefetchNextLyrics, $previousVersion } from "./utils/uiState.ts";
 import { CheckForUpdates } from "./utils/version/CheckForUpdates.tsx";
 import { needsMigration, showMigrationModal } from "./utils/migration/DataMigration.tsx";
 import "./css/settings-panel.css";
 import "./components/ReactComponents/LyricsManager/styles.css";
 import "./css/polyfills/generic-modal-polyfill.css";
 import "./css/polyfills/sonner-polyfill.css";
+import "./css/NPVLyrics.css";
 import UpdateDialog from "./components/ReactComponents/UpdateDialog.tsx";
 import { IsPIP, OpenPopupLyrics, ClosePopupLyrics } from "./components/Utils/PopupLyrics.ts";
+import { GetNPVCardElement, initNPVLyrics } from "./components/Utils/NPVLyrics.ts";
 import ReactDOM from "react-dom/client";
 import { PopupModal } from "./components/Modal.ts";
 import { runThemeMatcher } from "./utils/themeMatcher.ts";
@@ -69,7 +66,6 @@ import App from "./utils/app.ts";
 
 async function main() {
   const appLogger = new Logger("App");
-  const sidebarLogger = new Logger("Sidebar");
   const dynamicBgLogger = new Logger("Dynamic Background");
   const playbackLogger = new Logger("Playback");
 
@@ -286,26 +282,18 @@ async function main() {
           "Enter Fullscreen",
           `<svg role="img" height="16" width="16" aria-hidden="true" viewBox="0 0 16 16" data-encore-id="icon" class="Svg-sc-ytk21e-0 Svg-img-16-icon"><path d="M6.064 10.229l-2.418 2.418L2 11v4h4l-1.647-1.646 2.418-2.418-.707-.707zM11 2l1.647 1.647-2.418 2.418.707.707 2.418-2.418L15 6V2h-4z"/></svg>`,
           async (self) => {
-            if (isSpicySidebarMode) {
-              await CloseSidebarLyrics();
-            }
-            Whentil.When(
-              () => !isSpicySidebarMode,
-              async () => {
-                if (!self.active) {
-                  Session.Navigate({ pathname: "/SpicyLyrics" });
-                  const pageWhentil = Whentil.When(
-                    () => document.querySelector<HTMLElement>(".Root__main-view #SpicyLyricsPage"),
-                    () => {
-                      Fullscreen.Open(Global.Saves.shift_key_pressed ?? false);
-                      pageWhentil?.Cancel();
-                    }
-                  );
-                } else {
-                  Session.GoBack();
+            if (!self.active) {
+              Session.Navigate({ pathname: "/SpicyLyrics" });
+              const pageWhentil = Whentil.When(
+                () => document.querySelector<HTMLElement>(".Root__main-view #SpicyLyricsPage"),
+                () => {
+                  Fullscreen.Open(Global.Saves.shift_key_pressed ?? false);
+                  pageWhentil?.Cancel();
                 }
-              }
-            );
+              );
+            } else {
+              Session.GoBack();
+            }
           },
           false,
           false
@@ -333,45 +321,6 @@ async function main() {
       }
     ];
   }
-
-  RegisterSidebarLyrics();
-
-  // console.log("[Spicy Lyrics Debug] Setting up initial sidebar status check");
-  //Whentil.When(() => document.querySelector<HTMLElement>(".Root__right-sidebar .XOawmCGZcQx4cesyNfVO:not(:has(.h0XG5HZ9x0lYV7JNwhoA.JHlPg4iOkqbXmXjXwVdo)):has(.jD_TVjbjclUwewP7P9e8)") && getQueuePlaybarButton(), () => {
-
-  if (!isSpicySidebarMode && getQueueContainer()) {
-    // console.log("[Spicy Lyrics Debug] Got now playing view parent container");
-    const sidebarStatus = $sidebarStatus.get();
-    sidebarLogger.debug("Restoring sidebar state", sidebarStatus);
-    // console.log("[Spicy Lyrics Debug] Sidebar status from storage:", sidebarStatus);
-    if (sidebarStatus === "open") {
-      // console.log("[Spicy Lyrics Debug] Sidebar status is 'open', checking current path");
-      if (Spicetify.Platform.History.location.pathname === "/SpicyLyrics") {
-        // console.log("[Spicy Lyrics Debug] Currently on /SpicyLyrics, going back");
-        Session.GoBack();
-        // console.log("[Spicy Lyrics Debug] Setting up Whentil to open sidebar after navigation");
-        Whentil.When(
-          () =>
-            !PageView.IsOpened && Spicetify.Platform.History.location.pathname !== "/SpicyLyrics",
-          () => {
-            // console.log("[Spicy Lyrics Debug] Page closed and navigated away, opening sidebar");
-            OpenSidebarLyrics(!!getQueueContainer());
-          }
-        );
-      } else {
-        // console.log("[Spicy Lyrics Debug] Not on /SpicyLyrics, setting up Whentil to open sidebar");
-        Whentil.When(
-          () =>
-            !PageView.IsOpened && Spicetify.Platform.History.location.pathname !== "/SpicyLyrics",
-          () => {
-            // console.log("[Spicy Lyrics Debug] Conditions met, opening sidebar");
-            OpenSidebarLyrics(!!getQueueContainer());
-          }
-        );
-      }
-    }
-  }
-  // })
 
   // Add shift key tracking
   Global.Saves.shift_key_pressed = false;
@@ -571,25 +520,43 @@ async function main() {
       if (!sidebar) return;
 
       nowPlayingBarObserver = new MutationObserver((mutations) => {
+        // Resolved once per callback, not once per record.
+        const card = GetNPVCardElement();
         const shouldReapply = mutations.some((mutation) => {
-          if (mutation.type === "childList") return true;
-          if (mutation.type !== "attributes") return false;
-          return (
-            mutation.attributeName === "src" ||
-            mutation.attributeName === "style" ||
-            mutation.attributeName === "class"
-          );
+          // Cheap type/attribute test first — the ancestor walk below only runs
+          // for records that would otherwise schedule a re-apply.
+          if (mutation.type === "attributes") {
+            const name = mutation.attributeName;
+            if (name !== "src" && name !== "class" && name !== "inert") return false;
+          } else if (mutation.type !== "childList") {
+            return false;
+          }
+          // Ignore mutations inside the NPV lyrics card — the lyrics pipeline
+          // mutates it constantly, which would reset the debounce below forever
+          // and starve the npvbg apply. The card's own insertion/removal still
+          // passes (that mutation targets the card's parent).
+          const target = mutation.target;
+          const targetElement =
+            target instanceof Element ? target : target.parentElement;
+          return !(card && targetElement && card.contains(targetElement));
         });
 
         if (!shouldReapply) return;
         scheduleNowPlayingBarDynamicBackgroundApply();
       });
 
+      // `style` is deliberately absent from the filter: the lyrics animator
+      // rewrites inline styles on every mounted word and letter each frame, and
+      // the card lives inside this observed subtree. Including it made Blink
+      // allocate a MutationRecord per write — hundreds per frame — that this
+      // callback then had to walk and discard. Cover swaps already arrive via
+      // the `playback:songchange` handler, and DOM-driven re-renders via
+      // `childList` / `src` / `class`.
       nowPlayingBarObserver.observe(sidebar, {
         subtree: true,
         childList: true,
         attributes: true,
-        attributeFilter: ["src", "style", "class"],
+        attributeFilter: ["src", "class", "inert"],
       });
     };
 
@@ -677,9 +644,13 @@ async function main() {
       const nowPlayingBar = getNowPlayingBarElement();
       const topContainer = getTopContainerElement();
       const cinemaViewExists = Boolean(topContainer?.querySelector(".Root__cinema-view"));
+      // Same rule as the NPV lyrics card: an inert ancestor chain
+      // (.Root__right-sidebar <-> aside) means the NPV is not interactive,
+      // so its dynamic background should be de-rendered too.
+      const npvIsInert = Boolean(nowPlayingBar?.closest("[inert]"));
 
       try {
-        if (!nowPlayingBar || cinemaViewExists || isSpicySidebarMode) {
+        if (!nowPlayingBar || cinemaViewExists || npvIsInert) {
           lastImgUrl = null;
           CleanupNowBarDynamicBgLets();
           return;
@@ -797,6 +768,7 @@ async function main() {
       }
 
       const songUri = event?.data?.item?.uri;
+      onAIRefinementTrackChanged(songUri ?? null);
       if (songUri) {
         fetchLyrics(songUri).then(ApplyLyrics);
       }
@@ -835,6 +807,7 @@ async function main() {
     Global.Event.listen("playback:songchange", onSongChange);
 
     const initUri = SpotifyPlayer.GetUri();
+    onAIRefinementTrackChanged(initUri ?? null);
     if (initUri) {
       fetchLyrics(initUri).then(ApplyLyrics);
       void scheduleNextLyricsPrefetch(1800);
@@ -866,13 +839,6 @@ async function main() {
       fetchLyrics(Spicetify.Player.data?.item?.uri).then(ApplyLyrics);
     });
 
-    window.addEventListener("spicy-lyrics:processing-ready", ((event: CustomEvent) => {
-      const { trackId, lyrics } = event.detail ?? {};
-      if (!trackId || SpotifyPlayer.GetId() !== trackId) return;
-      ApplyLyrics([lyrics, 200]);
-      PageView.AppendViewControls(true);
-    }) as EventListener);
-
     new IntervalManager(ScrollingIntervalTime, () => {
       if (ScrollSimplebar) {
         ScrollToActiveLine(ScrollSimplebar);
@@ -889,17 +855,8 @@ async function main() {
     async function loadPage(location: Location) {
       appLogger.debug("Handling route change", location.pathname);
       if (location.pathname === "/SpicyLyrics") {
-        if (isSpicySidebarMode) {
-          await CloseSidebarLyrics();
-        }
-        Whentil.When(
-          () => !isSpicySidebarMode,
-          () => {
-            PageView.Open();
-            if (!button) return;
-            button.Button.active = true;
-          }
-        );
+        PageView.Open();
+        if (button) button.Button.active = true;
       } else {
         if (lastLocation?.pathname === "/SpicyLyrics") {
           await PageView.Destroy();
@@ -1003,7 +960,6 @@ async function main() {
       let lastLoopType: LoopType | null = null;
       // These interval managers are intentionally not stored in variables that are used elsewhere
       // They are self-running background processes that continue to run throughout the app lifecycle
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(Infinity, () => {
         const LoopState = Spicetify.Player.getRepeat();
         const LoopType: LoopType = LoopState === 1 ? "context" : LoopState === 2 ? "track" : "none";
@@ -1018,7 +974,6 @@ async function main() {
     {
       type ShuffleType = "smart" | "normal" | "none";
       let lastShuffleType: ShuffleType | null = null;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(Infinity, () => {
         const ShuffleType: ShuffleType = (Spicetify.Player as any).origin._state.smartShuffle
           ? "smart"
@@ -1034,8 +989,31 @@ async function main() {
     }
 
     {
+      // Volume changes from anywhere (Spotify's own slider, media keys, another
+      // device, our own setVolume) arrive on this native emitter, so there's nothing
+      // to poll. `_events` is undocumented; if Spotify removes it, the slider simply
+      // stops receiving external updates instead of breaking startup.
+      Whentil.When(
+        () => Spicetify.Platform?.PlaybackAPI,
+        () => {
+          try {
+            Spicetify.Platform.PlaybackAPI?._events?.addListener?.(
+              "volume",
+              (e: { data?: { volume?: number } }) => {
+                const volume = e?.data?.volume;
+                if (typeof volume !== "number") return;
+                Global.Event.evoke("playback:volume", volume);
+              }
+            );
+          } catch (err) {
+            console.error("Spicy Lyrics: couldn't listen for volume changes", err);
+          }
+        }
+      );
+    }
+
+    {
       let lastPosition = 0;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(0.5, () => {
         const pos = SpotifyPlayer.GetPosition();
         if (pos !== lastPosition) {
@@ -1047,7 +1025,6 @@ async function main() {
 
     /* {
       let lastPosition = 0;
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       new IntervalManager(Infinity, () => {
         const pos = SpotifyPlayer.GetPosition();
         if (pos !== lastPosition) {
@@ -1065,18 +1042,9 @@ async function main() {
           lastTimeout = undefined;
         }
         lastTimeout = setTimeout(async () => {
-          const currentSongLyrics = $currentLyricsData.get();
-          if (
-            currentSongLyrics &&
-            currentSongLyrics !== `NO_LYRICS:${SpotifyPlayer.GetUri()}`
-          ) {
-            const parsedLyrics = JSON.parse(currentSongLyrics);
-            if (parsedLyrics?.uri !== SpotifyPlayer.GetUri()) {
-              const refetchUri = SpotifyPlayer.GetUri();
-              if (refetchUri) {
-                fetchLyrics(refetchUri).then(ApplyLyrics);
-              }
-            }
+          const refetchUri = SpotifyPlayer.GetUri();
+          if (shouldRefetchAfterApply($currentLyricsData.get(), refetchUri)) {
+            fetchLyrics(refetchUri).then(ApplyLyrics);
           }
         }, 1000);
       });
@@ -1142,6 +1110,8 @@ async function main() {
       }
     }
   );
+
+  initNPVLyrics();
 
   Hometinue();
 

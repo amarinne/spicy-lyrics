@@ -4,15 +4,20 @@ import { toast } from "sonner";
 import fetchLyrics, { LyricsStore } from "./Lyrics/fetchLyrics.ts";
 import ApplyLyrics from "./Lyrics/Global/Applyer.ts";
 import { $currentLyricsData } from "./stores.ts";
+import { clearAIRefinementTrack, clearAllAIRefinements, invalidateAIRefinementBaseline } from "./Lyrics/AIRefinement/singleton.ts";
 
 export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
   const currentSongId = SpotifyPlayer.GetId();
+  const currentSongUri = SpotifyPlayer.GetUri();
   if (!currentSongId || currentSongId === undefined) {
     ui
       ? toast.error(`The current song id could not be retrieved`)
       : null;
   }
   try {
+    if (ui && !window.confirm("Clear baseline caches and paid AI refinement results for this song? API keys are kept.")) return;
+    if (currentSongUri) await clearAIRefinementTrack(currentSongUri);
+    if (currentSongUri) invalidateAIRefinementBaseline(currentSongUri);
     await LyricsStore.RemoveItem(currentSongId ?? "");
     $currentLyricsData.set("");
     ui
@@ -29,6 +34,16 @@ export const RemoveCurrentLyrics_AllCaches = async (ui: boolean = false) => {
       ? toast.error(`Lyrics for the current song, couldn't be removed from all available caches. Check the console for more info.`)
       : null;
     console.error("SpicyLyrics:", error);
+  }
+};
+
+export const RemoveAIRefinementCache = async (ui: boolean = false) => {
+  try {
+    if (ui && !window.confirm("Clear every paid AI refinement result? API keys are kept.")) return;
+    await clearAllAIRefinements();
+    if (ui) toast.success("AI refinement cache cleared");
+  } catch {
+    if (ui) toast.error("AI refinement cache could not be cleared");
   }
 };
 
@@ -55,6 +70,8 @@ export const RemoveLyricsCache = async (ui: boolean = false) => {
 
 export const RemoveCurrentLyrics_StateCache = (ui: boolean = false) => {
   try {
+    const currentSongUri = SpotifyPlayer.GetUri();
+    if (currentSongUri) invalidateAIRefinementBaseline(currentSongUri);
     $currentLyricsData.set("");
     ui
       ? toast.success("Lyrics for the current song, have been removed from the internal state successfully")

@@ -1,25 +1,19 @@
-const ProviderMap = {
-    "spt": "Spotify",
-    "aml": "Apple Music",
-    "spl": "Spicy Lyrics",
-    "ldb": "Local DB",
-}
+import { openLyricsSourcePicker } from "../../../openLyricsSourcePicker.tsx";
+import { resolveLyricsSourceLabel } from "../../LyricsSourcePreferences.ts";
 
 export function ApplyLyricsProvider(data: any, LyricsContainer: HTMLElement): void {
   if (!data?.source || !LyricsContainer) return;
 
-  const ProviderElement = document.createElement("div");
+  const isLocal = data.source === "ldb";
+  const ProviderElement = document.createElement(isLocal ? "div" : "button");
   ProviderElement.classList.add("LyricsProvider");
-
-  let providerLabel = "";
-  if (
-    typeof data.source === "string" &&
-    Object.prototype.hasOwnProperty.call(ProviderMap, data.source)
-  ) {
-    providerLabel = ProviderMap[data.source];
-  } else {
-    providerLabel = "Unknown";
+  const providerLabel = resolveLyricsSourceLabel(data.source, data.sourceDisplayName, data.fetchProvider) ?? "Unknown";
+  ProviderElement.textContent = `Source: ${providerLabel}`;
+  if (!isLocal) {
+    const button = ProviderElement as HTMLButtonElement;
+    button.type = "button";
+    button.title = "Change lyrics source";
+    button.addEventListener("click", () => openLyricsSourcePicker());
   }
-  ProviderElement.textContent = `Provided by: ${providerLabel}`;
   LyricsContainer.appendChild(ProviderElement);
 }

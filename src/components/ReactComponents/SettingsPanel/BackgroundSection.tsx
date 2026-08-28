@@ -1,8 +1,12 @@
 import { useStore } from "@nanostores/react";
 import React from "react";
-import { $showNpvDynamicBg, $staticBackgroundMode } from "../../../utils/stores.ts";
+import {
+  $showNpvDynamicBg,
+  $staticBackgroundBlur,
+  $staticBackgroundMode,
+} from "../../../utils/stores.ts";
 import { $forceDarkBackground } from "../../../utils/uiState.ts";
-import { matches, Row, Select, SectionTitle, Toggle } from "./components.tsx";
+import { matches, Row, Select, SectionTitle, Slider, Toggle } from "./components.tsx";
 
 const SECTION_NAME = "Background";
 const bgModeOptions = ["off", "auto", "artistHeader", "coverArt", "color"];
@@ -15,6 +19,7 @@ interface Props {
 
 export default function BackgroundSection({ query, sectionFilter }: Props) {
   const staticBackgroundMode = useStore($staticBackgroundMode);
+  const staticBackgroundBlur = useStore($staticBackgroundBlur);
   const showNpvDynamicBg = useStore($showNpvDynamicBg);
   const forceDarkBackground = useStore($forceDarkBackground);
 
@@ -22,9 +27,15 @@ export default function BackgroundSection({ query, sectionFilter }: Props) {
 
   const r1 = matches(query, "Static Background", "Pin the background to a fixed image or color instead of animating it.");
   const r2 = matches(query, "Display Dynamic Background in Now Playing View", "Show the animated background in the Now Playing panel.");
-  const r3 = matches(query, "Force Dark Background", "Darken and desaturate bright dynamic background colors.");
+  // Only image-based static modes have something to blur — "color" paints a gradient,
+  // and "off" leaves the animated background in charge.
+  const blurApplies = staticBackgroundMode !== "off" && staticBackgroundMode !== "color";
+  const r3 =
+    blurApplies &&
+    matches(query, "Background Blur", "Soften the static background image.");
+  const r4 = matches(query, "Force Dark Background", "Darken and desaturate bright dynamic background colors.");
 
-  if (!r1 && !r2 && !r3) return null;
+  if (!r1 && !r2 && !r3 && !r4) return null;
 
   return (
     <>
@@ -41,6 +52,20 @@ export default function BackgroundSection({ query, sectionFilter }: Props) {
         </Row>
       )}
 
+      {r3 && (
+        <Row label="Background Blur" description="Soften the static background image." stacked>
+          <Slider
+            value={staticBackgroundBlur}
+            min={0}
+            max={67}
+            step={1}
+            defaultValue={0}
+            unit="px"
+            onChange={(v) => $staticBackgroundBlur.set(v)}
+          />
+        </Row>
+      )}
+
       {r2 && (
         <Row
           label="Display Dynamic Background in Now Playing View"
@@ -50,7 +75,7 @@ export default function BackgroundSection({ query, sectionFilter }: Props) {
         </Row>
       )}
 
-      {r3 && (
+      {r4 && (
         <Row
           label="Force Dark Background"
           description="Darken and desaturate bright dynamic background colors."

@@ -5,15 +5,22 @@
     "sc": "spicetify-creator",
     "dev": "spicetify-creator dev",
     "build": "spicetify-creator build",
-    "test:romanization": "node --experimental-strip-types --test tests/romanization-corpus.test.ts",
-    "lint": "oxlint",
-    "lint:fix": "oxlint --fix",
+    "test:romanization": "node --experimental-strip-types --test tests/romanization-acceptance.test.ts tests/romanization-corpus.test.ts tests/japanese-reading.test.ts",
+    "test:indic": "node --experimental-strip-types --test tests/indic-gating.test.ts",
+    "test:translation": "node --experimental-strip-types --test tests/translation-batch.test.ts",
+    "test:ai-refinement": "node --experimental-strip-types --test tests/ai-refinement-*.test.ts",
+    "test:processing-context": "node --experimental-strip-types --test tests/processing-context.test.ts",
+    "test:lyrics-sources": "node --experimental-strip-types --test tests/lyrics-source-*.test.ts tests/lyrics-request-session.test.ts tests/lyrics-candidate-selector.test.ts",
+    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "lint": "oxlint -c oxlint.config.mjs --report-unused-disable-directives-severity=error",
+    "lint:fix": "oxlint -c oxlint.config.mjs --fix",
+    "lint:plugins": "oxlint -c oxlint.config.mjs .oxlint-plugins/__fixtures__ --report-unused-disable-directives-severity=error",
     "fmt": "oxfmt"
   },
   "dependencies": {
     "@kawarp/core": "^1.2.0",
     "@nanostores/react": "^1.1.0",
-    "@spicemod/creator": "^0.0.35",
+    "@spicemod/creator": "0.0.35",
     "@tanstack/react-query": "^5.100.14",
     "@tanstack/virtual-core": "^3.16.0",
     "@types/react": "^19.2.15",
@@ -21,11 +28,17 @@
     "cubic-spline": "^3.0.3",
     "cyrillic-romanization": "^1.2.1",
     "d3-ease": "^3.0.1",
+    "fast-xml-parser": "^5.11.0",
     "franc-all": "^7.2.0",
     "idb": "^8.0.3",
+    "japanese-lyrics-processor": "file:../japanese-lyrics-processor",
+    "korean-pronunciation": "^1.0.1",
     "kuroshiro": "^1.2.0",
     "langs": "^2.0.0",
     "nanostores": "^1.3.0",
+    "oktjs": "^0.1.3",
+    "opencc-js": "^1.4.0",
+    "pinyin-pro": "3.28.1",
     "react": "^19.2.6",
     "react-dom": "^19.2.6",
     "semver": "^7.8.1",
@@ -43,5 +56,8 @@
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@spicemod/creator": "0.0.35"
   }
 }

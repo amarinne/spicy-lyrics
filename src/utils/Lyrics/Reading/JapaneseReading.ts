@@ -13,6 +13,10 @@ import {
   computeNoSpaceBefore,
   type MergeableEntry,
 } from "../Fork/JukujikunMerge.ts";
+import { cleanInvisiblesPreserveEdges } from "../Fork/TextDetection.ts";
+import type { RenderPlan } from "../Processing/Model.ts";
+import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
+import { codePointOffsetToUtf16Index } from "../Processing/CodePoint.ts";
 
 export type FuriganaSegment = {
   start: number;
@@ -32,6 +36,7 @@ export type JapaneseReadable = {
   RomanizedText?: string;
   JapaneseReading?: JapaneseReading;
   RomajiSpaceBefore?: boolean;
+  ReadingRenderPlan?: RenderPlan;
 };
 
 export type ProcessedTextEntry = JapaneseReadable & {
@@ -50,6 +55,10 @@ export type TimedSyllableEntry = JapaneseReadable & {
   StartTime: number;
   EndTime: number;
   IsPartOfWord?: boolean;
+  BoundaryAfter?: boolean;
+  BoundaryProvenance?: string;
+  CanonicalStartCp?: number;
+  CanonicalEndCp?: number;
 };
 
 export type TimedSyllableGroup = JapaneseReadable & {
@@ -59,11 +68,25 @@ export type TimedSyllableGroup = JapaneseReadable & {
   TranslatedText?: string;
 };
 
+export type JapaneseTimedTextSpan = {
+  index: number;
+  rawText: string;
+  normalizedText: string;
+  start: number;
+  end: number;
+};
+
+export type JapaneseLineTextMap = {
+  lineText: string;
+  spans: JapaneseTimedTextSpan[];
+};
+
 export const JapaneseSourceTextTest = /[぀-ヿ一-鿿]/;
 export const JapaneseKanaTextTest = /[ぁ-んァ-ン]/;
 export const KanjiTextTest = /[一-鿿々]/;
 const KanjiLikeCharTest = /[一-鿿々]/;
 const KanjiLikeSequenceTest = /^[一-鿿々]+$/;
+const KanaCharTest = /[ぁ-んァ-ンー]/;
 
 const HIRAGANA_VOWEL: Record<string, string> = {
   あ: "あ", か: "あ", が: "あ", さ: "あ", ざ: "あ", た: "あ", だ: "あ", な: "あ", は: "あ", ば: "あ", ぱ: "あ", ま: "あ", や: "あ", ら: "あ", わ: "あ", ぁ: "あ", ゃ: "あ",
@@ -95,6 +118,33 @@ type JapaneseTokenContext = {
 
 const tokenPos1 = (token: any): string => token?.pos || token?.part_of_speech || token?.pos_detail_1 || "";
 
+function normalizeJapaneseTimedText(text: string): string {
+  return cleanInvisiblesPreserveEdges((text || "").normalize("NFKC"));
+}
+
+export function buildJapaneseLineTextMap(syllables: JapaneseReadable[], displayText = ""): JapaneseLineTextMap {
+  const normalized = syllables.map((syllable) => ({
+    Text: normalizeJapaneseTimedText(syllable?.Text || ""),
+    IsPartOfWord: (syllable as TimedSyllableEntry)?.IsPartOfWord,
+  }));
+  const canonical = canonicalTextFromSyllables(normalized, displayText).canonical;
+  const spans = canonical.spanMappings.map((mapping, index) => {
+    const rawText = syllables[index]?.Text || "";
+    return {
+      index,
+      rawText,
+      normalizedText: normalizeJapaneseTimedText(rawText).trim(),
+      start: codePointOffsetToUtf16Index(canonical.text, mapping.canonicalRange.startCp),
+      end: codePointOffsetToUtf16Index(canonical.text, mapping.canonicalRange.endCp),
+    };
+  });
+  return { lineText: canonical.text, spans };
+}
+
+function rangesOverlap(startA: number, endA: number, startB: number, endB: number): boolean {
+  return startA < endB && startB < endA;
+}
+
 function normalizeHiraganaLongMarks(text: string): string {
   let output = "";
   for (const char of Array.from(text)) {
@@ -116,6 +166,21 @@ function kataToHira(text: string): string {
 
 function contextualKanaReading(surface: string, reading: string): string {
   return kataToHira(reading || "");
+}
+
+export function okuriganaAnchoredKanjiRunReading(kana: string, kanaCursor: number, trailingOkurigana: string): string {
+  const normalizedKana = kataToHira(kana);
+  const normalizedOkurigana = kataToHira(trailingOkurigana);
+  if (!normalizedKana || !normalizedOkurigana) return "";
+
+  const safeCursor = Math.max(0, Math.min(kanaCursor, normalizedKana.length));
+  const remaining = normalizedKana.slice(safeCursor);
+  if (remaining.endsWith(normalizedOkurigana)) {
+    return normalizedKana.slice(safeCursor, normalizedKana.length - normalizedOkurigana.length);
+  }
+
+  const fallback = normalizedKana.lastIndexOf(normalizedOkurigana, normalizedKana.length - normalizedOkurigana.length);
+  return fallback >= safeCursor ? normalizedKana.slice(safeCursor, fallback) : normalizedKana.slice(safeCursor);
 }
 
 function kanaReadingSegments(surface: string, reading: string): TokenFuriganaReading[] {
@@ -140,7 +205,7 @@ function kanaReadingSegments(surface: string, reading: string): TokenFuriganaRea
   while (charIndex < chars.length) {
     const char = chars[charIndex];
 
-    if (/[ぁ-んァ-ンー]/.test(char)) {
+    if (KanaCharTest.test(char)) {
       if (kana[kanaCursor] === char) kanaCursor += 1;
       charIndex += 1;
       continue;
@@ -154,12 +219,15 @@ function kanaReadingSegments(surface: string, reading: string): TokenFuriganaRea
     const start = charIndex;
     while (charIndex < chars.length && KanjiLikeCharTest.test(chars[charIndex])) charIndex += 1;
     const end = charIndex;
-    const nextKana = chars.slice(charIndex).find((c) => /[ぁ-んー]/.test(c));
+    const followingKana: string[] = [];
+    for (let i = charIndex; i < chars.length && KanaCharTest.test(chars[i]); i += 1) {
+      followingKana.push(chars[i]);
+    }
     const readingStart = kanaCursor;
 
-    if (nextKana) {
-      const nextIndex = kana.indexOf(nextKana, kanaCursor);
-      kanaCursor = nextIndex >= 0 ? nextIndex : kana.length;
+    if (followingKana.length > 0) {
+      const text = okuriganaAnchoredKanjiRunReading(kana, kanaCursor, followingKana.join(""));
+      kanaCursor = Math.min(kana.length, kanaCursor + text.length);
     } else {
       kanaCursor = kana.length;
     }
@@ -260,19 +328,22 @@ async function buildJapaneseTokenContext(lineText: string, _fullSpacedRomaji?: s
   for (let ti = 0; ti < tokens.length; ti += 1) {
     const surface: string = tokens[ti].surface_form || "";
     const reading: string = tokens[ti].reading || tokens[ti].pronunciation || "";
-    const readingKana = contextualKanaReading(surface, reading);
+    const hasJapaneseScript = JapaneseSourceTextTest.test(surface);
+    const foundAt = surface ? lineText.indexOf(surface, charPos) : -1;
+    const start = foundAt >= 0 ? foundAt : charPos;
+    const readingKana = hasJapaneseScript ? contextualKanaReading(surface, reading) : "";
     const entry: JapaneseTokenEntry = {
-      start: charPos,
-      end: charPos + surface.length,
+      start,
+      end: start + surface.length,
       romaji: surface,
       surface,
       readingKana,
-      furigana: kanaReadingForToken(surface, reading),
+      furigana: hasJapaneseScript ? kanaReadingForToken(surface, reading) : undefined,
       consumed: false,
     };
     entry.romaji = entryRomaji(entry, tokens[ti], (kana) => KUtil.kanaToRomaji(kana));
     entries.push(entry);
-    charPos += surface.length;
+    charPos = entry.end;
   }
 
   applyContextualReadingOverrides(entries, tokens);
@@ -305,6 +376,7 @@ export async function romanizeJapaneseFromFurigana(
   const context = await buildJapaneseTokenContext(sourceText);
   const KUtil = (Kuroshiro as any).Util;
   applyProviderFuriganaOverrides(sourceText, context.entries, furigana);
+  applyContextualReadingOverrides(context.entries, context.tokens);
   for (let i = 0; i < context.entries.length; i += 1) {
     context.entries[i].romaji = entryRomaji(context.entries[i], context.tokens[i], (kana) => KUtil.kanaToRomaji(kana));
   }
@@ -401,7 +473,8 @@ export async function applyJapaneseReadingToSyllables(
   lineText: string,
   fullSpacedRomaji: string | undefined,
   syllables: JapaneseReadable[],
-  romajiPromise?: Promise<void>
+  romajiPromise?: Promise<void>,
+  spans?: JapaneseTimedTextSpan[]
 ): Promise<JapaneseReading | undefined> {
   const reading = await analyzeJapaneseLine(lineText, fullSpacedRomaji, romajiPromise);
   if (!reading) {
@@ -418,14 +491,23 @@ export async function applyJapaneseReadingToSyllables(
   const context = await buildJapaneseTokenContext(reading.sourceText, reading.romaji || fullSpacedRomaji);
   let syllPos = 0;
   let prevLastIdx = -1;
+  const effectiveSpans = spans && spans.length > 0 ? spans : syllables.map((syllable, index) => {
+    const text = normalizeJapaneseTimedText(syllable.Text || "").trim();
+    while (syllPos < reading.sourceText.length && /\s/.test(reading.sourceText[syllPos])) syllPos += 1;
+    const start = syllPos;
+    const end = start + text.length;
+    syllPos = end;
+    return { index, rawText: syllable.Text || "", normalizedText: text, start, end };
+  });
+  const assignedEntryIndexes = new Set<number>();
+  const assignedFuriganaKeys = new Set<string>();
 
   for (let si = 0; si < syllables.length; si += 1) {
     const syllable = syllables[si];
-    const text = syllable.Text || "";
-    while (syllPos < reading.sourceText.length && /\s/.test(reading.sourceText[syllPos])) syllPos += 1;
-    const syllStart = syllPos;
-    const syllEnd = syllStart + text.length;
-    syllPos = syllEnd;
+    const text = normalizeJapaneseTimedText(syllable.Text || "").trim();
+    const span = effectiveSpans.find((candidate) => candidate.index === si);
+    const syllStart = span?.start ?? 0;
+    const syllEnd = span?.end ?? syllStart;
 
     clearLegacyFuriganaFields(syllable);
     delete syllable.JapaneseReading;
@@ -440,15 +522,18 @@ export async function applyJapaneseReadingToSyllables(
     for (let ei = 0; ei < context.entries.length; ei += 1) {
       const entry = context.entries[ei];
       if (entry.consumed) continue;
-      if (entry.start >= syllStart && entry.start < syllEnd) {
+      if (assignedEntryIndexes.has(ei)) continue;
+      if (rangesOverlap(entry.start, entry.end, syllStart, syllEnd)) {
         if (romajiParts.length > 0 && !context.noSpaceBefore[ei]) romajiParts.push(" ");
         romajiParts.push(entry.romaji);
         if (firstIdx === -1) firstIdx = ei;
         lastIdx = ei;
+        assignedEntryIndexes.add(ei);
       }
     }
 
-    if (si > 0 && firstIdx !== -1 && firstIdx !== prevLastIdx && !context.noSpaceBefore[firstIdx]) {
+    const hasSourceSpaceBefore = syllStart > 0 && /\s/.test(reading.sourceText[syllStart - 1] || "");
+    if (si > 0 && firstIdx !== -1 && (hasSourceSpaceBefore || (firstIdx !== prevLastIdx && !context.noSpaceBefore[firstIdx]))) {
       syllable.RomajiSpaceBefore = true;
     }
     if (lastIdx !== -1) prevLastIdx = lastIdx;
@@ -460,10 +545,19 @@ export async function applyJapaneseReadingToSyllables(
     }
 
     const localFurigana = reading.furigana
-      .filter((segment) => segment.start >= syllStart && segment.start < syllEnd)
+      .filter((segment) => {
+        const key = `${segment.start}:${segment.end}:${segment.reading}`;
+        if (assignedFuriganaKeys.has(key)) return false;
+        if (!rangesOverlap(segment.start, segment.end, syllStart, syllEnd)) return false;
+        assignedFuriganaKeys.add(key);
+        return true;
+      })
       .map((segment) => ({
-        start: segment.start - syllStart,
-        end: Math.max(segment.end - syllStart, segment.start - syllStart + 1),
+        start: Math.max(0, segment.start - syllStart),
+        end: Math.max(
+          Math.min(syllEnd, segment.end) - syllStart,
+          Math.max(0, segment.start - syllStart) + 1
+        ),
         reading: segment.reading,
       }));
 

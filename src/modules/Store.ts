@@ -152,7 +152,7 @@ export function SetDynamicStoreItem(
 export function GetExpireStore<ItemType>(
 	storeName: string,
 	version: number,
-	itemExpirationSettings: ExpirationSettings,
+	itemExpirationSettings?: ExpirationSettings,
 	forceNewData?: true,
 ): Readonly<ExpireStoreInterface<ItemType>> {
 	if (expireStoreRegistry.has(storeName)) {
@@ -171,7 +171,7 @@ export function GetExpireStore<ItemType>(
 
 		const wrapped = (await response.json()) as ExpireItem<ItemType>
 		if (wrapped.CacheVersion !== version) return undefined
-		if (wrapped.ExpiresAt < Date.now()) return undefined
+		if (itemExpirationSettings && wrapped.ExpiresAt < Date.now()) return undefined
 
 		return wrapped.Content
 	}
@@ -181,7 +181,9 @@ export function GetExpireStore<ItemType>(
 		content: ItemType,
 	): Promise<ItemType> => {
 		const wrapped: ExpireItem<ItemType> = {
-			ExpiresAt: computeExpiresAt(itemExpirationSettings),
+			ExpiresAt: itemExpirationSettings
+				? computeExpiresAt(itemExpirationSettings)
+				: Number.MAX_SAFE_INTEGER,
 			CacheVersion: version,
 			Content: content,
 		}

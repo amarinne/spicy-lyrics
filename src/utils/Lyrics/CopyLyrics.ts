@@ -2,6 +2,7 @@ import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import { $currentLyricsData } from "../stores.ts";
 import { $lyricsCopyFormat } from "../uiState.ts";
 import { isMeaningfullyDifferent } from "./TextCompare.ts";
+import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
 
 export type LyricsCopyFormat = "plain" | "timestamps" | "translation" | "metadata";
 
@@ -16,22 +17,7 @@ const cleanText = (value: unknown): string =>
 
 const joinSyllables = (syllables: any[] | undefined): string => {
   if (!Array.isArray(syllables)) return "";
-  let out = "";
-  let previousWasWordEnd = false;
-
-  for (const syllable of syllables) {
-    const text = cleanText(syllable?.Text);
-    if (!text) continue;
-
-    if ((previousWasWordEnd || syllable?.RomajiSpaceBefore) && out && !out.endsWith(" ")) {
-      out += " ";
-    }
-
-    out += text;
-    previousWasWordEnd = syllable?.IsPartOfWord === false;
-  }
-
-  return out.trim();
+  return cleanText(canonicalTextFromSyllables(syllables).canonical.text);
 };
 
 const formatTime = (seconds: unknown): string => {

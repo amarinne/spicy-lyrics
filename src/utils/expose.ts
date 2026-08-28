@@ -5,9 +5,12 @@ import { openSettingsPanel } from "./settings";
 import { OpenLyricsDBPanel } from "./openLyricsDBPanel";
 import { DeepFreeze } from "./utils";
 import { triggerSpicyLyricsFakeUpdate } from "./version/CheckForUpdates";
+import { SPICY_LYRICS_BUILD_MARKER } from "./buildMarker";
 
 export function exposeToWindow() {
+    (window as any).__spicyLyricsBuildMarker = SPICY_LYRICS_BUILD_MARKER;
     const api = {
+        buildMarker: SPICY_LYRICS_BUILD_MARKER,
         panels: {
             settings: {
                 open: () => openSettingsPanel(),

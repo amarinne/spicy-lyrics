@@ -1,13 +1,17 @@
 import { $lyricsContainerExists, $minimalLyricsMode } from "../stores.ts";
 import {
   $chineseTones,
+  $chineseReadingPlacement,
+  $joinMandarinWords,
   $chineseTranslitMode,
   $cyrillicKeepSigns,
   $cyrillicRomanizationMode,
-  $koreanRomanizationMode,
+  $koreanDisplayMode,
   $romanization,
   $translationEnabled,
   $translationTargetLang,
+  type KoreanDisplayMode,
+  type ChineseReadingPlacement,
 } from "../uiState.ts";
 import Global from "../../components/Global/Global.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
@@ -169,7 +173,6 @@ export function ClearLyricsContentArrays() {
 // const THROTTLE_TIME = 0;
 
 // Using underscore prefix to indicate it's intentionally unused but kept for future use
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 /* const _LyricsInterval = new IntervalManager(THROTTLE_TIME, () => {
   if (!$lyricsContainerExists.get()) return;
   const progress = SpotifyPlayer.GetPosition();
@@ -367,10 +370,19 @@ $chineseTones.listen((val) => {
   chineseTones = val;
 });
 
-export type KoreanRomanizationMode = "spelling" | "pronunciation";
-export let koreanRomanizationMode: KoreanRomanizationMode = $koreanRomanizationMode.get();
-$koreanRomanizationMode.listen((val) => {
-  koreanRomanizationMode = val;
+export let joinMandarinWords = $joinMandarinWords.get();
+$joinMandarinWords.listen((val) => {
+  joinMandarinWords = val;
+});
+
+export let chineseReadingPlacement: ChineseReadingPlacement = $chineseReadingPlacement.get();
+$chineseReadingPlacement.listen((val) => {
+  chineseReadingPlacement = val;
+});
+
+export let koreanDisplayMode: KoreanDisplayMode = $koreanDisplayMode.get();
+$koreanDisplayMode.listen((val) => {
+  koreanDisplayMode = val;
 });
 
 export type CyrillicRomanizationMode = "Russian" | "Ukrainian";

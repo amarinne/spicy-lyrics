@@ -15,6 +15,8 @@ import { CleanUpIsByCommunity } from "../Applyer/Credits/ApplyIsByCommunity.tsx"
 import { IsCompactMode } from "../../../components/Utils/CompactMode.ts";
 import Fullscreen from "../../../components/Utils/Fullscreen.ts";
 import { SpotifyPlayer } from "../../../components/Global/SpotifyPlayer.ts";
+import { applyTrackSourceOverride } from "../../openLyricsSourcePicker.tsx";
+import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
 
 /**
  * Union type for all lyrics data types
@@ -58,8 +60,17 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
   const [descriptor, _status] = lyricsContent;
 
   let noticeContent: string | null = null;
+  let sourceUnavailable: string | null = null;
 
-  switch (descriptor) {
+  if (typeof descriptor === "string" && descriptor.startsWith("source-unavailable:")) {
+    sourceUnavailable = descriptor.slice("source-unavailable:".length);
+    noticeContent = `${resolveLyricsSourceLabel(undefined, undefined, sourceUnavailable) ?? "Selected source"} is unavailable for this song`;
+  }
+
+  switch (sourceUnavailable ? "source-unavailable" : descriptor) {
+    case "source-unavailable": {
+      break;
+    }
     case "lyrics-queued": {
       // HTTP 503: the lyrics server has queued our request. Keep the loader and
       // queue message visible (LyricsQueueRetry drives the backoff retry loop)
@@ -142,8 +153,14 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
 
     currentNoticeElement.innerHTML = `
       <p class="notice-descriptor">${noticeContent.trim()}</p>
-      <p class="notice-footer">Need more help? Join our <a>Discord</a>.</p>
+      ${sourceUnavailable ? '<button type="button" class="source-auto-action">Use Auto source</button>' : '<p class="notice-footer">Need more help? Join our <a>Discord</a>.</p>'}
     `;
+
+    const sourceAutoAction = currentNoticeElement.querySelector<HTMLButtonElement>(".source-auto-action");
+    sourceAutoAction?.addEventListener("click", () => {
+      const uri = SpotifyPlayer.GetUri();
+      if (uri) void applyTrackSourceOverride(uri, "auto");
+    }, { signal: currentAbortController.signal });
 
     // Add click handler to log when the Discord link is clicked
     const discordLink = currentNoticeElement.querySelector("a");

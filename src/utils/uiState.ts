@@ -1,4 +1,5 @@
 import { atom } from "nanostores";
+import type { ChineseCharacterForm } from "./Lyrics/ChineseCharacterConversion.ts";
 
 export const UI_STATE_KEY = "SL:uiState";
 
@@ -18,7 +19,6 @@ function saveUiStateBlob(obj: Record<string, any>) {
 
 function migrateUiStateKeys(blob: Record<string, any>): Record<string, any> {
   const renames: Record<string, string> = {
-    "sidebar-status": "sidebarStatus",
     "IsNowBarOpen": "isNowBarOpen",
     "NowBarSide": "nowBarSide",
     "ForceCompactMode": "forceCompactMode",
@@ -43,6 +43,26 @@ if (_uiState.japaneseReadingMode === undefined) {
       ? "both"
       : "furigana"
     : "romaji";
+  saveUiStateBlob(_uiState);
+}
+if (_uiState.koreanDisplayMode === undefined) {
+  if (_uiState.koreanSeparators === true && _uiState.koreanRomanizationMode !== "pronunciation") {
+    _uiState.koreanDisplayMode = "wordTranslit";
+  } else if (_uiState.koreanRomanizationMode === "pronunciation") {
+    _uiState.koreanDisplayMode = _uiState.koreanOutputStyle === "vn" ? "vnPronunciation" : "rrPronunciation";
+  } else {
+    _uiState.koreanDisplayMode = "rrStandard";
+  }
+  saveUiStateBlob(_uiState);
+} else if (["plain", "blocks", "pronunciation"].includes(_uiState.koreanDisplayMode)) {
+  if (_uiState.koreanDisplayMode === "blocks") {
+    _uiState.koreanDisplayMode = "wordTranslit";
+  } else if (_uiState.koreanDisplayMode === "pronunciation") {
+    _uiState.koreanDisplayMode = _uiState.koreanOutputStyle === "vn" ? "vnPronunciation" : "rrPronunciation";
+  } else {
+    _uiState.koreanDisplayMode = "rrStandard";
+  }
+  saveUiStateBlob(_uiState);
 }
 
 function persistAtom<T>(key: string, defaultValue: T) {
@@ -55,18 +75,28 @@ function persistAtom<T>(key: string, defaultValue: T) {
 }
 
 // UI state atoms (persisted, not settings-panel entries)
-export const $sidebarStatus = persistAtom<"open" | "closed">("sidebarStatus", "closed");
 export const $isNowBarOpen = persistAtom<boolean>("isNowBarOpen", false);
 export const $nowBarSide = persistAtom<"left" | "right">("nowBarSide", "left");
 export const $forceCompactMode = persistAtom<boolean>("forceCompactMode", false);
 export const $romanization = persistAtom<boolean>("romanization", false);
 export const $chineseTranslitMode = persistAtom<"pinyin" | "jyutping">("chineseTranslitMode", "pinyin");
-export const $chineseTones = persistAtom<boolean>("chineseTones", false);
+export const $chineseTones = persistAtom<boolean>("chineseTones", true);
+export const $joinMandarinWords = persistAtom<boolean>("joinMandarinWords", false);
+/**
+ * Where a Chinese reading sits relative to the characters it reads. `wordAbove` is ruby position,
+ * the same slot furigana uses for Japanese — which is why this never applies to Japanese lines.
+ * Governs jyutping as well as pinyin; both are readings of Han characters.
+ */
+export type ChineseReadingPlacement = "lineBelow" | "wordBelow" | "wordAbove";
+export const $chineseReadingPlacement = persistAtom<ChineseReadingPlacement>("chineseReadingPlacement", "lineBelow");
+export const $chineseCharacterForm = persistAtom<ChineseCharacterForm>("chineseCharacterForm", "original");
 export const $japaneseReadingMode = persistAtom<"romaji" | "furigana" | "both">("japaneseReadingMode", "romaji");
-export const $koreanRomanizationMode = persistAtom<"spelling" | "pronunciation">("koreanRomanizationMode", "spelling");
+export type KoreanDisplayMode = "wordTranslit" | "rrStandard" | "rrPronunciation" | "vnPronunciation";
+export const $koreanDisplayMode = persistAtom<KoreanDisplayMode>("koreanDisplayMode", "rrStandard");
 export const $cyrillicRomanizationMode = persistAtom<"Russian" | "Ukrainian">("cyrillicRomanizationMode", "Russian");
 export const $cyrillicKeepSigns = persistAtom<boolean>("cyrillicKeepSigns", false);
 export const $translationEnabled = persistAtom<boolean>("translationEnabled", false);
+export const $meaningVisible = persistAtom<boolean>("meaningVisible", true);
 export const $translationTargetLang = persistAtom<string>("translationTargetLang", "en");
 export const $lyricsCopyFormat = persistAtom<"plain" | "timestamps" | "translation" | "metadata">("lyricsCopyFormat", "plain");
 export const $flatViewControls = persistAtom<boolean>("flatViewControls", true);
@@ -76,6 +106,8 @@ export const $showChineseTranslitButton = persistAtom<boolean>("showChineseTrans
 export const $fromVersion = persistAtom<string>("fromVersion", "");
 export const $lastFetchedUri = persistAtom<string | null>("lastFetchedUri", null);
 export const $previousVersion = persistAtom<string>("previousVersion", "");
+export const $npvLyricsOpen = persistAtom<boolean>("npvLyricsOpen", true);
+export const $npvLyricsExpanded = persistAtom<boolean>("npvLyricsExpanded", false);
 
 // Runtime (ephemeral) atoms
 export const $isGlobalNav = atom<boolean>(true);

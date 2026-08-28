@@ -1,4 +1,4 @@
-import { $lyricsContainerExists } from "../../../utils/stores.ts";
+import { $fixHanGlyphVariants, $lyricsContainerExists } from "../../../utils/stores.ts";
 import { PageContainer } from "../../../components/Pages/PageView.ts";
 import { type StyleProperties, applyStyles, removeAllStyles } from "../../CSS/Styles.ts";
 import {
@@ -23,6 +23,7 @@ import { EmitApply, EmitNotApplyed } from "./OnApply.ts";
 import { ApplyLyricsProvider } from "./Credits/ApplyProvider.ts";
 import { appendLineExtras, forceStackedLine, isJapaneseEntry, renderBaseTextWithReadings } from "./ReadingRenderer.ts";
 import type { ProcessedTextEntry } from "../Reading/JapaneseReading.ts";
+import { applyHanLanguageTag, createHanLanguageContext } from "../HanLanguage.ts";
 
 /**
  * Interface for static lyrics data
@@ -78,14 +79,26 @@ export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean 
   const romanizationPending = (data as any).RomanizationPending === true;
 
   const isJapaneseLyrics = (data as any).Language === "jpn" || data.Lines.some((line) => isJapaneseEntry(line));
+  const fixHanGlyphVariants = $fixHanGlyphVariants.get();
 
   data.Lines.forEach((line) => {
     const lineElem = document.createElement("div");
+    const primaryScript = isJapaneseEntry(line) || (data as any).Language === "jpn"
+      ? "Japanese" as const
+      : (data as any).DetectedChinese ? "Chinese" as const : undefined;
+    const hanLanguageContext = createHanLanguageContext(
+      data,
+      line.Text || "",
+      fixHanGlyphVariants,
+      primaryScript,
+    );
+    applyHanLanguageTag(lineElem, hanLanguageContext);
     const renderOptions = {
       useRomanized: UseRomanized,
       romanizationPending,
       translationPending,
       isJapaneseLyrics,
+      hanLanguageContext,
     };
 
     if (renderBaseTextWithReadings(lineElem, line, renderOptions)) {

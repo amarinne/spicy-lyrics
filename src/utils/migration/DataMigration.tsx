@@ -22,7 +22,6 @@ const OLD_SETTINGS_KEY_RENAMES: Record<string, string> = {
 };
 
 const OLD_UI_STATE_KEYS = [
-  "sidebar-status",
   "IsNowBarOpen",
   "NowBarSide",
   "ForceCompactMode",
@@ -33,7 +32,6 @@ const OLD_UI_STATE_KEYS = [
 ];
 
 const OLD_UI_STATE_KEY_RENAMES: Record<string, string> = {
-  "sidebar-status": "sidebarStatus",
   "IsNowBarOpen": "isNowBarOpen",
   "NowBarSide": "nowBarSide",
   "ForceCompactMode": "forceCompactMode",
@@ -67,6 +65,30 @@ function hasAnyOldKey(): boolean {
     Spicetify.LocalStorage.get(`${OLD_PREFIX}staticBackgroundType`) !== null
   ) return true;
   return false;
+}
+
+/**
+ * Local fork migration policy: discard obsolete 5.x settings instead of
+ * blocking startup behind an interactive migration prompt. Only legacy
+ * SpicyLyrics-prefixed values are removed; Spotify and current SL:* data stay.
+ */
+function clearLegacy5xData(): void {
+  const keys = new Set([
+    ...OLD_SETTINGS_KEYS,
+    ...Object.keys(OLD_SETTINGS_KEY_RENAMES),
+    ...OLD_UI_STATE_KEYS,
+    "disablePopupLyrics",
+    "devMode",
+    "staticBackground",
+    "staticBackgroundType",
+    "hide_npv_bg",
+  ]);
+  for (const key of keys) Spicetify.LocalStorage.remove(`${OLD_PREFIX}${key}`);
+}
+
+function initializeEmptyState(): void {
+  Spicetify.LocalStorage.set(SETTINGS_KEY, JSON.stringify({}));
+  Spicetify.LocalStorage.set(UI_STATE_KEY, JSON.stringify({}));
 }
 
 function migrateData() {
@@ -122,21 +144,16 @@ function migrateData() {
 }
 
 /**
- * Returns true if the migration modal should be shown.
- * Also handles fresh installs by writing empty blobs so this check only runs once.
+ * Initialize current storage. Legacy 5.x values are deliberately discarded for
+ * this local fork so redeploys cannot block on a stale migration prompt.
  */
 export function needsMigration(): boolean {
   const hasNewKey = Spicetify.LocalStorage.get(SETTINGS_KEY) !== null;
   if (hasNewKey) return false;
 
-  if (!hasAnyOldKey()) {
-    // Fresh install — write empty blobs to mark as initialized
-    Spicetify.LocalStorage.set(SETTINGS_KEY, JSON.stringify({}));
-    Spicetify.LocalStorage.set(UI_STATE_KEY, JSON.stringify({}));
-    return false;
-  }
-
-  return true;
+  if (hasAnyOldKey()) clearLegacy5xData();
+  initializeEmptyState();
+  return false;
 }
 
 export function showMigrationModal() {

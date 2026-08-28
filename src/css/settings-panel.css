@@ -1,5 +1,64 @@
 /* ── Settings Panel — reads chrome tokens from the modal scope ────── */
 sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
+  .sl-ai-settings {
+    padding: 0 0 var(--space-4);
+  }
+
+  .sl-ai-disclosure {
+    margin: var(--space-2) 0;
+    padding: var(--space-3);
+    border-radius: var(--radius-sm);
+    background: var(--accent-tint-bg);
+    color: var(--color-text-secondary);
+    font-size: var(--text-caption-size);
+  }
+
+  .sl-ai-disclosure p { margin: 0 0 var(--space-2); }
+  .sl-ai-disclosure label { display: flex; gap: var(--space-2); align-items: flex-start; color: var(--color-text-primary); }
+  .sl-ai-secret-controls { display: flex; flex-direction: column; width: 100%; gap: var(--space-2); }
+  .sl-ai-secret-input-wrap { position: relative; width: 100%; }
+  .sl-ai-secret-input-wrap .sl-sp-text-input { width: 100%; padding-right: 76px; }
+  .sl-ai-secret-input-wrap > span { position: absolute; right: 10px; bottom: 8px; color: var(--color-text-tertiary); font-size: 10px; }
+  .sl-ai-actions { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .sl-ai-subsection { display: grid; gap: var(--space-3); margin-top: var(--space-3); padding: var(--space-4) var(--space-3) var(--space-2); border-top: 1px solid var(--hairline); }
+  .sl-ai-subsection-title { margin: 0; color: var(--color-text-primary); font-size: var(--text-body-size); font-weight: var(--w-semibold); }
+  .sl-ai-subsection-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .sl-ai-history-toolbar { display: flex; align-items: flex-end; flex-wrap: wrap; gap: var(--space-3); width: 100%; }
+  .sl-ai-history-actions { flex: 2 1 24rem; align-items: center; }
+  .sl-ai-cache-item { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+  .sl-ai-cache-item > div { display: flex; flex-direction: column; min-width: 0; }
+  .sl-ai-capture-picker { display: flex; flex: 1 1 18rem; flex-direction: column; min-width: 0; gap: 6px; }
+  .sl-ai-capture-picker > span { color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-capture-picker .sl-sp-select { width: 100%; max-width: none; }
+  .sl-ai-instructions { width: 100%; min-height: 88px; resize: vertical; }
+  .sl-ai-saved-key { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); min-height: var(--tap-min); padding: 0 10px; border-radius: var(--radius-sm); background: var(--accent-tint-bg); box-shadow: inset 0 0 0 1px var(--hairline); }
+  .sl-ai-saved-key code { color: var(--color-text-primary); font-size: var(--text-body-size); }
+  .sl-ai-saved-key span, .sl-ai-status { color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-note { color: var(--color-text-tertiary); font-size: 11px; }
+  .sl-ai-probe-failures { color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-probe-failures summary { cursor: pointer; }
+  .sl-ai-probe-failures span { display: block; margin-top: 3px; overflow-wrap: anywhere; }
+  .sl-ai-comparison { display: grid; gap: 1px; width: 100%; max-height: 440px; overflow: auto; border-radius: var(--radius-sm); background: var(--hairline); }
+  .sl-ai-comparison-row { display: grid; gap: 1px; background: var(--hairline); }
+  .sl-ai-comparison-row header { position: sticky; top: 0; z-index: 1; padding: 6px 10px; background: var(--material-strong-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); font-weight: var(--w-semibold); }
+  .sl-ai-comparison-version { display: grid; gap: 4px; padding: 9px 10px; background: var(--material-regular-bg); }
+  .sl-ai-comparison-version small { color: var(--color-text-tertiary); font-size: 11px; font-weight: var(--w-semibold); text-transform: uppercase; letter-spacing: .03em; }
+  .sl-ai-comparison-version span { color: var(--color-text-primary); font-size: var(--text-caption-size); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .sl-ai-comparison-attempt { background: var(--accent-tint-bg); }
+  .sl-ai-comparison-attempt.accepted { box-shadow: inset 3px 0 var(--essential-positive); }
+  .sl-lyrics-source-picker { display: grid; gap: 12px; min-width: min(360px, 75vw); }
+  .sl-lyrics-source-options { display: grid; gap: 6px; }
+  .sl-lyrics-source-options button { border: 0; border-radius: var(--radius-sm); padding: 10px 12px; color: var(--color-text-primary); background: var(--material-regular-bg); text-align: left; cursor: pointer; }
+  .sl-lyrics-source-options button:hover, .sl-lyrics-source-options button.active { background: var(--material-strong-bg); }
+  .sl-ai-capture-meta { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 10px; background: var(--material-regular-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-capture-meta span:not(:last-child)::after { content: " ·"; }
+  .sl-ai-system-prompt { padding: 8px 10px; background: var(--material-regular-bg); color: var(--color-text-secondary); font-size: var(--text-caption-size); }
+  .sl-ai-system-prompt summary { cursor: pointer; font-weight: var(--w-semibold); }
+  .sl-ai-system-prompt pre { margin: 8px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; color: var(--color-text-primary); font: inherit; }
+  .sl-ai-cache-inventory { display: flex; flex-direction: column; gap: var(--space-2); width: 100%; max-height: 320px; overflow: auto; }
+  .sl-ai-cache-item { display: flex; flex-direction: column; gap: 3px; padding: 8px 10px; border-radius: var(--radius-sm); background: var(--accent-tint-bg); }
+  .sl-ai-cache-item span { color: var(--color-text-primary); overflow-wrap: anywhere; }
+  .sl-ai-cache-item small { color: var(--color-text-tertiary); overflow-wrap: anywhere; }
   /* Toolbar: search + filter */
   .sl-sp-toolbar {
     display: flex;
@@ -329,6 +388,31 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
     .sl-sp-control {
       width: 100%;
       flex-shrink: 1;
+      flex-direction: column;
+      align-items: stretch;
+      gap: var(--space-3);
+    }
+  }
+
+  .sl-sp-text-input {
+    width: min(30rem, 46vw);
+    min-width: 16rem;
+    border: 0;
+    border-radius: var(--radius-sm);
+    padding: 7px 10px;
+    color: var(--color-text-primary);
+    background: var(--accent-tint-bg);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    outline: none;
+    font-size: var(--text-caption-size) !important;
+
+    &:focus {
+      box-shadow: inset 0 0 0 1px var(--hairline-strong);
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
     }
   }
 
@@ -620,6 +704,72 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
     }
   }
 
+  /* ── Panel navigation (Settings ⇄ sub-panels) ─────────────────────────
+     The modal frame stays put; only its contents slide. Forward enters from
+     the right, back from the left, so the direction of travel reads at a
+     glance. Short and ease-out — this is navigation, not decoration. */
+  .sl-sp-page--forward {
+    animation: sl-sp-page-in-forward 0.22s cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+
+  .sl-sp-page--back {
+    animation: sl-sp-page-in-back 0.22s cubic-bezier(0.23, 1, 0.32, 1) both;
+  }
+
+  /* Sub-panel header — holds the back affordance above the rows. */
+  .sl-sp-subheader {
+    display: flex;
+    align-items: center;
+    margin-bottom: var(--space-3);
+  }
+
+  .sl-sp-back-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    border: none;
+    border-radius: var(--radius-sm);
+    padding: 6px 12px 6px 8px;
+    cursor: pointer;
+    background: var(--accent-tint-bg);
+    color: var(--color-text-secondary);
+    box-shadow: inset 0 0 0 1px var(--hairline);
+    font-size: var(--text-caption-size) !important;
+    font-weight: var(--w-semibold);
+    transition:
+      background var(--dur-fast) var(--ease-standard),
+      color var(--dur-fast) var(--ease-standard),
+      box-shadow var(--dur-fast) var(--ease-standard),
+      transform 0.12s ease;
+
+    svg {
+      transition: transform 0.18s cubic-bezier(0.23, 1, 0.32, 1);
+    }
+
+    &:hover {
+      background: var(--accent-tint-bg-hover);
+      color: var(--color-text-primary);
+      box-shadow: inset 0 0 0 1px var(--hairline-strong);
+    }
+
+    /* The chevron leads the way back. */
+    &:hover svg {
+      transform: translateX(-2px);
+    }
+
+    &:active {
+      transform: scale(0.97);
+    }
+  }
+
+  .sl-sp-experiments-note {
+    color: var(--color-text-secondary);
+    font-size: var(--text-footnote-size) !important;
+    font-weight: var(--w-regular);
+    line-height: 1.45;
+    margin: 0 0 var(--space-4);
+  }
+
   /* Inline action button (Reset, Clear, etc.) — flat tinted surface */
   .sl-sp-btn {
     border: none;
@@ -644,6 +794,69 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay {
 
     &:active {
       transform: scale(0.97);
+    }
+  }
+}
+
+sl-generic-modal.SpicyLyricsModal .sl-modal-container-large:has(.sl-ai-request-composer) { width: min(664px, calc(100vw - 32px)); }
+sl-generic-modal.SpicyLyricsModal .slmodal-ai-refinement .sl-modal-container-large { max-height: min(90vh, 760px); }
+sl-generic-modal.SpicyLyricsModal .slmodal-ai-refinement .sl-modal-main-section { min-height: 0; overscroll-behavior: contain; }
+sl-generic-modal.SpicyLyricsModal .slmodal-ai-output-review .sl-modal-container-large { width: min(1120px, calc(100vw - 24px)); max-height: min(90vh, 920px); }
+sl-generic-modal.SpicyLyricsModal .slmodal-ai-output-review .sl-modal-main-section { min-height: 0; padding: 16px; overscroll-behavior: contain; }
+sl-generic-modal .sl-ai-output-review { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+sl-generic-modal .sl-ai-output-review-summary { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; padding: 10px 12px; border-radius: var(--radius-sm); background: var(--material-regular-bg); }
+sl-generic-modal .sl-ai-output-review-summary div { display: grid; gap: 2px; }
+sl-generic-modal .sl-ai-output-review-summary small { color: var(--color-text-tertiary); font-size: 11px; overflow-wrap: anywhere; }
+sl-generic-modal .sl-ai-output-review-summary strong { color: var(--color-text-primary); }
+sl-generic-modal .sl-ai-output-review-document { min-width: 0; }
+sl-generic-modal .sl-ai-output-review-actions { position: sticky; bottom: -16px; display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: 0 0 -16px; padding: 12px 0; border-top: 1px solid var(--hairline); background: var(--material-regular-bg); backdrop-filter: blur(18px); }
+sl-generic-modal .sl-ai-output-review-actions .sl-sp-btn { max-width: 100%; white-space: normal; }
+@media (max-width: 560px) { sl-generic-modal .sl-ai-output-review-summary { grid-template-columns: 1fr; } }
+sl-generic-modal .sl-ai-steering-editor { display: flex; flex-direction: column; gap: 12px; box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; }
+sl-generic-modal .sl-ai-steering-editor p { margin: 0; color: var(--color-text-secondary); }
+sl-generic-modal .sl-ai-steering-editor textarea { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; min-height: 120px; resize: vertical; padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
+sl-generic-modal .sl-ai-request-composer label { display: flex; flex-direction: column; gap: 6px; min-width: 0; color: var(--color-text-secondary); }
+sl-generic-modal .sl-ai-request-composer label textarea { color: var(--color-text-primary); }
+sl-generic-modal .sl-ai-request-composer select,
+sl-generic-modal .sl-ai-request-composer input[type="text"],
+sl-generic-modal .sl-ai-request-composer .sl-ai-preset-editor input { box-sizing: border-box; width: 100%; min-width: 0; max-width: 100%; padding: 10px; border: 0; border-radius: var(--radius-sm); background: var(--accent-tint-bg); color: var(--color-text-primary); font: inherit; }
+sl-generic-modal .sl-ai-request-composer select option { background: #fff; color: #111; }
+sl-generic-modal .sl-ai-request-composer .sl-ai-preset-editor { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+sl-generic-modal .sl-ai-request-composer .sl-ai-preset-editor input { flex: 1 1 220px; }
+sl-generic-modal .sl-ai-request-composer .sl-ai-restore-actions,
+sl-generic-modal .sl-ai-request-composer .sl-ai-composer-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; min-width: 0; }
+sl-generic-modal .sl-ai-request-composer .sl-sp-btn { max-width: 100%; white-space: normal; }
+sl-generic-modal .sl-lyrics-source-diagnostics { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+sl-generic-modal .sl-lyrics-source-diagnostics > div { display: flex; justify-content: space-between; gap: 16px; }
+sl-generic-modal .sl-lyrics-source-diagnostics small { color: var(--color-text-secondary); text-align: right; }
+
+/* Small offsets — the panel is telling you which way you moved, not putting on
+   a show. Opacity carries most of the swap; the shift just gives it direction. */
+@keyframes sl-sp-page-in-forward {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+@keyframes sl-sp-page-in-back {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+}
+
+/* Keep the fade (it explains that the content changed); drop the movement. */
+@media (prefers-reduced-motion: reduce) {
+  @keyframes sl-sp-page-in-forward {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes sl-sp-page-in-back {
+    from {
+      opacity: 0;
     }
   }
 }

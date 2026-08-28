@@ -10,15 +10,25 @@
 
 import { franc } from "franc-all";
 import langs from "langs";
-import { translationEnabled, translationTargetLang } from "../lyrics.ts";
 import { isMeaningfullyDifferent } from "../TextCompare.ts";
+import { romanizeCyrillic, romanizeKorean } from "./Romanization.ts";
+import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
+import {
+  BengaliTextTest,
+  DevanagariTextTest,
+  GurmukhiTextTest,
+} from "./TextDetection.ts";
 
 // ─── Cache Configuration ──────────────────────────────────────────────────────
 
 const TRANSLATION_CACHE_KEY = "spicy-lyrics:translationCache";
+const GOOGLE_TRANSLITERATION_CACHE_KEY = "spicy-lyrics:googleTransliterationCache";
 const TRANSLATION_CACHE_MAX_ENTRIES = 5000;
 const GOOGLE_INITIAL_BACKOFF_MS = 900;
 const GOOGLE_MAX_BACKOFF_MS = 8000;
+export const TRANSLATION_BATCH_MAX_LINES = 100;
+export const TRANSLATION_BATCH_MAX_CHARS = 4500;
+export const BATCH_MARKER_PATTERN = /\[\[\s*SPX\s*_\s*(\d\s*\d\s*\d)\s*\]\]/gi;
 
 // In-memory mirror – loaded once from localStorage
 let _translationCache: Record<string, string> | null = null;
@@ -61,6 +71,7 @@ export function clearTranslationCache() {
   _cacheCount = 0;
   try {
     localStorage.removeItem(TRANSLATION_CACHE_KEY);
+    localStorage.removeItem(GOOGLE_TRANSLITERATION_CACHE_KEY);
   } catch { /* ignore */ }
   console.log("[SpicyLyrics:Translation] Cache cleared");
 }
@@ -104,6 +115,142 @@ function extractGoogleTranslation(data: any): string {
   return translated.trim();
 }
 
+export function normalizeCompare(value: string | undefined | null): string {
+  if (!value) return "";
+  return value
+    .normalize("NFKC")
+    .normalize("NFKD")
+    .replace(/\p{M}+/gu, "")
+    .toLowerCase()
+    .replace(/ң/g, "n")
+    .replace(/ŋ/g, "n")
+    .replace(/[‘’]/g, "'")
+    .replace(/[“”]/g, '"')
+    .replace(/[–—]/g, "-")
+    .replace(/…/g, "...")
+    .replace(/[\p{P}\p{S}]+/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function sameComparableText(left: string | undefined | null, right: string | undefined | null): boolean {
+  return normalizeCompare(left) === normalizeCompare(right);
+}
+
+function foldCentralAsianToRussianBase(value: string): string {
+  return value
+    .replace(/ң/g, "н").replace(/Ң/g, "Н")
+    .replace(/ө/g, "о").replace(/Ө/g, "О")
+    .replace(/ү/g, "у").replace(/Ү/g, "У")
+    .replace(/ә/g, "а").replace(/Ә/g, "А")
+    .replace(/ғ/g, "г").replace(/Ғ/g, "Г")
+    .replace(/қ/g, "к").replace(/Қ/g, "К")
+    .replace(/ұ/g, "у").replace(/Ұ/g, "У")
+    .replace(/һ/g, "х").replace(/Һ/g, "Х");
+}
+
+export function romanizationCandidates(source: string): string[] {
+  const out: string[] = [];
+  if (SCRIPT_TESTS.cyrillic.test(source)) {
+    out.push(romanizeCyrillic(source, "Russian", false));
+    out.push(romanizeCyrillic(source, "Ukrainian", false));
+    const folded = foldCentralAsianToRussianBase(source);
+    if (folded !== source) out.push(romanizeCyrillic(folded, "Russian", false));
+  }
+  if (SCRIPT_TESTS.hangul.test(source)) {
+    out.push(romanizeKorean(source, "spelling"));
+    out.push(romanizeKorean(source, "pronunciation"));
+    out.push(romanizeKorean(source, "spelling", "vn"));
+    out.push(romanizeKorean(source, "pronunciation", "vn"));
+    out.push(romanizeKorean(source, "pronunciation", "rr", true));
+    out.push(romanizeKorean(source, "pronunciation", "vn", true));
+  }
+  // Chinese/Japanese romanizers are async/lazy-loaded on desktop; skip those
+  // candidates here so echo filtering stays synchronous in translation flow.
+  return out;
+}
+
+export function looksLikeRomanizationEcho(source: string, translated: string): boolean {
+  if (!source.trim() || !translated.trim()) return false;
+  const output = normalizeCompare(translated);
+  if (!output) return false;
+  return romanizationCandidates(source).some((candidate) =>
+    candidate.trim() && output === normalizeCompare(candidate)
+  );
+}
+
+export function shouldDisplayTranslation(source: string, translated: string): boolean {
+  return !!translated.trim()
+    && !sameComparableText(source, translated)
+    && !looksLikeRomanizationEcho(source, translated);
+}
+
+function batchMarker(index: number): string {
+  return `[[SPX_${String(index).padStart(3, "0")}]]`;
+}
+
+export function buildBatchQuery(lines: string[]): string {
+  return lines.map((line, index) => `${batchMarker(index)} ${line}`).join("\n");
+}
+
+export function buildBatchChunks(lines: string[]): Array<{ start: number; lines: string[]; query: string }> {
+  const chunks: Array<{ start: number; lines: string[]; query: string }> = [];
+  let current: string[] = [];
+  let currentStart = 0;
+  let currentChars = 0;
+
+  for (let index = 0; index < lines.length; index++) {
+    const lineChars = lines[index].length + 14;
+    if (
+      current.length > 0
+      && (current.length >= TRANSLATION_BATCH_MAX_LINES
+        || currentChars + lineChars > TRANSLATION_BATCH_MAX_CHARS)
+    ) {
+      chunks.push({ start: currentStart, lines: current, query: buildBatchQuery(current) });
+      current = [];
+      currentStart = index;
+      currentChars = 0;
+    }
+    current.push(lines[index]);
+    currentChars += lineChars;
+  }
+
+  if (current.length > 0) {
+    chunks.push({ start: currentStart, lines: current, query: buildBatchQuery(current) });
+  }
+  return chunks;
+}
+
+export function parseBatchTranslation(translated: string): Map<number, string> {
+  const result = new Map<number, string>();
+  if (!translated.trim()) return result;
+
+  const pattern = new RegExp(BATCH_MARKER_PATTERN.source, BATCH_MARKER_PATTERN.flags);
+  let current = -1;
+  let textStart = -1;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(translated)) !== null) {
+    if (current >= 0 && textStart >= 0) {
+      const value = translated.slice(textStart, match.index).trim();
+      if (value) result.set(current, value);
+    }
+    current = Number.parseInt(match[1].replace(/\s+/g, ""), 10);
+    textStart = pattern.lastIndex;
+  }
+
+  if (current >= 0 && textStart >= 0) {
+    const value = translated.slice(textStart).trim();
+    if (value) result.set(current, value);
+  }
+  return result;
+}
+
+export function stripMarkerEcho(text: string, index: number): string {
+  const digits = String(index).padStart(3, "0").split("").join("\\s*");
+  const markerPattern = new RegExp(`\\[\\[\\s*SPX\\s*_\\s*${digits}\\s*\\]\\]`, "gi");
+  return text.replace(markerPattern, "").trim();
+}
+
 async function requestGoogleTranslation(url: string): Promise<string> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -130,12 +277,77 @@ async function requestGoogleTranslation(url: string): Promise<string> {
   return "";
 }
 
+export function extractGoogleRomanization(data: any): string {
+  if (!Array.isArray(data?.[0])) return "";
+  return data[0].map((segment: any) => typeof segment?.[3] === "string" ? segment[3] : "").join("").trim();
+}
+
+async function requestGoogleRomanization(url: string): Promise<string> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await waitForGoogleBackoff();
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) {
+        lastError = resp.status;
+        if (shouldRetryGoogle(resp.status)) registerGoogleFailure();
+        if (attempt === 0 && shouldRetryGoogle(resp.status)) continue;
+        return "";
+      }
+      const romanization = extractGoogleRomanization(await resp.json());
+      registerGoogleSuccess();
+      return romanization;
+    } catch (error) {
+      lastError = error;
+      registerGoogleFailure();
+      if (attempt === 0) continue;
+    }
+  }
+  console.error("[SpicyLyrics:Translation] Google transliteration error:", lastError);
+  return "";
+}
+
+export async function googleTransliterateLines(lines: string[], sourceLang: string): Promise<string[]> {
+  const results = Array(lines.length).fill("");
+  let cache: Record<string, string> = {};
+  try { cache = JSON.parse(localStorage.getItem(GOOGLE_TRANSLITERATION_CACHE_KEY) || "{}"); } catch {}
+  const sourceCode = sourceLang === "und" ? "auto" : (langs.where("3", sourceLang)?.["1"] || "auto");
+  const missingIndices: number[] = [];
+  const missingLines: string[] = [];
+  lines.forEach((line, index) => {
+    const text = line.trim();
+    const key = `${sourceCode}:${text}`;
+    if (!text || text === "♪") return;
+    if (cache[key]) results[index] = cache[key];
+    else { missingIndices.push(index); missingLines.push(text); }
+  });
+  for (const batch of buildBatchChunks(missingLines)) {
+    const indices = missingIndices.slice(batch.start, batch.start + batch.lines.length);
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(sourceCode)}&tl=en&dt=rm&q=${encodeURIComponent(batch.query)}`;
+    const parsed = parseBatchTranslation(await requestGoogleRomanization(url));
+    indices.forEach((index, offset) => {
+      const value = stripMarkerEcho(parsed.get(offset) || "", offset);
+      if (!value || sameComparableText(lines[index], value)) return;
+      results[index] = value;
+      cache[`${sourceCode}:${lines[index].trim()}`] = value;
+    });
+  }
+  try {
+    const entries = Object.entries(cache);
+    localStorage.setItem(GOOGLE_TRANSLITERATION_CACHE_KEY, JSON.stringify(Object.fromEntries(entries.slice(-TRANSLATION_CACHE_MAX_ENTRIES))));
+  } catch {}
+  return results;
+}
+
 const SCRIPT_TESTS = {
   han: /[\u3400-\u4DBF\u4E00-\u9FFF\uF900-\uFAFF]/,
   kana: /[\u3040-\u30FF]/,
   hangul: /[\uAC00-\uD7AF]/,
   cyrillic: /[\u0400-\u04FF]/,
   greek: /[\u0370-\u03FF]/,
+  devanagari: DevanagariTextTest,
+  gurmukhi: GurmukhiTextTest,
+  bengali: BengaliTextTest,
 };
 
 const latinTargetLanguages = new Set([
@@ -148,12 +360,16 @@ function targetAllowsScript(targetLang: string, script: keyof typeof SCRIPT_TEST
   if (script === "hangul") return targetLang === "ko";
   if (script === "cyrillic") return ["ru", "uk", "bg", "sr", "mk", "be"].includes(targetLang);
   if (script === "greek") return targetLang === "el";
+  if (script === "devanagari") return ["hi", "mr", "ne", "sa"].includes(targetLang);
+  if (script === "gurmukhi") return targetLang === "pa";
+  if (script === "bengali") return ["bn", "as"].includes(targetLang);
   return false;
 }
 
-function hasObviousNonTargetScript(text: string, targetLang: string): boolean {
+export function hasObviousNonTargetScript(text: string, targetLang: string): boolean {
+  const target = targetLang.toLowerCase();
   return (Object.keys(SCRIPT_TESTS) as Array<keyof typeof SCRIPT_TESTS>).some((script) =>
-    SCRIPT_TESTS[script].test(text) && !targetAllowsScript(targetLang, script)
+    SCRIPT_TESTS[script].test(text) && !targetAllowsScript(target, script)
   );
 }
 
@@ -167,7 +383,12 @@ function lineLooksNonTargetLatin(text: string, targetLang: string): boolean {
   return !!detectedISO2 && detectedISO2 !== targetLang;
 }
 
-function shouldTranslateLine(text: string, sourceLang: string, targetLang: string): boolean {
+function looksLikeLatinLyricLine(text: string): boolean {
+  const compact = text.replace(/[^\p{L}\s']/gu, " ").replace(/\s+/g, " ").trim();
+  return compact.length >= 12 && compact.includes(" ");
+}
+
+export function shouldTranslateLine(text: string, sourceLang: string, targetLang: string): boolean {
   const trimmed = text.trim();
   if (!trimmed || trimmed === "♪") return false;
 
@@ -176,21 +397,13 @@ function shouldTranslateLine(text: string, sourceLang: string, targetLang: strin
 
   if (!sourceMatchesTarget) return true;
   if (hasObviousNonTargetScript(trimmed, targetLang)) return true;
+  if (targetLang.toLowerCase() === "en" && looksLikeLatinLyricLine(trimmed)) return true;
   return lineLooksNonTargetLatin(trimmed, targetLang);
 }
 
 function joinSyllableText(syllables: any[] | undefined): string {
   if (!Array.isArray(syllables) || syllables.length === 0) return "";
-  let lineText = "";
-  let previousWasWordEnd = false;
-  for (const syl of syllables) {
-    const text = syl?.Text || "";
-    if (!text) continue;
-    if (previousWasWordEnd && lineText && !lineText.endsWith(" ")) lineText += " ";
-    lineText += text;
-    previousWasWordEnd = syl?.IsPartOfWord === false;
-  }
-  return lineText.trim();
+  return canonicalTextFromSyllables(syllables).canonical.text;
 }
 
 // ─── Batch Translation ────────────────────────────────────────────────────────
@@ -220,7 +433,14 @@ export async function batchTranslate(
     }
     const key = translationCacheKey(text, targetLang);
     if (cache[key]) {
-      results[i] = cache[key];
+      if (shouldDisplayTranslation(text, cache[key])) {
+        results[i] = cache[key];
+      } else {
+        delete cache[key];
+        _cacheCount = Math.max(0, _cacheCount - 1);
+        uncachedIndices.push(i);
+        uncachedTexts.push(text);
+      }
     } else {
       uncachedIndices.push(i);
       uncachedTexts.push(text);
@@ -238,30 +458,25 @@ export async function batchTranslate(
   const slCode = sourceLang === "und" ? "auto"
     : (langs.where("3", sourceLang)?.["1"] || "auto");
 
-  // 2. Translate one lyric line per request. Google newline-batch responses can
-  // merge/drop/reorder line boundaries, which assigns neighboring translations to
-  // short repeated lines (e.g. "yeah") and bypasses duplicate suppression.
-  const CHUNK_SIZE = 1;
-  for (let ci = 0; ci < uncachedTexts.length; ci += CHUNK_SIZE) {
-    const chunk = uncachedTexts.slice(ci, ci + CHUNK_SIZE);
-    const chunkIndices = uncachedIndices.slice(ci, ci + CHUNK_SIZE);
-
-    // Join with newline separator for batch translation
-    const joined = chunk.join("\n");
-
+  // 2. Translate marked batches. Markers survive Google's line merging/reordering
+  // well enough to map each translated segment back to its source line.
+  for (const batch of buildBatchChunks(uncachedTexts)) {
+    const chunkIndices = uncachedIndices.slice(batch.start, batch.start + batch.lines.length);
     try {
-      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(joined)}`;
-      const translatedLines = (await requestGoogleTranslation(url)).split("\n");
+      const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(batch.query)}`;
+      const translatedLines = parseBatchTranslation(await requestGoogleTranslation(url));
 
-      // Map back to results and cache. Google sometimes drops/merges newline
-      // boundaries inside batch responses; empty slots get retried individually below.
       for (let j = 0; j < chunkIndices.length; j++) {
         const idx = chunkIndices[j];
-        const translated = (translatedLines[j] || "").trim();
+        const originalText = lines[idx].trim();
+        const translated = stripMarkerEcho(translatedLines.get(j) || "", j);
+        if (!shouldDisplayTranslation(originalText, translated)) {
+          results[idx] = "";
+          continue;
+        }
         results[idx] = translated;
         // Cache the result
-        const originalText = lines[idx].trim();
-        if (translated && originalText) {
+        if (originalText) {
           const key = translationCacheKey(originalText, targetLang);
           if (!cache[key]) {
             _cacheCount++;
@@ -283,7 +498,7 @@ export async function batchTranslate(
       try {
         const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${encodeURIComponent(slCode)}&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(originalText)}`;
         const translated = await requestGoogleTranslation(url);
-        if (translated) {
+        if (shouldDisplayTranslation(originalText, translated)) {
           results[idx] = translated;
           const key = translationCacheKey(originalText, targetLang);
           if (!cache[key]) _cacheCount++;
@@ -308,6 +523,7 @@ export async function batchTranslate(
  * Called after romanization is complete.
  */
 export async function translateLyrics(lyrics: any): Promise<void> {
+  const { translationEnabled, translationTargetLang } = await import("../lyrics.ts");
   if (!translationEnabled || !translationTargetLang) return;
 
   const sourceLang = lyrics.Language || "und";

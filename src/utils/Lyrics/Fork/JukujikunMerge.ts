@@ -57,6 +57,13 @@ export function applyContextualReadingOverrides(
       continue;
     }
 
+    if (sf === "君" && pos1(tokens[i]) === "代名詞") {
+      // Some dictionaries emit the honorific suffix reading くん for bare 君.
+      // Independent pronoun use in lyrics should read きみ; suffix use stays kun.
+      setReading(entries[i], "kimi", "きみ");
+      continue;
+    }
+
     if (sf === "1人" || (sf === "1" && entries[i + 1]?.surface === "人")) {
       // Numeric shorthand is outside the tokenizer's normal Japanese reading
       // lattice; keep this as a narrow counter normalization, not a compound

@@ -2,9 +2,13 @@
 import Spline from "cubic-spline";
 import { easeSinOut } from "d3-ease";
 import { $currentLyricsType, $simpleLyricsMode, $simpleLyricsModeRenderingType } from "../../../../utils/stores.ts";
-import { isSpicySidebarMode } from "../../../../components/Utils/SidebarLyrics.ts";
-import { LyricsObject, SimpleLyricsMode_LetterEffectsStrengthConfig, preHiddenDotLineMs } from "../../lyrics.ts";
-import { BlurMultiplier, SidebarBlurMultiplier, timeOffset } from "../Shared.ts";
+import {
+  LyricsObject,
+  SimpleLyricsMode_LetterEffectsStrengthConfig,
+  preHiddenDotLineMs,
+  type SyllableLead,
+} from "../../lyrics.ts";
+import { BlurMultiplier, timeOffset } from "../Shared.ts";
 import { setOnNewElementMounted } from "../../LyricsVirtualizer.ts";
 import { Spring } from "../../../../modules/Spring.ts";
 /* import { CurveInterpolator } from "curve-interpolator"; */
@@ -36,6 +40,10 @@ export const Clamp = (value: number, min: number, max: number): number => {
 };
 
 const LetterGlowMultiplier_Opacity = 185;
+const GradientUnsungPosition = -40;
+const GradientRange = 140;
+const gradientPositionAt = (progress: number) =>
+  GradientUnsungPosition + GradientRange * Clamp(progress, 0, 1);
 
 const ScaleRange = [
   { Time: 0, Value: 0.95 },
@@ -376,8 +384,88 @@ const createDotSprings = () => {
   };
 };
 
+/** Reset all visual owners when a backward seek moves a syllable line to NotSung. */
+const resetSyllableLineToNotSung = (words: SyllableLead[] | undefined): void => {
+  if (!words) return;
+
+  const simpleMode = $simpleLyricsMode.get();
+  const restingGradient = `${GradientUnsungPosition}%`;
+
+  for (const word of words) {
+    if (word.Dot && !word.LetterGroup) {
+      word.AnimatorStore ??= createDotSprings();
+      word.AnimatorStore.Scale.SetGoal(DotScaleSpline.at(0), true);
+      word.AnimatorStore.YOffset.SetGoal(DotYOffsetSpline.at(0), true);
+      word.AnimatorStore.Glow.SetGoal(DotGlowSpline.at(0), true);
+      word.AnimatorStore.Opacity.SetGoal(DotOpacitySpline.at(0), true);
+
+      if (!simpleMode) {
+        setStyleIfChanged(word.HTMLElement, "scale", `${DotScaleSpline.at(0)}`, 0);
+        setStyleIfChanged(
+          word.HTMLElement,
+          "transform",
+          `translate3d(0, calc(var(--DefaultLyricsSize) * ${DotYOffsetSpline.at(0)}), 0)`,
+          0
+        );
+      }
+      setStyleIfChanged(word.HTMLElement, "opacity", `${DotOpacitySpline.at(0)}`, 0);
+      setStyleIfChanged(word.HTMLElement, "--text-shadow-blur-radius", "4px", 0);
+      setStyleIfChanged(word.HTMLElement, "--text-shadow-opacity", "0%", 0);
+      continue;
+    }
+
+    word.AnimatorStore ??= createWordSprings();
+    word.AnimatorStore.Scale.SetGoal(ScaleSpline.at(0), true);
+    word.AnimatorStore.YOffset.SetGoal(YOffsetSpline.at(0), true);
+    word.AnimatorStore.Glow.SetGoal(GlowSpline.at(0), true);
+
+    if (!simpleMode) {
+      setStyleIfChanged(word.HTMLElement, "scale", `${ScaleSpline.at(0)}`, 0);
+      setStyleIfChanged(
+        word.HTMLElement,
+        "transform",
+        `translate3d(0, calc(var(--DefaultLyricsSize) * ${YOffsetSpline.at(0)}), 0)`,
+        0
+      );
+      word.HTMLElement.style.setProperty("--gradient-position", restingGradient);
+    } else {
+      word.HTMLElement.style.animation = "none";
+      word.HTMLElement.style.setProperty("--SLM_GradientPosition", restingGradient);
+    }
+    word.RomajiElement?.style.setProperty("--gradient-position", restingGradient);
+    setStyleIfChanged(word.HTMLElement, "--text-shadow-blur-radius", "4px", 0);
+    setStyleIfChanged(word.HTMLElement, "--text-shadow-opacity", "0%", 0);
+    word.SLMAnimated = false;
+    word.PreSLMAnimated = false;
+
+    for (const letter of word.Letters || []) {
+      letter.AnimatorStore ??= createLetterSprings();
+      letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0), true);
+      letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0), true);
+      letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0), true);
+
+      if (!simpleMode) {
+        setStyleIfChanged(letter.HTMLElement, "scale", `${LetterScaleSpline.at(0)}`, 0);
+        setStyleIfChanged(
+          letter.HTMLElement,
+          "transform",
+          `translate3d(0, calc(var(--DefaultLyricsSize) * ${LetterYOffsetSpline.at(0) * 2}), 0)`,
+          0
+        );
+        letter.HTMLElement.style.setProperty("--gradient-position", restingGradient);
+      } else {
+        letter.HTMLElement.style.animation = "none";
+        letter.HTMLElement.style.setProperty("--SLM_GradientPosition", restingGradient);
+      }
+      setStyleIfChanged(letter.HTMLElement, "--text-shadow-blur-radius", "4px", 0);
+      setStyleIfChanged(letter.HTMLElement, "--text-shadow-opacity", "0%", 0);
+      letter.SLMAnimated = false;
+      letter.PreSLMAnimated = false;
+    }
+  }
+};
+
 // DotGroup Springs Function - for animating the entire dotGroup element
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 const _createDotGroupSprings = () => {
   /*   if ($simpleLyricsMode.get()) {
     return {
@@ -639,7 +727,6 @@ export function Animate(position: number): void {
   }; */
 
   // These utility functions are not used but kept for future reference
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _calculateOpacity = (percentage: number): number => {
     if (percentage <= 0.65) {
       return percentage * 100;
@@ -648,7 +735,6 @@ export function Animate(position: number): void {
     }
   };
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const _calculateLineGlowOpacity = (percentage: number): number => {
     if (percentage <= 0.5) {
       return percentage * 200;
@@ -669,7 +755,7 @@ export function Animate(position: number): void {
 
       if (lineState === "Active") {
         if (Blurring_LastLine !== index) {
-          applyBlur(arr, index, isSpicySidebarMode ? SidebarBlurMultiplier : BlurMultiplier);
+          applyBlur(arr, index, BlurMultiplier);
           //applyScale(arr, index);
           Blurring_LastLine = index;
         }
@@ -732,7 +818,6 @@ export function Animate(position: number): void {
             let targetGlow: number;
             let targetGradientPos: number;
 
-            // eslint-disable-next-line @typescript-eslint/no-unused-vars
             const totalDuration = word.EndTime - word.StartTime; // Kept for future reference
 
             if (wordState === "Active") {
@@ -742,7 +827,7 @@ export function Animate(position: number): void {
               if ($simpleLyricsMode.get()) {
                 targetGradientPos = -50 + 120 * percentage;
               } else {
-                targetGradientPos = -20 + 120 * percentage;
+                targetGradientPos = gradientPositionAt(percentage);
               }
             } else if (wordState === "NotSung") {
               targetScale = ScaleSpline.at(0);
@@ -751,7 +836,7 @@ export function Animate(position: number): void {
               if ($simpleLyricsMode.get()) {
                 targetGradientPos = -50;
               } else {
-                targetGradientPos = -20;
+                targetGradientPos = GradientUnsungPosition;
               }
             } else {
               // Sung
@@ -1114,7 +1199,7 @@ export function Animate(position: number): void {
                   if ($simpleLyricsMode.get()) {
                     targetGradient = -50;
                   } else {
-                    targetGradient = -20;
+                    targetGradient = GradientUnsungPosition;
                   }
                 } else if (letterState === "Sung") {
                   targetGradient = 100;
@@ -1122,7 +1207,7 @@ export function Animate(position: number): void {
                   // Active
                   // Only the *actual* active letter gets the animated gradient
                   targetGradient =
-                    k === activeLetterIndex ? -20 + 120 * easeSinOut(activeLetterPercentage) : -20;
+                    k === activeLetterIndex ? gradientPositionAt(easeSinOut(activeLetterPercentage)) : GradientUnsungPosition;
                   if ($simpleLyricsMode.get()) {
                     targetGradient =
                       k === activeLetterIndex
@@ -1131,8 +1216,8 @@ export function Animate(position: number): void {
                   } else {
                     targetGradient =
                       k === activeLetterIndex
-                        ? -20 + 120 * easeSinOut(activeLetterPercentage)
-                        : -20;
+                        ? gradientPositionAt(easeSinOut(activeLetterPercentage))
+                        : GradientUnsungPosition;
                   }
                 }
 
@@ -1222,7 +1307,7 @@ export function Animate(position: number): void {
                   letter.HTMLElement.style.animation = "none";
                   letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "-50%");
                 } else {
-                  letter.HTMLElement.style.setProperty("--gradient-position", `-20%`);
+                  letter.HTMLElement.style.setProperty("--gradient-position", `${GradientUnsungPosition}%`);
                 }
 
                 setStyleIfChanged(
@@ -1295,6 +1380,7 @@ export function Animate(position: number): void {
           }
         }
       } else if (lineState === "NotSung") {
+        const enteredNotSung = !line.HTMLElement.classList.contains("NotSung");
         line.HTMLElement.classList.add("NotSung");
         line.HTMLElement.classList.remove("Sung");
         if (line.HTMLElement.classList.contains("Active")) {
@@ -1303,6 +1389,7 @@ export function Animate(position: number): void {
         if (line.DotLine && !line.HTMLElement.classList.contains("pre-hidden")) {
           line.HTMLElement.classList.add("pre-hidden");
         }
+        if (enteredNotSung) resetSyllableLineToNotSung(line.Syllables?.Lead);
         /* const words = line.Syllables.Lead;
               for (const word of words) {
                   if (word.AnimatorStore && !word.Dot) {
@@ -1315,7 +1402,7 @@ export function Animate(position: number): void {
                         word.HTMLElement.style.transform = `translateY(calc(var(--DefaultLyricsSize) * ${currentYOffset}))`;
                         word.HTMLElement.style.scale = `${currentScale}`;
                         if (!word.LetterGroup) {
-                          word.HTMLElement.style.setProperty("--gradient-position", `-20%`);
+                          word.HTMLElement.style.setProperty("--gradient-position", `${GradientUnsungPosition}%`);
                           word.HTMLElement.style.setProperty("--text-shadow-blur-radius", `${4 + (2 * currentGlow * 1)}px`);
                           word.HTMLElement.style.setProperty("--text-shadow-opacity", `${Math.min(currentGlow * 35, 100)}%`);
                         }
@@ -1354,7 +1441,7 @@ export function Animate(position: number): void {
                       const currentYOffset = letter.AnimatorStore.YOffset.Step(deltaTime);
                       const currentGlow = letter.AnimatorStore.Glow.Step(deltaTime);
 
-                      letter.HTMLElement.style.setProperty("--gradient-position", `-20%`);
+                      letter.HTMLElement.style.setProperty("--gradient-position", `${GradientUnsungPosition}%`);
                       letter.HTMLElement.style.transform = `translateY(calc(var(--DefaultLyricsSize) * ${currentYOffset * 2}))`;
                       letter.HTMLElement.style.scale = `${currentScale}`;
                       letter.HTMLElement.style.setProperty("--text-shadow-blur-radius", `${4 + (8 * currentGlow)}px`);
@@ -1669,7 +1756,7 @@ export function Animate(position: number): void {
 
       if (lineState === "Active") {
         if (Blurring_LastLine !== index) {
-          applyBlur(arr, index, isSpicySidebarMode ? SidebarBlurMultiplier : BlurMultiplier);
+          applyBlur(arr, index, BlurMultiplier);
           //applyScale(arr, index);
           Blurring_LastLine = index;
         }
@@ -1788,10 +1875,10 @@ export function Animate(position: number): void {
 
           if (lineState === "Active") {
             targetGlow = LineGlowSpline.at(percentage);
-            targetGradientPos = percentage * 100; // Keep gradient separate from spring for now
+            targetGradientPos = gradientPositionAt(percentage); // Keep gradient separate from spring for now
           } else if (lineState === "NotSung") {
             targetGlow = LineGlowSpline.at(0);
-            targetGradientPos = -20;
+            targetGradientPos = GradientUnsungPosition;
           } else {
             // Sung
             targetGlow = LineGlowSpline.at(1);

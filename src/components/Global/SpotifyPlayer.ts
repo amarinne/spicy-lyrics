@@ -3,10 +3,8 @@ import GetProgress, {
   _DEPRECATED___GetProgress,
 } from "../../utils/Gets/GetProgress.ts";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 //type ArtworkSize = "s" | "l" | "xl" | "d";
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 //const TrackData_Map = new Map();
 
 /* const old_SpotifyPlayer = {

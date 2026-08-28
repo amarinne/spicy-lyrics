@@ -36,7 +36,8 @@ function migrateSettingsKeys(blob: Record<string, any>): Record<string, any> {
 
 const _settings: Record<string, any> = migrateSettingsKeys(readSettingsBlob());
 
-function persistAtom<T>(key: string, defaultValue: T) {
+/** Persist an atom inside the shared settings blob. */
+export function persistAtom<T>(key: string, defaultValue: T) {
   const store = atom<T>(_settings[key] !== undefined ? _settings[key] : defaultValue);
   store.listen((v) => {
     _settings[key] = v;
@@ -47,14 +48,61 @@ function persistAtom<T>(key: string, defaultValue: T) {
 
 // Setting atoms (persisted)
 export const $staticBackgroundMode = persistAtom<string>("staticBackgroundMode", "off");
+// Blur radius (px) applied to image-based static backgrounds — not the "color" mode.
+export const $staticBackgroundBlur = persistAtom<number>("staticBackgroundBlur", 0);
 export const $simpleLyricsMode = persistAtom<boolean>("simpleLyricsMode", false);
 export const $simpleLyricsModeRenderingType = persistAtom<string>(
   "simpleLyricsModeRenderingType",
   "calculate"
 );
 export const $minimalLyricsMode = persistAtom<boolean>("minimalLyricsMode", false);
+export const $adaptiveSectioning = persistAtom<boolean>("adaptiveSectioning", true);
+// Tinted box drawn behind a lyrics line while the pointer is over it.
+export const $lineHoverBackground = persistAtom<boolean>("lineHoverBackground", true);
 export const $skipSpicyFont = persistAtom<boolean>("skipSpicyFont", false);
+export const $systemFontStack = persistAtom<string>("systemFontStack", "");
+export const $fixHanGlyphVariants = persistAtom<boolean>("fixHanGlyphVariants", false);
 export const $showNpvDynamicBg = persistAtom<boolean>("showNpvDynamicBg", true);
+// Never inject the lyrics card into the Now Playing sidebar at all.
+export const $disableNpvLyrics = persistAtom<boolean>("disableNpvLyrics", false);
+// Pull the whole NPV lyrics card out of the sidebar while the current track has
+// no lyrics, instead of leaving it up showing the "no lyrics" notice.
+export const $hideNpvLyricsWhenUnavailable = persistAtom<boolean>(
+  "hideNpvLyricsWhenUnavailable",
+  true
+);
+export const $aiConsentVersion = persistAtom<number>("aiConsentVersion", 0);
+export const $aiRefinementEnabled = persistAtom<boolean>(
+  "aiRefinementEnabled",
+  _settings["experiment:aiRefinement"] === true
+);
+export const $aiSelectedModelName = persistAtom<string>("aiSelectedModelName", "");
+export const $aiSelectedModelDescriptor = persistAtom<string>("aiSelectedModelDescriptor", "");
+export const $aiDiscoveredModels = persistAtom<string>("aiDiscoveredModels", "[]");
+export const $aiSelectedProvider = persistAtom<string>("aiSelectedProvider", "gemini");
+export const $aiSelectedModelsByProvider = persistAtom<string>("aiSelectedModelsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelName ?? "", openai: "" }));
+export const $aiSelectedModelDescriptorsByProvider = persistAtom<string>("aiSelectedModelDescriptorsByProvider", JSON.stringify({ gemini: _settings.aiSelectedModelDescriptor ?? "", openai: "" }));
+export const $aiDiscoveredModelsByProvider = persistAtom<string>("aiDiscoveredModelsByProvider", JSON.stringify({ gemini: _settings.aiDiscoveredModels ?? "[]", openai: "[]" }));
+export const $aiOpenAIBaseUrl = persistAtom<string>("aiOpenAIBaseUrl", "https://api.openai.com/v1");
+export const $aiInstructions = persistAtom<string>("aiInstructions", _settings.aiInstructions ?? _settings.aiSteeringInstructions ?? "");
+export const $aiRefinementPresets = persistAtom<string>("aiRefinementPresets", "[]");
+export const $aiDefaultRefinementPreset = persistAtom<string>("aiDefaultRefinementPreset", "natural-contextual");
+const legacySoundSteering = typeof _settings.soundSteeringInstructions === "string" ? _settings.soundSteeringInstructions.trim() : "";
+export const $aiSoundRefinementPresets = persistAtom<string>("aiSoundRefinementPresets", legacySoundSteering ? JSON.stringify([{ id: "legacy-sound-steering", name: "Migrated sound steering", instructions: legacySoundSteering }]) : "[]");
+export const $aiDefaultSoundRefinementPreset = persistAtom<string>("aiDefaultSoundRefinementPreset", legacySoundSteering ? "legacy-sound-steering" : "readable-pronunciation");
+export type AIButtonBehavior = "generate_then_toggle" | "toggle_only";
+export const $aiButtonBehavior = persistAtom<AIButtonBehavior>("aiButtonBehavior", "generate_then_toggle");
+export const $aiSoundUseExistingBaseline = persistAtom<boolean>("aiSoundUseExistingBaseline", true);
+export const $lyricsSourceOrder = persistAtom<string>("lyricsSourceOrder", JSON.stringify(["spicy", "spotify", "lrclib"]));
+export const $lyricsSelectionMode = persistAtom<"smart" | "syncType" | "strict">("lyricsSelectionMode", "smart");
+export const $lyricsSourceOverrides = persistAtom<string>("lyricsSourceOverrides", "{}");
+export type MeaningBackend = "google" | "ai_auto" | "ai_on_demand";
+export const $meaningBackend = persistAtom<MeaningBackend>("meaningBackend", _settings.aiRefinementEnabled ? "ai_on_demand" : "google");
+export type SoundBackend = "deterministic" | "ai_auto" | "ai_on_demand";
+export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
+export const $soundBackend = persistAtom<SoundBackend>("soundBackend", "deterministic");
+export const $googleSoundFallback = persistAtom<boolean>("googleSoundFallback", false);
+export const $soundTargetOrthography = persistAtom<SoundOrthography>("soundTargetOrthography", "Latin");
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {
@@ -74,6 +122,8 @@ export const $timelineOutsideMediaContent = persistAtom<boolean>(
   "timelineOutsideMediaContent",
   true
 );
+// Volume band below the playback controls in Fullscreen / Cinema View / Popup Lyrics.
+export const $showVolumeSlider = persistAtom<boolean>("showVolumeSlider", true);
 // Playback timing offset in milliseconds (bipolar: negative = earlier, positive = later)
 export const $playbackOffset = persistAtom<number>("playbackOffset", 0);
 
@@ -87,3 +137,4 @@ export const $currentLyricsType = atom<string>("None");
 export const $lyricsContainerExists = atom<boolean>(false);
 export const $currentlyFetching = atom<boolean>(false);
 export const $currentLyricsData = atom<string>("");
+export const $lyricsSelectionDiagnostics = atom<any>(null);
