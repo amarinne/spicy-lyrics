@@ -69,6 +69,20 @@ test("Spicy accepts both community and Apple backend documents", () => {
   assert.equal(apple.lyrics.sourceDisplayName, "Apple Music");
 });
 
+test("Spicy forced-update control response is rejected as lyrics", () => {
+  const control = {
+    Type: "Static",
+    Lines: [
+      { Text: "Please update Spicy Lyrics" },
+      { Text: "You can do so immediately by restarting Spotify" },
+    ],
+    source: "spl",
+  };
+  assert.equal(sources.isSpicyForcedUpdateControl(control), true);
+  assert.equal(sources.normalizeSpicyLyrics(control), null);
+  assert.ok(sources.normalizeSpicyLyrics({ ...control, Lines: [{ Text: "Please update Spicy Lyrics" }] }));
+});
+
 test("queued Spicy cannot hide a usable Spotify candidate", async () => {
   const result = await sources.acquireLyricsFromSources(info, ["spicy", "spotify", "lrclib"], "smart", {
     spicy: async () => ({ kind: "queued" }),

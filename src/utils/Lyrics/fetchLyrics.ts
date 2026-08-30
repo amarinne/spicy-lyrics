@@ -39,7 +39,7 @@ const prefetchInFlight = new Set<string>();
 const lyricsRequestCoordinator = new LyricsRequestCoordinator<[object | string, number] | null>();
 
 // recently updated key structure - changed name
-export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 2, undefined, isDev as true);
+export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 4, undefined, isDev as true);
 
 function sourceConfigFor(trackUri: string) {
   return effectiveLyricsSourceConfig(

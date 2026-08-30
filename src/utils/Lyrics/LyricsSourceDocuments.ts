@@ -84,9 +84,22 @@ function lineDocument(rows: ReadonlyArray<{ text: unknown; startTimeMs: unknown;
 }
 
 export function normalizeSpicyLyrics(data: any): LyricsSourceResult | null {
+  if (isSpicyForcedUpdateControl(data)) return null;
   const source = typeof data?.source === "string" ? data.source : "spl";
   const label = source === "aml" ? "Apple Music" : resolveLyricsSourceLabel(source) ?? "Spicy Lyrics";
   return stamp(data, "spicy", label);
+}
+
+export function isSpicyForcedUpdateControl(data: any): boolean {
+  if (data?.Type !== "Static" || !Array.isArray(data?.Lines)) return false;
+  let asksForUpdate = false;
+  let asksForRestart = false;
+  for (const line of data.Lines) {
+    const text = clean(line?.Text).toLowerCase();
+    if (text === "please update spicy lyrics") asksForUpdate = true;
+    if (text.includes("immediately by restarting spotify")) asksForRestart = true;
+  }
+  return asksForUpdate && asksForRestart;
 }
 
 export function normalizeSpotifyLyrics(body: any, info: TrackLyricsInfo): LyricsSourceResult | null {

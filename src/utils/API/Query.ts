@@ -1,6 +1,7 @@
 import Defaults from "../../components/Global/Defaults.ts";
 import Session from "../../components/Global/Session.ts";
 import Logger from "../Logger.ts";
+import { buildSpicyApiHeaders } from "./SpicyRequestContract.ts";
 
 export type Query = {
   operation: string;
@@ -43,11 +44,7 @@ export async function Query(
   try {
     const res = await fetch(`${host}/query`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "SpicyLyrics-Version": clientVersion?.Text ?? "",
-        ...headers,
-      },
+      headers: buildSpicyApiHeaders(clientVersion?.Text ?? "", headers),
       body: JSON.stringify({
         queries,
         client: {
