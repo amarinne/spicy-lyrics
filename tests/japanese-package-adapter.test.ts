@@ -78,6 +78,12 @@ for (const [text, expected] of [
   ["4時", "yo ji"],
   ["2人", "futari"],
   ["明日", "ashita"],
+  ["壊れたよこの世界で", "kowareta yo kono sekai de"],
+  ["教えてよその仕組みを", "oshiete yo sono shikumi wo"],
+  ["横の世界", "yoko no sekai"],
+  ["余所の仕組み", "yoso no shikumi"],
+  ["よこの世界", "yoko no sekai"],
+  ["よその仕組み", "yoso no shikumi"],
 ] as const) {
   test(`Japanese package adapter exposes reading-policy v1.2: ${text}`, async () => {
     const target = { Text: text };
