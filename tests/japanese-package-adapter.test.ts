@@ -75,6 +75,12 @@ test("Japanese package does not duplicate token reading across split timing span
 for (const [text, expected] of [
   ["曇りのち雨", "kumori no chi ame"],
   ["何から始める", "nani kara hajimeru"],
+  ["何", "nani"],
+  ["何時ですか", "nan ji desu ka"],
+  ["何でもいい", "nan de mo ii"],
+  ["何だ", "nan da"],
+  ["何のため", "nan no tame"],
+  ["何人", "nan nin"],
   ["4時", "yo ji"],
   ["2人", "futari"],
   ["明日", "ashita"],
@@ -85,7 +91,7 @@ for (const [text, expected] of [
   ["よこの世界", "yoko no sekai"],
   ["よその仕組み", "yoso no shikumi"],
 ] as const) {
-  test(`Japanese package adapter exposes reading-policy v1.2: ${text}`, async () => {
+  test(`Japanese package adapter exposes reading-policy v1.6: ${text}`, async () => {
     const target = { Text: text };
     assert.equal(await processJapanesePackageTextTarget(target), expected);
     assert.equal(target.ReadingRenderPlan?.joinedDisplayText, expected);
@@ -93,3 +99,12 @@ for (const [text, expected] of [
     assert.equal(target.TransliteratedText, undefined);
   });
 }
+
+test("Japanese package adapter keeps validated provider nan for bare 何", async () => {
+  const target = {
+    Text: "何",
+    JapaneseReading: { sourceText: "何", romaji: "nan", furigana: [{ start: 0, end: 1, reading: "なん" }] },
+  };
+  assert.equal(await processJapanesePackageTextTarget(target), "nan");
+  assert.equal(target.JapaneseReading.romaji, "nan");
+});
