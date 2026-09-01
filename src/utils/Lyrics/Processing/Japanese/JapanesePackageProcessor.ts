@@ -184,7 +184,8 @@ export async function processJapanesePackageLine(
   displayText: string,
   syllables: JapaneseReadable[],
   spans: JapaneseTimedTextSpan[],
-  times: Array<{ StartTime?: number; EndTime?: number }>
+  times: Array<{ StartTime?: number; EndTime?: number }>,
+  boundaries: BoundaryEvidence[] = [],
 ): Promise<{ plan: RenderPlan; romaji: string }> {
   const { tokenizer, jmdict, preferredReadings } = await loadDependencies();
   const sourceSpans: PackageSourceSpan[] = spans.map((span) => ({
@@ -195,7 +196,7 @@ export async function processJapanesePackageLine(
     displayText,
     spans: sourceSpans,
     providerFurigana: providerFurigana(displayText, syllables, spans),
-    boundaries: authoredBoundaries(displayText, sourceSpans),
+    boundaries: [...authoredBoundaries(displayText, sourceSpans), ...boundaries],
   }, { tokenizer, jmdict, preferredReadings });
   if (result.diagnostics.some((diagnostic) => diagnostic.severity === "error")) throw new Error(result.diagnostics.map((diagnostic) => diagnostic.message).join("; "));
   const displaySpans = coalesceTimedWords(displayText, syllables, spans, times, result.furigana);

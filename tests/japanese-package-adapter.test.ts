@@ -6,6 +6,7 @@ import {
   processJapanesePackageTextTarget,
   timingSpanMergeRanges,
 } from "../src/utils/Lyrics/Processing/Japanese/JapanesePackageProcessor.ts";
+import { buildJapaneseLineTextMap } from "../src/utils/Lyrics/Reading/JapaneseReading.ts";
 
 test("compound ruby crossing timing fragments merges only crossed words", () => {
   const ruby = [{ start: 0, end: 2, reading: "おぼつか", source: "jmdict" as const }];
@@ -107,4 +108,27 @@ test("Japanese package adapter keeps validated provider nan for bare 何", async
   };
   assert.equal(await processJapanesePackageTextTarget(target), "nan");
   assert.equal(target.JapaneseReading.romaji, "nan");
+});
+
+test("Japanese package adapter keeps kun only for attached person names", async () => {
+  assert.equal(await processJapanesePackageTextTarget({ Text: "ゴー君" }), "goo kimi");
+  assert.equal(await processJapanesePackageTextTarget({ Text: "ミク君" }), "miku kun");
+});
+
+test("Japanese package adapter carries provider phrase boundary into kimi selection", async () => {
+  const syllables = [
+    { Text: "ミク", StartTime: 0, EndTime: 100, BoundaryAfter: true },
+    { Text: "君", StartTime: 100, EndTime: 200 },
+  ];
+  const map = buildJapaneseLineTextMap(syllables);
+  assert.deepEqual(map.boundaries, [{
+    offset: 2,
+    kind: "provider-fragment",
+    strength: "soft",
+    sourceId: "1",
+  }]);
+  const result = await processJapanesePackageLine(
+    map.lineText, syllables, map.spans, syllables, map.boundaries
+  );
+  assert.equal(result.romaji, "miku kimi");
 });

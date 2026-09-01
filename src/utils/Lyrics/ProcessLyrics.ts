@@ -337,7 +337,9 @@ const postProcessSyllableRomanization = async (
       // through to generic romanization keeps the line rendering without furigana
       // rather than failing the whole lyric render.
       if (isJapaneseLine && !groupHasKorean && japaneseMap && (await japaneseDictionariesReady())) {
-        const packageResult = await processJapanesePackageLine(effectiveLineText, syllables, japaneseMap.spans, syllables);
+        const packageResult = await processJapanesePackageLine(
+          effectiveLineText, syllables, japaneseMap.spans, syllables, japaneseMap.boundaries
+        );
         for (const syllable of syllables) {
           delete syllable.RomanizedText;
           delete syllable.TransliteratedText;

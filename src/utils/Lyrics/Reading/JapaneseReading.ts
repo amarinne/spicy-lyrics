@@ -13,6 +13,7 @@ import {
   computeNoSpaceBefore,
   type MergeableEntry,
 } from "../Fork/JukujikunMerge.ts";
+import type { BoundaryEvidence } from "japanese-lyrics-processor";
 import { cleanInvisiblesPreserveEdges } from "../Fork/TextDetection.ts";
 import type { RenderPlan } from "../Processing/Model.ts";
 import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
@@ -79,6 +80,7 @@ export type JapaneseTimedTextSpan = {
 export type JapaneseLineTextMap = {
   lineText: string;
   spans: JapaneseTimedTextSpan[];
+  boundaries: BoundaryEvidence[];
 };
 
 export const JapaneseSourceTextTest = /[぀-ヿ一-鿿]/;
@@ -138,7 +140,17 @@ export function buildJapaneseLineTextMap(syllables: JapaneseReadable[], displayT
       end: codePointOffsetToUtf16Index(canonical.text, mapping.canonicalRange.endCp),
     };
   });
-  return { lineText: canonical.text, spans };
+  const boundaries: BoundaryEvidence[] = [];
+  for (let index = 1; index < spans.length; index += 1) {
+    if ((syllables[index - 1] as TimedSyllableEntry)?.BoundaryAfter !== true) continue;
+    boundaries.push({
+      offset: Array.from(canonical.text.slice(0, spans[index].start)).length,
+      kind: "provider-fragment",
+      strength: "soft",
+      sourceId: String(spans[index].index),
+    });
+  }
+  return { lineText: canonical.text, spans, boundaries };
 }
 
 function rangesOverlap(startA: number, endA: number, startB: number, endB: number): boolean {
