@@ -29,6 +29,11 @@ import {
   setRomanizedStatus,
 } from "../../utils/Lyrics/lyrics.ts";
 import {
+  isJyutpingTranslitMode,
+  pronunciationSystemForChineseMode,
+  toggleChineseTranslitLanguage,
+} from "../../utils/Lyrics/Fork/Romanization.ts";
+import {
   CleanupScrollEvents,
   InitializeScrollEvents,
   ResetLastLine,
@@ -573,7 +578,7 @@ function AppendViewControls(ReAppend: boolean = false) {
         ${
           $showChineseTranslitButton.get() && PageContainer.classList.contains("Lyrics_ChineseDetected")
             ? `<button id="ChineseTranslitToggle" class="ViewControl" style="font-size: 14px; font-weight: 600; line-height: 1;">${
-                chineseTranslitMode === "jyutping" ? "粵" : "拼"
+                isJyutpingTranslitMode(chineseTranslitMode) ? "粵" : "拼"
               }</button>`
             : ""
         }
@@ -725,11 +730,11 @@ function AppendViewControls(ReAppend: boolean = false) {
         if (!isPip) {
           Tooltips.Close = Spicetify.Tippy(chineseTranslitToggle, {
             ...Spicetify.TippyProps,
-            content: chineseTranslitMode === "jyutping" ? "Switch to Mandarin (Pinyin)" : "Switch to Cantonese (Jyutping)",
+            content: isJyutpingTranslitMode(chineseTranslitMode) ? "Switch to Mandarin (Pinyin)" : "Switch to Cantonese (Jyutping)",
           });
         }
         chineseTranslitToggle.addEventListener("click", () => {
-          setChineseTranslitMode(chineseTranslitMode === "jyutping" ? "pinyin" : "jyutping");
+          setChineseTranslitMode(toggleChineseTranslitLanguage(chineseTranslitMode));
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Chinese transliteration tooltip", err);
@@ -792,7 +797,7 @@ function AppendViewControls(ReAppend: boolean = false) {
             currentRows: enumerateSoundLines(baselineDocument).map((row) => ({ id: row.id, original: row.sourceText, baseline: row.baselineTranslatedText ?? "" })),
             requireBaselineMatch: baselineDocument.DetectedChinese === true,
             pronunciationSystem: baselineDocument.DetectedChinese === true
-              ? $chineseTranslitMode.get() === "jyutping" ? "cantonese-jyutping" : "mandarin-pinyin"
+              ? pronunciationSystemForChineseMode($chineseTranslitMode.get())
               : undefined,
           };
         } catch {}

@@ -14,7 +14,12 @@
  */
 
 import { pinyin } from "pinyin-pro";
-import { buildMandarinWordLayout, walkCantoneseReadings } from "../Fork/Romanization.ts";
+import {
+  buildMandarinWordLayout,
+  walkCantoneseReadings,
+} from "../Fork/Romanization.ts";
+import { convertMandarinSyllableToVnAid } from "../Fork/MandarinVnAid.ts";
+import { convertJyutpingSyllableToVnAid } from "../Fork/CantoneseVnAid.ts";
 import type { AttachedReadingSegment, CanonicalSpanMapping, TextRange } from "./Model.ts";
 
 type RangedReading = {
@@ -22,15 +27,20 @@ type RangedReading = {
   readonly reading: string;
 };
 
-function rangedMandarinReadings(text: string, tones: boolean): RangedReading[] {
+function rangedMandarinReadings(
+  text: string,
+  tones: boolean,
+  vnAid: boolean
+): RangedReading[] {
   const layout = buildMandarinWordLayout(text);
   if (!layout.tokens.length) return [];
 
   // Deliberately the same call `romanizeMandarin` makes, so the reading a character gets does not
-  // depend on where it is placed.
+  // depend on where it is placed. The VN-aid variant uses tone-numbered output from the same
+  // segmentation, keeping a 1:1 token alignment with the plain path.
   const readings = pinyin(text, {
     type: "array",
-    toneType: tones ? "symbol" : "none",
+    toneType: vnAid ? "num" : tones ? "symbol" : "none",
     toneSandhi: false,
     nonZh: "consecutive",
   }) as string[];
@@ -40,17 +50,26 @@ function rangedMandarinReadings(text: string, tones: boolean): RangedReading[] {
   if (readings.length !== layout.tokenCount) return [];
 
   return layout.tokens.flatMap((token, index) => {
-    const reading = (readings[index] ?? "").trim();
+    const raw = (readings[index] ?? "").trim();
+    const reading = vnAid ? convertMandarinSyllableToVnAid(raw, tones) : raw;
     if (!token.isHan || !reading || reading === token.text) return [];
     return [{ canonicalRange: { startCp: token.startCp, endCp: token.endCp }, reading }];
   });
 }
 
-function rangedCantoneseReadings(text: string, tones: boolean): RangedReading[] {
+function rangedCantoneseReadings(
+  text: string,
+  tones: boolean,
+  vnAid: boolean
+): RangedReading[] {
   const readings: RangedReading[] = [];
   for (const piece of walkCantoneseReadings(text, tones)) {
-    const reading = piece.reading.trim();
-    if (!piece.isHan || !reading || reading === piece.text) continue;
+    const raw = piece.reading.trim();
+    if (!piece.isHan || !raw || raw === piece.text) continue;
+    const reading = vnAid
+      ? raw.split(/\s+/u).filter(Boolean).map((syllable) => convertJyutpingSyllableToVnAid(syllable, tones)).join(" ")
+      : raw;
+    if (!reading) continue;
     readings.push({
       canonicalRange: { startCp: piece.startCp, endCp: piece.endCp },
       reading,
@@ -81,16 +100,20 @@ function spanIdsForRange(
 
 export function buildChineseAttachedReadings(
   text: string,
-  translitMode: "pinyin" | "jyutping",
+  translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn",
   tones: boolean,
   spanMappings: readonly CanonicalSpanMapping[],
 ): AttachedReadingSegment[] {
   if (!text.trim() || !spanMappings.length) return [];
 
-  const kind = translitMode === "jyutping" ? "cantoneseJyutping" : "mandarinPinyin";
-  const ranged = translitMode === "jyutping"
-    ? rangedCantoneseReadings(text, tones)
-    : rangedMandarinReadings(text, tones);
+  const vnAid = translitMode === "pinyin-vn" || translitMode === "jyutping-vn";
+  const jyutping = translitMode === "jyutping" || translitMode === "jyutping-vn";
+  let kind: AttachedReadingSegment["kind"];
+  if (jyutping) kind = vnAid ? "cantoneseVnAid" : "cantoneseJyutping";
+  else kind = vnAid ? "mandarinVnAid" : "mandarinPinyin";
+  const ranged = jyutping
+    ? rangedCantoneseReadings(text, tones, vnAid)
+    : rangedMandarinReadings(text, tones, vnAid);
 
   return ranged.flatMap((entry) => {
     const spanIds = spanIdsForRange(entry.canonicalRange, spanMappings);

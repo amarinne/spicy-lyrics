@@ -64,7 +64,7 @@ type TimedGenericPlanOptions = {
   };
   /** Set when readings attach to spans instead of the line, so the plan carries their ranges. */
   attachedReadings?: {
-    translitMode: "pinyin" | "jyutping";
+    translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
     tones: boolean;
   };
 };
@@ -188,7 +188,7 @@ export function buildLineAttachedPlan(
   source: string,
   display: string,
   id: string,
-  translitMode: "pinyin" | "jyutping",
+  translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn",
   tones: boolean,
 ): RenderPlan | undefined {
   const characters = Array.from(source);

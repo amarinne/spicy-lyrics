@@ -27,11 +27,14 @@ import {
 } from "./Fork/TextDetection.ts";
 import {
   buildMandarinWordLayout,
+  isJyutpingTranslitMode,
   joinMandarinReadingWords,
   romanizeCantonese,
+  romanizeCantoneseVn,
   romanizeCyrillic,
   romanizeKoreanForDisplay,
   romanizeMandarin,
+  romanizeMandarinVn,
 } from "./Fork/Romanization.ts";
 import { acceptRomanization } from "./Fork/RomanizationAcceptance.ts";
 import { buildJapaneseLineTextMap } from "./Reading/JapaneseReading.ts";
@@ -97,8 +100,14 @@ const romanizeChineseText = async (
   text: string,
   primaryLanguage: string
 ): Promise<string> => {
-  if (chineseTranslitMode === "jyutping") {
+  if (isJyutpingTranslitMode(chineseTranslitMode)) {
+    if (chineseTranslitMode === "jyutping-vn") {
+      return (await romanizeCantoneseVn(text, primaryLanguage, true, chineseTones)) ?? text;
+    }
     return (await romanizeCantonese(text, primaryLanguage, true, chineseTones)) ?? text;
+  }
+  if (chineseTranslitMode === "pinyin-vn") {
+    return romanizeMandarinVn(text, chineseTones);
   }
   return romanizeMandarin(text, chineseTones);
 };
@@ -366,7 +375,7 @@ const postProcessSyllableRomanization = async (
           }
         }
         const mandarinWordLayout =
-          cjkLineRoute === "Chinese" && chineseTranslitMode === "pinyin" && joinMandarinWords
+          cjkLineRoute === "Chinese" && !isJyutpingTranslitMode(chineseTranslitMode) && joinMandarinWords
             ? buildMandarinWordLayout(effectiveLineText)
             : undefined;
         const plan = buildTimedGenericPlan(
@@ -594,7 +603,7 @@ export const ProcessLyrics = async (
         let display = entry.target.RomanizedText || entry.target.TransliteratedText;
         if (!display) return;
         const cjkLineRoute = resolveCjkLineRoute(entry.lineText || entry.target.Text || "", docContext);
-        if (joinMandarinWords && chineseTranslitMode === "pinyin" && cjkLineRoute === "Chinese") {
+        if (joinMandarinWords && !isJyutpingTranslitMode(chineseTranslitMode) && cjkLineRoute === "Chinese") {
           display = joinMandarinReadingWords(entry.target.Text || "", display);
         }
         const attachedPlan = chineseReadingPlacement !== "lineBelow" && cjkLineRoute === "Chinese"

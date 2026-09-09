@@ -6,7 +6,7 @@ export type ProcessingContext = {
   translationEnabled: boolean;
   translationTargetLang: string;
   meaningBackend?: MeaningBackend;
-  chineseTranslitMode: "pinyin" | "jyutping";
+  chineseTranslitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
   chineseTones: boolean;
   joinMandarinWords: boolean;
   chineseReadingPlacement: ChineseReadingPlacement;

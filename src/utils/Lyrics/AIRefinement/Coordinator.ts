@@ -7,6 +7,7 @@ import { executeChunk } from "./runtime.ts";
 import { AI_CHUNK_PLAN_VERSION, AI_ITERATION_PROMPT_VERSION, AI_PROMPT_VERSION, AI_REFINEMENT_SCHEMA, AI_SOUND_REFINEMENT_SCHEMA, type CancellationReason, type CanonicalOriginalSnapshot, type DerivedLayer, type LyricContext, type ModelDescriptor, type ProviderCredential, type RefinementCache, type RefinementFailureReason, type RefinementProvider, type RefinementRecord, type RefinementSchema, type SoundOrthography } from "./types.ts";
 import { captureProviderAcceptedItems, captureProviderBaseline, finishProviderCapture } from "./DebugCapture.ts";
 import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
+import { pronunciationSystemForChineseMode } from "../Fork/Romanization.ts";
 
 export type CoordinatorConfig = { providerId?: string; providerVersion: string; endpoint?: string; model: ModelDescriptor; targetLang: string; instructions?: string; useSoundBaseline?: boolean; credential?: ProviderCredential | null };
 export type RefinementRequestOptions = { instructions?: string; model?: ModelDescriptor };
@@ -439,7 +440,7 @@ export class AIRefinementCoordinator {
     let chineseMode: string | undefined;
     try { chineseMode = JSON.parse(session.document?.ProcessingContextKey ?? "null")?.chineseTranslitMode; } catch {}
     if (session.document?.DetectedChinese === true || /^(?:zh|zho|cmn|yue)(?:-|$)/.test(language)) {
-      return chineseMode === "jyutping" ? "cantonese-jyutping" : "mandarin-pinyin";
+      return pronunciationSystemForChineseMode(chineseMode);
     }
     if (/^(?:ko|kor)(?:-|$)/.test(language)) return "korean";
     return `source:${language}`;
