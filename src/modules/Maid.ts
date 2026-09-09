@@ -1,5 +1,5 @@
-import type { Scheduled } from "./Scheduler";
-import Scheduler from "./Scheduler";
+import type { Scheduled } from "./Scheduler.ts";
+import Scheduler from "./Scheduler.ts";
 
 export type MaidItem =
   | MutationObserver

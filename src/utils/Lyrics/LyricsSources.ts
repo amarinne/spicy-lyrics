@@ -1,6 +1,4 @@
-import Defaults from "../../components/Global/Defaults.ts";
 import Platform from "../../components/Global/Platform.ts";
-import Session from "../../components/Global/Session.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import { $lyricsSelectionDiagnostics } from "../stores.ts";
 import Logger from "../Logger.ts";
@@ -9,7 +7,8 @@ import { acquireLyricsFromSources, canQueryLrclib, normalizeLrclibLyrics, normal
 import { ProviderResponseError, type ProviderAcquisitionOutcome } from "./ProviderAcquisition.ts";
 import { acquireSpicyOutcomeWithBoundedAuthRetry, isSpicyAuthRejectionStatus, type SpicyQueryAttempt } from "./SpicyAuthRetry.ts";
 import type { LyricsSelectionMode, LyricsSourceProviderId } from "./LyricsSourcePreferences.ts";
-import { buildSpicyLyricsQueryBody, buildSpicyLyricsQueryHeaders, extractSpicyQueryResult } from "../API/SpicyRequestContract.ts";
+import { Query, QueryHttpError, QueryNetworkError, type QueryObjectResult } from "../API/Query.ts";
+import { ServiceUnavailableError } from "../API/CircuitBreaker.ts";
 
 export { acquireLyricsFromSources, canQueryLrclib, normalizeLrclibLyrics, normalizeSpicyLyrics, normalizeSpotifyLyrics } from "./LyricsSourceDocuments.ts";
 export type { LyricsSourceAdapter, LyricsSourceResult, TrackLyricsInfo } from "./LyricsSourceDocuments.ts";
@@ -36,36 +35,73 @@ function retryAfterMs(response: Response): number | undefined {
   return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
 }
 
-async function requestSpicyLyrics(info: TrackLyricsInfo, body: string, version: string, token: string, signal: AbortSignal): Promise<SpicyQueryAttempt<ProviderAcquisitionOutcome<LyricsSourceResult>>> {
-  const response = await fetch(`${Defaults.lyrics.api.url}/query`, {
-    method: "POST",
-    signal,
-    headers: buildSpicyLyricsQueryHeaders(version, token),
-    body,
-  });
-  if (response.status === 429) throw new ProviderResponseError({ kind: "rate-limited", retryAfterMs: retryAfterMs(response) });
-  if (isSpicyAuthRejectionStatus(response.status)) return { kind: "auth-rejected", status: response.status };
-  if (!response.ok) throw new ProviderResponseError({ kind: "upstream-error", status: response.status });
-  const result = extractSpicyQueryResult((await response.json())?.queries);
-  const status = Number(result?.httpStatus ?? 0);
+/**
+ * One lyrics query, sent the official way: through `Query()` so it rides the
+ * shared circuit breaker and its 15s deadline. `probe: true` marks a
+ * user-initiated fetch — the only caller allowed to set it, since the person
+ * waiting may pass while the breaker is open and their request doubles as the
+ * health check.
+ *
+ * A missing result entry (the server's policy-notice envelope) reads as
+ * `lyrics-not-found`, exactly as official clients see it.
+ */
+async function requestSpicyLyrics(info: TrackLyricsInfo, token: string): Promise<SpicyQueryAttempt<ProviderAcquisitionOutcome<LyricsSourceResult>>> {
+  let result: QueryObjectResult | undefined;
+  try {
+    const queries = await Query(
+      [
+        {
+          operation: "lyrics",
+          variables: {
+            id: info.id,
+            auth: "SpicyLyrics-WebAuth",
+          },
+        },
+      ],
+      {
+        "SpicyLyrics-WebAuth": `Bearer ${token}`,
+      },
+      { probe: true }
+    );
+    result = queries.get("0");
+  } catch (error) {
+    // Breaker suppression stays raw so a suppressed auth retry can preserve
+    // its 401; the adapter maps it to a rate-limited outcome at the boundary.
+    if (error instanceof ServiceUnavailableError) throw error;
+    if (error instanceof QueryHttpError) {
+      if (error.status === 429) throw new ProviderResponseError({ kind: "rate-limited", retryAfterMs: error.retryAfterMs });
+      throw new ProviderResponseError({ kind: "upstream-error", status: error.status });
+    }
+    if (error instanceof QueryNetworkError) throw new ProviderResponseError({ kind: "upstream-error", status: 0 });
+    throw error;
+  }
+  if (!result) return { kind: "settled", outcome: { kind: "no-match" } };
+  const status = Number(result.httpStatus ?? 0);
   if (isSpicyAuthRejectionStatus(status)) return { kind: "auth-rejected", status };
   if (status === 503) return { kind: "settled", outcome: { kind: "queued" } };
-  if (status === 404 || status === 204) return { kind: "settled", outcome: { kind: "no-match" } };
+  if (status === 404) return { kind: "settled", outcome: { kind: "no-match" } };
   if (status === 429) return { kind: "settled", outcome: { kind: "rate-limited" } };
   if (status !== 200) return { kind: "settled", outcome: { kind: "upstream-error", status } };
-  const normalized = normalizeSpicyLyrics(Array.isArray(result?.data) ? packer.unpack(result.data) : result?.data);
+  const normalized = normalizeSpicyLyrics(Array.isArray(result.data) ? packer.unpack(result.data) : result.data);
   return { kind: "settled", outcome: normalized ? { kind: "lyrics", result: normalized } : { kind: "no-match" } };
 }
 
 async function spicyAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise<ProviderAcquisitionOutcome<LyricsSourceResult>> {
-  const version = Session.SpicyLyrics.GetCurrentVersion()?.Text ?? "unknown";
-  const body = buildSpicyLyricsQueryBody(info.id, version);
-  return acquireSpicyOutcomeWithBoundedAuthRetry<ProviderAcquisitionOutcome<LyricsSourceResult>>({
-    signal,
-    resolveToken: () => Platform.GetSpotifyAccessToken(),
-    invalidateToken: (token) => Platform.InvalidateSpotifyAccessToken(token),
-    runAttempt: (token, attemptSignal) => requestSpicyLyrics(info, body, version, token, attemptSignal),
-  });
+  if (signal.aborted) return { kind: "aborted" };
+  try {
+    return await acquireSpicyOutcomeWithBoundedAuthRetry<ProviderAcquisitionOutcome<LyricsSourceResult>>({
+      signal,
+      resolveToken: () => Platform.GetSpotifyAccessToken(),
+      invalidateToken: (token) => Platform.InvalidateSpotifyAccessToken(token),
+      runAttempt: (token) => requestSpicyLyrics(info, token),
+    });
+  } catch (error) {
+    // The breaker is holding traffic back because the API is refusing us — a
+    // temporary pause reported as a rate limit with its retry window, not a
+    // fault in the pipeline.
+    if (error instanceof ServiceUnavailableError) throw new ProviderResponseError({ kind: "rate-limited", retryAfterMs: error.retryAfterMs });
+    throw error;
+  }
 }
 
 async function spotifyAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise<ProviderAcquisitionOutcome<LyricsSourceResult>> {
