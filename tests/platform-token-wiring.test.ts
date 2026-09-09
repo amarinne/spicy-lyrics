@@ -19,6 +19,6 @@ test("Platform wires modern and legacy token sources without requiring Cosmos", 
 
 test("Platform keeps token caller contract and exposes invalidation", () => {
   assert.match(source, /const GetSpotifyAccessToken = \(\): Promise<string> => TokenProvider\.getToken\(\);/u);
-  assert.match(source, /const InvalidateSpotifyAccessToken = \(\): void => TokenProvider\.invalidate\(\);/u);
+  assert.match(source, /const InvalidateSpotifyAccessToken = \(rejectedToken\?: string\): void => TokenProvider\.invalidate\(rejectedToken\);/u);
   assert.doesNotMatch(source, /return GetSpotifyAccessToken\(\)/u);
 });

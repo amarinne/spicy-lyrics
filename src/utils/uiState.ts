@@ -79,7 +79,7 @@ export const $isNowBarOpen = persistAtom<boolean>("isNowBarOpen", false);
 export const $nowBarSide = persistAtom<"left" | "right">("nowBarSide", "left");
 export const $forceCompactMode = persistAtom<boolean>("forceCompactMode", false);
 export const $romanization = persistAtom<boolean>("romanization", false);
-export const $chineseTranslitMode = persistAtom<"pinyin" | "jyutping">("chineseTranslitMode", "pinyin");
+export const $chineseTranslitMode = persistAtom<"pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn">("chineseTranslitMode", "pinyin");
 export const $chineseTones = persistAtom<boolean>("chineseTones", true);
 export const $joinMandarinWords = persistAtom<boolean>("joinMandarinWords", false);
 /**
@@ -98,7 +98,7 @@ export const $cyrillicKeepSigns = persistAtom<boolean>("cyrillicKeepSigns", fals
 export const $translationEnabled = persistAtom<boolean>("translationEnabled", false);
 export const $meaningVisible = persistAtom<boolean>("meaningVisible", true);
 export const $translationTargetLang = persistAtom<string>("translationTargetLang", "en");
-export const $lyricsCopyFormat = persistAtom<"plain" | "timestamps" | "translation" | "metadata">("lyricsCopyFormat", "plain");
+export const $lyricsCopyFormat = persistAtom<"plain" | "timestamps" | "translation" | "metadata" | "transliteration">("lyricsCopyFormat", "plain");
 export const $flatViewControls = persistAtom<boolean>("flatViewControls", true);
 export const $forceDarkBackground = persistAtom<boolean>("forceDarkBackground", false);
 export const $prefetchNextLyrics = persistAtom<boolean>("prefetchNextLyrics", true);

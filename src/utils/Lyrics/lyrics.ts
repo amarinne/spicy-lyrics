@@ -354,7 +354,7 @@ export const setRomanizedStatus = (val: boolean) => {
   $romanization.set(val);
 };
 
-export type ChineseTranslitMode = "pinyin" | "jyutping";
+export type ChineseTranslitMode = "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
 
 export let chineseTranslitMode: ChineseTranslitMode = $chineseTranslitMode.get();
 $chineseTranslitMode.listen((val) => {

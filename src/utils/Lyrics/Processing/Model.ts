@@ -72,7 +72,7 @@ export type ScriptRun = {
  * already owns as one group. A segment never claims timing beyond the spans it names, so display
  * grouping can never rewrite the plan.
  */
-export type AttachedReadingKind = "mandarinPinyin" | "cantoneseJyutping";
+export type AttachedReadingKind = "mandarinPinyin" | "cantoneseJyutping" | "mandarinVnAid" | "cantoneseVnAid";
 
 export type AttachedReadingSegment = {
   readonly canonicalRange: TextRange;

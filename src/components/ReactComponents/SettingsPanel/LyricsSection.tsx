@@ -28,11 +28,17 @@ import {
   $translationTargetLang,
 } from "../../../utils/uiState.ts";
 import { matches, Row, Select, SectionTitle, Toggle } from "./components.tsx";
+import { isJyutpingTranslitMode } from "../../../utils/Lyrics/Fork/Romanization.ts";
 
 const SECTION_NAME = "Lyrics Display";
 
 const SIMPLE_RENDERING_OPTIONS = ["calculate", "animate"];
-const CHINESE_TRANSLIT_OPTIONS = ["pinyin", "jyutping"];
+const CHINESE_TRANSLIT_OPTIONS = [
+  { value: "pinyin", label: "Mandarin Pinyin" },
+  { value: "pinyin-vn", label: "Mandarin Pinyin (VN aid)" },
+  { value: "jyutping", label: "Cantonese Jyutping" },
+  { value: "jyutping-vn", label: "Cantonese Jyutping (VN aid)" },
+] as const;
 const KOREAN_ROMANIZATION_OPTIONS = [
   { value: "wordTranslit", label: "Word-by-word transliteration" },
   { value: "rrStandard", label: "Standard Korean RR" },
@@ -72,6 +78,7 @@ const LYRICS_COPY_FORMAT_OPTIONS = [
   { value: "plain", label: "Plain lyrics" },
   { value: "timestamps", label: "Lyrics + timestamps" },
   { value: "translation", label: "Lyrics + translation" },
+  { value: "transliteration", label: "Lyrics + transliteration" },
   { value: "metadata", label: "Artist/title + lyrics" },
 ] as const;
 
@@ -113,7 +120,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
   const showMinimalLyricsMode = matches(query, "Minimal Lyrics Mode", "Hides sung lyrics lines in Fullscreen and Cinema Mode");
   const showAdaptiveSectioning = matches(query, "Adaptive Sectioning", "Keep Japanese semantic groups together and improve wrapping for reading and translation rows.");
   const showLineHoverBackground = matches(query, "Line Hover Background", "Show a highlight box behind a lyrics line when you hover over it.");
-  const showChineseTransliteration = matches(query, "Chinese Transliteration", "Choose Mandarin pinyin or Cantonese jyutping for Chinese lyrics.");
+  const showChineseTransliteration = matches(query, "Chinese Transliteration", "Choose Mandarin pinyin, Cantonese jyutping, or VN aid for Chinese lyrics.");
   const showChineseTones = matches(query, "Chinese Tones", "Show Mandarin tone marks and Cantonese jyutping tone numbers.");
   const showChineseCharacterForm = matches(query, "Chinese Character Form", "Keep original characters or convert Chinese lyrics locally.");
   const showMandarinWordGrouping = matches(query, "Group Pinyin by Word", "Keep Pinyin syllables together when they form one Mandarin word.");
@@ -210,11 +217,12 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
       )}
 
       {showChineseTransliteration && (
-        <Row label="Chinese Transliteration" description="Choose Mandarin pinyin or Cantonese jyutping for Chinese lyrics.">
+        <Row label="Chinese Transliteration" description="Choose Mandarin pinyin, Cantonese jyutping, or their VN pronunciation-aid spellings.">
           <Select
             value={chineseTranslitMode}
-            options={CHINESE_TRANSLIT_OPTIONS}
-            onChange={(v) => $chineseTranslitMode.set(v as "pinyin" | "jyutping")}
+            options={optionValues(CHINESE_TRANSLIT_OPTIONS)}
+            labels={optionLabels(CHINESE_TRANSLIT_OPTIONS)}
+            onChange={(v) => $chineseTranslitMode.set(v as typeof chineseTranslitMode)}
           />
         </Row>
       )}
@@ -246,7 +254,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
       )}
 
       {showChineseTones && (
-        <Row label="Chinese Tones" description="Show Mandarin tone marks and Cantonese jyutping tone numbers.">
+        <Row label="Chinese Tones" description="Show Mandarin tone marks and Cantonese jyutping tone numbers (VN aid uses tone marks).">
           <Toggle checked={chineseTones} onChange={(v) => $chineseTones.set(v)} />
         </Row>
       )}
@@ -269,14 +277,14 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
         <Row
           label="Group Pinyin by Word"
           description="Keep Pinyin syllables together when they form one detected Mandarin word."
-          disabled={chineseTranslitMode !== "pinyin" || chineseReadingPlacement !== "lineBelow"}
-          disabledReason={chineseTranslitMode !== "pinyin"
-            ? "Choose Mandarin Pinyin first."
+          disabled={isJyutpingTranslitMode(chineseTranslitMode) || chineseReadingPlacement !== "lineBelow"}
+          disabledReason={isJyutpingTranslitMode(chineseTranslitMode)
+            ? "Choose a Mandarin mode first."
             : "Readings already sit on their own words."}
         >
           <Toggle
             checked={joinMandarinWords}
-            disabled={chineseTranslitMode !== "pinyin" || chineseReadingPlacement !== "lineBelow"}
+            disabled={isJyutpingTranslitMode(chineseTranslitMode) || chineseReadingPlacement !== "lineBelow"}
             onChange={(value) => $joinMandarinWords.set(value)}
           />
         </Row>
@@ -350,7 +358,7 @@ export default function LyricsSection({ query, sectionFilter }: Props) {
             value={lyricsCopyFormat}
             options={optionValues(LYRICS_COPY_FORMAT_OPTIONS)}
             labels={optionLabels(LYRICS_COPY_FORMAT_OPTIONS)}
-            onChange={(v) => $lyricsCopyFormat.set(v as "plain" | "timestamps" | "translation" | "metadata")}
+            onChange={(v) => $lyricsCopyFormat.set(v as "plain" | "timestamps" | "translation" | "metadata" | "transliteration")}
           />
         </Row>
       )}

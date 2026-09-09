@@ -15,6 +15,8 @@ import transliterPkg from "transliter";
 import { getJyutpingList } from "to-jyutping";
 import { G2p } from "korean-pronunciation";
 import { OutputFormat, pinyin, segment } from "pinyin-pro";
+import { convertMandarinSyllableToVnAid } from "./MandarinVnAid.ts";
+import { convertJyutpingSyllableToVnAid } from "./CantoneseVnAid.ts";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
 import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
@@ -71,6 +73,35 @@ const JYUTPING_PHRASES: Record<string, string> = {
 
 const JYUTPING_PHRASE_KEYS = Object.keys(JYUTPING_PHRASES).sort((a, b) => b.length - a.length);
 const LatinTextTest = /[A-Za-z]/;
+
+// ─── Chinese transliteration modes ───────────────────────────────────────────
+// "pinyin" / "jyutping" are the standard readings; "pinyin-vn" / "jyutping-vn"
+// render the same readings through the locked VN-aid pronunciation spellings.
+
+export type ChineseTranslitMode = "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
+
+export function isJyutpingTranslitMode(mode: string): boolean {
+  return mode === "jyutping" || mode === "jyutping-vn";
+}
+
+export function isVnAidTranslitMode(mode: string): boolean {
+  return mode === "pinyin-vn" || mode === "jyutping-vn";
+}
+
+/** Quick-toggle between Mandarin and Cantonese, preserving the VN-aid flag. */
+export function toggleChineseTranslitLanguage(mode: ChineseTranslitMode): ChineseTranslitMode {
+  const vn = isVnAidTranslitMode(mode);
+  if (isJyutpingTranslitMode(mode)) return vn ? "pinyin-vn" : "pinyin";
+  return vn ? "jyutping-vn" : "jyutping";
+}
+
+/** Cache-identity string for the AI sound-refinement path. */
+export function pronunciationSystemForChineseMode(mode: string | undefined): string {
+  if (mode === "jyutping") return "cantonese-jyutping";
+  if (mode === "jyutping-vn") return "cantonese-jyutping-vn";
+  if (mode === "pinyin-vn") return "mandarin-pinyin-vn";
+  return "mandarin-pinyin";
+}
 
 // ─── Cantonese (Jyutping) ─────────────────────────────────────────────────────
 
@@ -209,6 +240,59 @@ export function romanizeMandarin(text: string, tones = true): string {
     nonZh: "consecutive",
   });
   return readings.join(" ").replace(/\s+/gu, " ").trim();
+}
+
+/**
+ * Romanize Mandarin with the locked VN-aid spelling. Same segmentation and
+ * token count as `romanizeMandarin` (one converted syllable per Han char),
+ * so word-grouping and attached-reading alignment keep working unchanged.
+ */
+export function romanizeMandarinVn(text: string, tones = true): string {
+  const readings = pinyin(text, {
+    type: "array",
+    toneType: "num",
+    toneSandhi: false,
+    nonZh: "consecutive",
+  }) as string[];
+  return readings
+    .map((reading) => convertMandarinSyllableToVnAid(reading, tones))
+    .join(" ")
+    .replace(/\s+/gu, " ")
+    .trim();
+}
+
+/**
+ * Romanize Cantonese with the locked VN-aid spelling. Shares the phrase walk
+ * with `romanizeCantonese` so readings never disagree about ranges; each
+ * Jyutping syllable is rendered through the aid converter.
+ */
+export async function romanizeCantoneseVn(
+  text: string,
+  primaryLanguage: string,
+  skipTextTests: boolean,
+  tones = true
+): Promise<string | undefined> {
+  if (primaryLanguage !== "cmn" && primaryLanguage !== "yue" && !skipTextTests && !ChineseTextTest.test(text)) {
+    return undefined;
+  }
+
+  const parts: string[] = [];
+  for (const piece of walkCantoneseReadings(text, tones)) {
+    if (!piece.reading) continue;
+    if (!piece.isHan) {
+      parts.push(piece.reading);
+      continue;
+    }
+    const converted = piece.reading
+      .split(/\s+/u)
+      .filter(Boolean)
+      .map((syllable) => convertJyutpingSyllableToVnAid(syllable, tones))
+      .join(" ");
+    if (converted) parts.push(converted);
+  }
+
+  const result = parts.join(" ").replace(/\s+/g, " ").trim();
+  return result || undefined;
 }
 
 export type MandarinToken = {

@@ -9,7 +9,7 @@ import { acquireLyricsFromSources, canQueryLrclib, normalizeLrclibLyrics, normal
 import { ProviderResponseError, type ProviderAcquisitionOutcome } from "./ProviderAcquisition.ts";
 import { acquireSpicyOutcomeWithBoundedAuthRetry, isSpicyAuthRejectionStatus, type SpicyQueryAttempt } from "./SpicyAuthRetry.ts";
 import type { LyricsSelectionMode, LyricsSourceProviderId } from "./LyricsSourcePreferences.ts";
-import { buildSpicyLyricsQueryBody, buildSpicyLyricsQueryHeaders } from "../API/SpicyRequestContract.ts";
+import { buildSpicyLyricsQueryBody, buildSpicyLyricsQueryHeaders, extractSpicyQueryResult } from "../API/SpicyRequestContract.ts";
 
 export { acquireLyricsFromSources, canQueryLrclib, normalizeLrclibLyrics, normalizeSpicyLyrics, normalizeSpotifyLyrics } from "./LyricsSourceDocuments.ts";
 export type { LyricsSourceAdapter, LyricsSourceResult, TrackLyricsInfo } from "./LyricsSourceDocuments.ts";
@@ -46,7 +46,7 @@ async function requestSpicyLyrics(info: TrackLyricsInfo, body: string, version: 
   if (response.status === 429) throw new ProviderResponseError({ kind: "rate-limited", retryAfterMs: retryAfterMs(response) });
   if (isSpicyAuthRejectionStatus(response.status)) return { kind: "auth-rejected", status: response.status };
   if (!response.ok) throw new ProviderResponseError({ kind: "upstream-error", status: response.status });
-  const result = (await response.json())?.queries?.[0]?.result;
+  const result = extractSpicyQueryResult((await response.json())?.queries);
   const status = Number(result?.httpStatus ?? 0);
   if (isSpicyAuthRejectionStatus(status)) return { kind: "auth-rejected", status };
   if (status === 503) return { kind: "settled", outcome: { kind: "queued" } };
@@ -63,7 +63,7 @@ async function spicyAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise
   return acquireSpicyOutcomeWithBoundedAuthRetry<ProviderAcquisitionOutcome<LyricsSourceResult>>({
     signal,
     resolveToken: () => Platform.GetSpotifyAccessToken(),
-    invalidateToken: () => Platform.InvalidateSpotifyAccessToken(),
+    invalidateToken: (token) => Platform.InvalidateSpotifyAccessToken(token),
     runAttempt: (token, attemptSignal) => requestSpicyLyrics(info, body, version, token, attemptSignal),
   });
 }

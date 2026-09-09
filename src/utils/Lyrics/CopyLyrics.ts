@@ -1,15 +1,15 @@
-import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import { $currentLyricsData } from "../stores.ts";
 import { $lyricsCopyFormat } from "../uiState.ts";
 import { isMeaningfullyDifferent } from "./TextCompare.ts";
 import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
 
-export type LyricsCopyFormat = "plain" | "timestamps" | "translation" | "metadata";
+export type LyricsCopyFormat = "plain" | "timestamps" | "translation" | "metadata" | "transliteration";
 
 type CopyLine = {
   text: string;
   startTime?: number;
   translatedText?: string;
+  transliteration?: string;
 };
 
 const cleanText = (value: unknown): string =>
@@ -18,6 +18,20 @@ const cleanText = (value: unknown): string =>
 const joinSyllables = (syllables: any[] | undefined): string => {
   if (!Array.isArray(syllables)) return "";
   return cleanText(canonicalTextFromSyllables(syllables).canonical.text);
+};
+
+/**
+ * The transliteration output currently shown for a line: the render plan's
+ * joined display text when a reading pipeline produced one, otherwise the
+ * legacy romanized fields. Empty when the line was never romanized.
+ */
+const readingOf = (target: any): string => {
+  if (!target || typeof target !== "object") return "";
+  return cleanText(
+    target?.ReadingRenderPlan?.joinedDisplayText
+      ?? target?.RomanizedText
+      ?? target?.TransliteratedText
+  );
 };
 
 const formatTime = (seconds: unknown): string => {
@@ -35,6 +49,7 @@ function linesFromLyrics(lyrics: any): CopyLine[] {
       .map((line: any) => ({
         text: cleanText(line?.Text),
         translatedText: cleanText(line?.TranslatedText),
+        transliteration: readingOf(line),
       }))
       .filter((line: CopyLine) => line.text);
   }
@@ -45,6 +60,7 @@ function linesFromLyrics(lyrics: any): CopyLine[] {
         text: cleanText(line?.Text),
         startTime: line?.StartTime,
         translatedText: cleanText(line?.TranslatedText),
+        transliteration: readingOf(line),
       }))
       .filter((line: CopyLine) => line.text);
   }
@@ -58,6 +74,7 @@ function linesFromLyrics(lyrics: any): CopyLine[] {
           text: leadText,
           startTime: group?.Lead?.StartTime,
           translatedText: cleanText(group?.Lead?.TranslatedText),
+          transliteration: readingOf(group?.Lead),
         });
       }
       for (const bg of group?.Background ?? []) {
@@ -67,6 +84,7 @@ function linesFromLyrics(lyrics: any): CopyLine[] {
             text: bgText,
             startTime: bg?.StartTime,
             translatedText: cleanText(bg?.TranslatedText),
+            transliteration: readingOf(bg),
           });
         }
       }
@@ -77,7 +95,10 @@ function linesFromLyrics(lyrics: any): CopyLine[] {
   return [];
 }
 
-function currentMetadata(): string {
+async function currentMetadata(): Promise<string> {
+  // Lazy: the player graph has a module cycle that node ESM cannot evaluate
+  // on import, and copy tests never need it. Loaded on demand in the app.
+  const { SpotifyPlayer } = await import("../../components/Global/SpotifyPlayer.ts");
   const title = cleanText(SpotifyPlayer.GetName());
   const artists = (SpotifyPlayer.GetArtists() ?? [])
     .map((artist) => cleanText(artist?.name))
@@ -88,7 +109,7 @@ function currentMetadata(): string {
   return title || artists;
 }
 
-export function formatLyricsForCopy(lyrics: any, format: LyricsCopyFormat): string {
+export function formatLyricsForCopy(lyrics: any, format: LyricsCopyFormat, metadata = ""): string {
   const lines = linesFromLyrics(lyrics);
   const body = lines
     .map((line) => {
@@ -96,14 +117,17 @@ export function formatLyricsForCopy(lyrics: any, format: LyricsCopyFormat): stri
         ? `[${formatTime(line.startTime)}] `
         : "";
       const base = `${prefix}${line.text}`;
-      if (format !== "translation") return base;
-      if (!isMeaningfullyDifferent(line.translatedText, line.text)) return base;
-      return `${base}\n${line.translatedText}`;
+      if (format === "translation" && isMeaningfullyDifferent(line.translatedText, line.text)) {
+        return `${base}\n${line.translatedText}`;
+      }
+      if (format === "transliteration" && isMeaningfullyDifferent(line.transliteration, line.text)) {
+        return `${base}\n${line.transliteration}`;
+      }
+      return base;
     })
     .join("\n");
 
   if (format !== "metadata") return body;
-  const metadata = currentMetadata();
   return metadata ? `${metadata}\n\n${body}` : body;
 }
 
@@ -118,7 +142,9 @@ export async function copyCurrentLyricsToClipboard(): Promise<boolean> {
     return false;
   }
 
-  const text = formatLyricsForCopy(lyrics, $lyricsCopyFormat.get());
+  const format = $lyricsCopyFormat.get();
+  const metadata = format === "metadata" ? await currentMetadata() : "";
+  const text = formatLyricsForCopy(lyrics, format, metadata);
   if (!text.trim()) return false;
 
   await navigator.clipboard.writeText(text);
