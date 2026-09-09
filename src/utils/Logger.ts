@@ -1,6 +1,6 @@
-import { ProjectName } from "../../project/config";
-import { Maid } from "../modules/Maid";
-import { $developerMode } from "./stores";
+import { ProjectName } from "../../project/config.ts";
+import { Maid } from "../modules/Maid.ts";
+import { $developerMode } from "./stores.ts";
 
 class Logger {
   private maid: Maid;

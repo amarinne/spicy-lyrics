@@ -5,6 +5,7 @@ import { openSettingsPanel } from "./settings";
 import { OpenLyricsDBPanel } from "./openLyricsDBPanel";
 import { DeepFreeze } from "./utils";
 import { triggerSpicyLyricsFakeUpdate } from "./version/CheckForUpdates";
+import { BreakerDebug } from "./API/CircuitBreaker";
 import { SPICY_LYRICS_BUILD_MARKER } from "./buildMarker";
 
 export function exposeToWindow() {
@@ -32,6 +33,11 @@ export function exposeToWindow() {
                 triggerFakeUpdate: triggerSpicyLyricsFakeUpdate,
             },
             toaster: toast,
+        },
+        request: {
+            QueryAPI: {
+                breaker: BreakerDebug,
+            }
         }
     };
 
