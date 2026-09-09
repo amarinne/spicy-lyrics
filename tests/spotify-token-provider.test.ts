@@ -99,3 +99,56 @@ test("invalidation forces a new source read", async () => {
   assert.equal(await provider.getToken(), "token-2");
   assert.equal(reads, 2);
 });
+
+test("modern rotation supersedes a still-valid cached token", async () => {
+  let token = "first";
+  const provider = createSpotifyTokenProvider({
+    now: () => NOW,
+    sources: { readAuthorizationApiState: () => ({ token: { accessToken: token, accessTokenExpirationTimestampMs: freshExpiry } }) },
+  });
+  assert.equal(await provider.getToken(), "first");
+  token = "rotated";
+  assert.equal(await provider.getToken(), "rotated");
+});
+
+test("rejected modern and Cosmos tokens fall through to a fresh Session token", async () => {
+  const provider = createSpotifyTokenProvider({
+    now: () => NOW,
+    sources: {
+      readAuthorizationApiState: () => ({ token: { accessToken: "rejected", accessTokenExpirationTimestampMs: freshExpiry } }),
+      readLegacyCosmosToken: () => ({ accessToken: "rejected" }),
+      readSessionTokenState: () => ({ accessToken: "fresh" }),
+    },
+  });
+  assert.equal(await provider.getToken(), "rejected");
+  provider.invalidate("rejected");
+  assert.equal(await provider.getToken(), "fresh");
+});
+
+test("all sources repeating a rejected token fail until rotation", async () => {
+  let token = "rejected";
+  const provider = createSpotifyTokenProvider({
+    now: () => NOW,
+    sources: { readLegacyCosmosToken: () => ({ accessToken: token }) },
+  });
+  assert.equal(await provider.getToken(), token);
+  provider.invalidate(token);
+  await assert.rejects(provider.getToken(), SpotifyTokenAcquisitionError);
+  await assert.rejects(provider.getToken(), SpotifyTokenAcquisitionError);
+  token = "rotated";
+  assert.equal(await provider.getToken(), token);
+});
+
+test("late rejection of an older token preserves the rotated cache", async () => {
+  let token = "old";
+  const provider = createSpotifyTokenProvider({
+    now: () => NOW,
+    sources: { readAuthorizationApiState: () => token ? { token: { accessToken: token, accessTokenExpirationTimestampMs: freshExpiry } } : undefined },
+  });
+  assert.equal(await provider.getToken(), "old");
+  token = "new";
+  assert.equal(await provider.getToken(), "new");
+  provider.invalidate("old");
+  token = "";
+  assert.equal(await provider.getToken(), "new");
+});

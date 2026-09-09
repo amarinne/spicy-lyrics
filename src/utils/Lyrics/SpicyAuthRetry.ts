@@ -9,7 +9,7 @@ export type SpicyQueryAttempt<Outcome extends ProviderAcquisitionOutcome<unknown
 export type SpicyAuthRetryDeps<Outcome extends ProviderAcquisitionOutcome<unknown>> = {
   signal: AbortSignal;
   resolveToken: () => Promise<string>;
-  invalidateToken: () => void;
+  invalidateToken: (rejectedToken: string) => void;
   runAttempt: (token: string, signal: AbortSignal) => Promise<SpicyQueryAttempt<Outcome>>;
 };
 
@@ -29,9 +29,16 @@ export async function acquireSpicyOutcomeWithBoundedAuthRetry<Outcome extends Pr
   let attempt = await deps.runAttempt(token, deps.signal);
   if (attempt.kind === "auth-rejected") {
     if (deps.signal.aborted) return { kind: "aborted" } as Outcome;
-    deps.invalidateToken();
-    token = await deps.resolveToken();
+    const rejectedToken = token;
+    const rejection = { kind: "upstream-error", status: attempt.status } as Outcome;
+    deps.invalidateToken(rejectedToken);
+    try {
+      token = await deps.resolveToken();
+    } catch {
+      return deps.signal.aborted ? { kind: "aborted" } as Outcome : rejection;
+    }
     if (deps.signal.aborted) return { kind: "aborted" } as Outcome;
+    if (!token || token === rejectedToken) return rejection;
     attempt = await deps.runAttempt(token, deps.signal);
     if (attempt.kind === "auth-rejected") return { kind: "upstream-error", status: attempt.status } as Outcome;
   }

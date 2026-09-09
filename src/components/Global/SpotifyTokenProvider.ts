@@ -74,8 +74,8 @@ export type CachedTokenDescription = {
 
 export type SpotifyTokenProvider = {
   /**
-   * Resolve a usable Spotify access token. Valid cached state is returned
-   * directly; otherwise concurrent callers share a single in-flight refresh.
+   * Resolve a usable Spotify access token, checking modern state for rotation
+   * before cached state. Concurrent callers share a single in-flight refresh.
    * Rejects with `SpotifyTokenAcquisitionError` when every source fails.
    */
   getToken: () => Promise<string>;
@@ -83,7 +83,7 @@ export type SpotifyTokenProvider = {
    * Drop the cached token and the in-flight refresh handle. Later callers force
    * a fresh read from the sources. Returns nothing and exposes no token text.
    */
-  invalidate: () => void;
+  invalidate: (rejectedToken?: string) => void;
   /** Inspect cached-token presence and expiry without ever seeing token text. */
   describeCachedToken: () => CachedTokenDescription;
 };
@@ -116,11 +116,13 @@ export function createSpotifyTokenProvider(dependencies: TokenProviderDependenci
 
   let cachedToken: NormalizedToken | undefined;
   let inFlight: Promise<string> | undefined;
+  let rejectedAccessToken: string | undefined;
   /** Bumped by `invalidate` so pre-invalidation refreshes cannot repopulate the cache. */
   let cacheEpoch = 0;
 
   const isUsable = (token: NormalizedToken | undefined): token is NormalizedToken => {
     if (!token || !isNonEmptyString(token.accessToken)) return false;
+    if (token.accessToken === rejectedAccessToken) return false;
     // Sources without a finite expiry stay usable; a later 401 drives refresh.
     if (token.expiresAtTime === undefined) return true;
     return token.expiresAtTime - now() > TOKEN_EXPIRY_SAFETY_MARGIN_MS;
@@ -193,15 +195,16 @@ export function createSpotifyTokenProvider(dependencies: TokenProviderDependenci
   };
 
   const refresh = async (epochAtStart: number): Promise<string> => {
-    const sourceReads = [readAuthorizationApi, readLegacyCosmos, readSessionState];
+    const sourceReads = [readAuthorizationApi, async () => cachedToken, readLegacyCosmos, readSessionState];
 
     for (const read of sourceReads) {
       const candidate = await readSource(read);
-      if (candidate) {
+      if (isUsable(candidate)) {
         // Only a refresh that started at the current epoch may repopulate the
         // cache; an invalidation during flight must not be silently undone.
         if (epochAtStart === cacheEpoch) {
           cachedToken = candidate;
+          rejectedAccessToken = undefined;
         }
         return candidate.accessToken;
       }
@@ -211,11 +214,8 @@ export function createSpotifyTokenProvider(dependencies: TokenProviderDependenci
   };
 
   const getToken = (): Promise<string> => {
-    if (isUsable(cachedToken)) {
-      return Promise.resolve(cachedToken.accessToken);
-    }
     // Drop expired state so a failed refresh cannot hand it back out.
-    cachedToken = undefined;
+    if (!isUsable(cachedToken)) cachedToken = undefined;
 
     if (inFlight) {
       return inFlight;
@@ -232,9 +232,10 @@ export function createSpotifyTokenProvider(dependencies: TokenProviderDependenci
     return pending;
   };
 
-  const invalidate = (): void => {
+  const invalidate = (rejectedToken?: string): void => {
     cacheEpoch += 1;
-    cachedToken = undefined;
+    if (rejectedToken) rejectedAccessToken = rejectedToken;
+    if (!rejectedToken || cachedToken?.accessToken === rejectedToken) cachedToken = undefined;
     // New callers must not latch onto a pre-invalidation refresh.
     inFlight = undefined;
   };

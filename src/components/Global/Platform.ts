@@ -102,7 +102,7 @@ const GetSpotifyAccessToken = (): Promise<string> => TokenProvider.getToken();
 
 // Drop the cached token and any in-flight refresh. Returns nothing and never
 // exposes token text; the next call performs a fresh source read.
-const InvalidateSpotifyAccessToken = (): void => TokenProvider.invalidate();
+const InvalidateSpotifyAccessToken = (rejectedToken?: string): void => TokenProvider.invalidate(rejectedToken);
 
 const Platform = {
   OnSpotifyReady,
