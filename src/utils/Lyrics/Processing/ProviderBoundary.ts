@@ -95,7 +95,7 @@ function alignCompleteLine(displayText: string, spans: readonly SpanState[]): {
 }
 
 function resolveJoin(current: SpanState, next: SpanState, providerSeparator: string | undefined,
-  completeLineHasWhitespace: boolean): ResolvedJoin {
+  completeLineHasWhitespace: boolean, hasWordContinuation: boolean): ResolvedJoin {
   if (/\s$/u.test(current.normalizedRaw) || /^\s/u.test(next.normalizedRaw)) {
     return boundary("explicitWhitespace", 1, "rawEdgeWhitespace");
   }
@@ -105,6 +105,12 @@ function resolveJoin(current: SpanState, next: SpanState, providerSeparator: str
   if (current.source.paragraphId && next.source.paragraphId
       && current.source.paragraphId !== next.source.paragraphId) {
     return boundary("paragraph", 1, "providerParagraph");
+  }
+  // Mixed flags retain word-edge whitespace lost by packed transport. All-false legacy
+  // payloads remain ambiguous, so Japanese syllable fragments still attach by script.
+  if (hasWordContinuation && current.source.providerPartOfWord === false
+      && isJapanese(lastChar(current.core)) && isJapanese(firstChar(next.core))) {
+    return boundary("inferred", 1, "providerWordBoundary");
   }
   const script = scriptRelation(current.core, next.core);
   if (script === "attached") return attached(0.9, "scriptFallback");
@@ -127,6 +133,7 @@ export function resolveProviderBoundaries(line: ParsedLine): ProviderBoundaryRes
     return { source, normalizedRaw, core: coreText(normalizedRaw) };
   });
   const normalizedDisplay = normalize(line.displayText);
+  const hasWordContinuation = spans.some((span) => span.source.providerPartOfWord === true);
   const complete = alignCompleteLine(normalizedDisplay, spans);
   const diagnostics: string[] = [];
   if (normalizedDisplay && !complete) diagnostics.push("invalidCompleteProviderLine");
@@ -141,7 +148,7 @@ export function resolveProviderBoundaries(line: ParsedLine): ProviderBoundaryRes
     const endCp = codePointLength(text);
     spanMappings.push({ spanId: span.source.id, canonicalRange: { startCp, endCp } });
     if (index >= spans.length - 1) return;
-    const join = resolveJoin(span, spans[index + 1], complete?.separators[index], complete?.hasWhitespace === true);
+    const join = resolveJoin(span, spans[index + 1], complete?.separators[index], complete?.hasWhitespace === true, hasWordContinuation);
     joins.push({ afterSpanId: span.source.id, relation: join.relation,
       confidence: join.confidence, provenance: join.provenance });
     if (join.relation === "boundary") {

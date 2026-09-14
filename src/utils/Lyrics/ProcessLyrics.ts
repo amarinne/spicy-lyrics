@@ -50,7 +50,7 @@ import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 34;
+export const LYRICS_PROCESSING_VERSION = 35;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants

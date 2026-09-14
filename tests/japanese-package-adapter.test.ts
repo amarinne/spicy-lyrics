@@ -8,6 +8,31 @@ import {
 } from "../src/utils/Lyrics/Processing/Japanese/JapanesePackageProcessor.ts";
 import { buildJapaneseLineTextMap } from "../src/utils/Lyrics/Reading/JapaneseReading.ts";
 
+test("packed Japanese clause flags preserve wind and person readings", async () => {
+  const parts = ["時", "は", "まくら", "ぎ", "風", "は", "にきは", "だ",
+    "星", "は", "うぶす", "な", "人", "は", "かげろ", "う"];
+  const syllables = parts.map((Text, i) => ({ Text, IsPartOfWord: i % 4 !== 3, StartTime: i, EndTime: i + 1 }));
+  const map = buildJapaneseLineTextMap(syllables, parts.join(""));
+  assert.equal(map.lineText, "時はまくらぎ 風はにきはだ 星はうぶすな 人はかげろう");
+  const result = await processJapanesePackageLine(map.lineText, syllables, map.spans, syllables, map.boundaries);
+  assert.match(result.romaji, /kaze wa/);
+  assert.match(result.romaji, /hito wa/);
+  assert.ok(result.plan.furigana?.some((ruby) => ruby.start === 7 && ruby.reading === "かぜ"));
+  assert.ok(result.plan.furigana?.some((ruby) => ruby.start === 21 && ruby.reading === "ひと"));
+  assert.equal(syllables[4].StartTime, 4);
+  assert.equal(map.spans[4].start, 7);
+});
+
+test("packed person counter boundary prevents jinketsu compound", async () => {
+  const parts = ["ほら", "この", "まま", "2", "人", "血", "が"];
+  const syllables = parts.map((Text, i) => ({ Text, IsPartOfWord: i !== 4 && i !== 6, StartTime: i, EndTime: i + 1 }));
+  const map = buildJapaneseLineTextMap(syllables, parts.join(""));
+  assert.equal(map.lineText, "ほらこのまま 2人 血が");
+  const result = await processJapanesePackageLine(map.lineText, syllables, map.spans, syllables, map.boundaries);
+  assert.match(result.romaji, /futari chi ga/);
+  assert.ok(result.plan.furigana?.some((ruby) => ruby.start === 7 && ruby.end === 9 && ruby.reading === "ふたり"));
+});
+
 test("compound ruby crossing timing fragments merges only crossed words", () => {
   const ruby = [{ start: 0, end: 2, reading: "おぼつか", source: "jmdict" as const }];
   const spans = [
