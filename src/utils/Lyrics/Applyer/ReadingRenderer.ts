@@ -14,6 +14,7 @@ import {
   type JapaneseReading,
 } from "../Reading/JapaneseReading.ts";
 import type { RenderPlan } from "../Processing/Model.ts";
+import { HasLyricsText } from "../EmptyLines.ts";
 import StripZeroWidth from "./Utils/StripZeroWidth.ts";
 import { renderExperimentalReadingPlan } from "./ExperimentalReadingPlanRenderer.ts";
 import {
@@ -39,6 +40,18 @@ type SyllableLike = JapaneseReadable & {
 };
 
 const clamp = (value: number, min: number, max: number): number => Math.max(min, Math.min(max, value));
+
+/**
+ * Text the base (source) line should show. Normally that is `Text`, but an
+ * entry can carry only a romanization — TTML keeps `x-roman` spans in
+ * `TransliteratedText` while the source text reads blank. Falling back to the
+ * romanization keeps a line we deliberately kept from rendering empty.
+ */
+export function pickBaseText(entry: { Text?: string; TransliteratedText?: string } | undefined): string {
+  if (HasLyricsText(entry?.Text)) return entry!.Text!;
+  if (HasLyricsText(entry?.TransliteratedText)) return entry!.TransliteratedText!;
+  return entry?.Text || "";
+}
 
 export function getJapaneseReading(entry: JapaneseReadable | undefined): JapaneseReading | undefined {
   return entry?.JapaneseReading;
@@ -158,7 +171,7 @@ export function renderBaseTextWithReadings(
   entry: JapaneseReadable,
   options: ReadingRenderOptions
 ): boolean {
-  const text = entry.Text || "";
+  const text = pickBaseText(entry);
   const reading = getJapaneseReading(entry);
 
   if (shouldRenderFurigana(entry, options) && reading) {
@@ -210,7 +223,9 @@ export function appendRomanizedBelow(
 ): boolean {
   if (!shouldRenderRomanization(entry, options)) return false;
 
-  const sourceText = entry.Text || "";
+  // Compare against what the base slot actually shows so a romanization that
+  // was promoted into the base (no source text) is not duplicated below.
+  const sourceText = pickBaseText(entry);
   const romanizedText = getRomanizedText(entry);
   const hasDistinctRomanization = isMeaningfullyDifferent(romanizedText, sourceText);
   if (!hasDistinctRomanization && !options.romanizationPending) return false;
@@ -251,7 +266,7 @@ export function appendLineExtras(
   options: ReadingRenderOptions
 ): void {
   appendRomanizedBelow(lineElem, entry, options);
-  appendTranslatedBelow(lineElem, entry.Text || "", entry.TranslatedText, options);
+  appendTranslatedBelow(lineElem, pickBaseText(entry), entry.TranslatedText, options);
 }
 
 export function appendSyllableRomanizedBelow(

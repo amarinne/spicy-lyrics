@@ -13,7 +13,7 @@ test("syllable rendering cleans before letter timing split", () => {
     new URL("../src/utils/Lyrics/Applyer/Synced/Syllable.ts", import.meta.url),
     "utf8"
   );
-  assert.match(source, /const renderText = StripZeroWidth\(syllable\.Text \|\| ""\);/u);
+  assert.match(source, /const renderText = StripZeroWidth\(pickBaseText\(syllable\)\);/u);
   assert.match(source, /Emphasize\(renderText\.split\(""\), word, syllable, isBackground\);/u);
   assert.doesNotMatch(source, /Emphasize\(syllable\.Text\.split\(""\)/u);
 });

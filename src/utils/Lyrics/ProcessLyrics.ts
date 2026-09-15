@@ -47,6 +47,7 @@ import { buildLineAttachedPlan, buildLineFallbackPlan, buildTimedGenericPlan } f
 import { romanizeChineseDominantCjkText } from "./Processing/CjkLanguageRouting.ts";
 import type { ParsedLine } from "./Processing/Model.ts";
 import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
+import { StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
@@ -523,6 +524,11 @@ export const ProcessLyrics = async (
   const updatePageClasses = options.updatePageClasses !== false;
   const awaitTranslation = options.awaitTranslation !== false;
   const hadApiTransliterations = lyrics.HasTransliterations === true;
+
+  // Drop entries that render nothing so downstream stages (romanization,
+  // translation, applyers) never see blank rows that would leave gaps.
+  StripEmptyLyricsLines(lyrics);
+
   let gathered = gatherText(lyrics);
   const detectedLanguage = franc(gathered.francText);
   const detectedLanguageISO2 = langs.where("3", detectedLanguage)?.["1"];

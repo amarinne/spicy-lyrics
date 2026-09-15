@@ -33,10 +33,12 @@ import {
   appendSyllableRomanizedBelow,
   hasFuriganaCrossingTimedUnits,
   isJapaneseEntry,
+  pickBaseText,
   renderBaseTextWithReadings,
   shouldRenderFurigana,
 } from "../ReadingRenderer.ts";
 import type { ReadingRenderOptions } from "../ReadingRenderer.ts";
+import { HasRenderableText, RemoveEmptyLyricsLines } from "../../EmptyLines.ts";
 import type { TimedSyllableEntry, TimedSyllableGroup } from "../../Reading/JapaneseReading.ts";
 import { timedLogicalGroupIds } from "../../Processing/Japanese/TimedGroupIds.ts";
 import {
@@ -68,7 +70,7 @@ interface LyricsData {
 
 const joinSyllableDisplayText = (syllables: SyllableData[]): string => {
   return syllables.reduce((acc, syl, index) => {
-    const text = syl.Text || "";
+    const text = pickBaseText(syl);
     if (index === 0) return text;
     return `${acc}${syllables[index - 1]?.BoundaryAfter === true ? " " : ""}${text}`;
   }, "").trim();
@@ -120,7 +122,9 @@ const createSyllableWord = (
   const totalDuration = ConvertTime(syllable.EndTime) - ConvertTime(syllable.StartTime);
   // Render-only: strip invisible markers before the letter-capable count/split
   // so they never receive letter timing slots. Source text stays untouched.
-  const renderText = StripZeroWidth(syllable.Text || "");
+  // Falls back to the romanization when the source text is blank (x-roman-only
+  // TTML syllables), so the syllable still shows and times its own letters.
+  const renderText = StripZeroWidth(pickBaseText(syllable));
   const letterLength = renderText.split("").length;
   const hasFurigana = shouldRenderFurigana(syllable, renderOptions);
   const reservesFuriganaRow = hasFurigana || (renderOptions.reserveFurigana === true && useRomanized);
@@ -232,9 +236,11 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     return;
   }
 
-  const hasOppositeAligned = data.Content.some(item => item.OppositeAligned === true);
+  const content = RemoveEmptyLyricsLines(data.Content);
+
+  const hasOppositeAligned = content.some(item => item.OppositeAligned === true);
   LyricsContainer.classList.toggle("HasDuetLines", hasOppositeAligned);
-  const hasRtlLines = data.Content.some(line =>
+  const hasRtlLines = content.some(line =>
     line.Lead.Syllables.some(syllable => isRtl(syllable.Text)) ||
     line.Background?.some(bg => bg.Syllables.some(syllable => isRtl(syllable.Text))) === true
   );
@@ -267,7 +273,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
 
     SetWordArrayInCurentLine();
 
-    if (data.Content[0].OppositeAligned) {
+    if (content[0]?.OppositeAligned) {
       musicalLine.classList.add("OppositeAligned");
     }
 
@@ -347,13 +353,13 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
   const romanizationPending = (data as any).RomanizationPending === true;
   const isJapaneseLyrics =
     (data as any).Language === "jpn" ||
-    data.Content.some((line) =>
+    content.some((line) =>
       line.Lead.Syllables.some((s) => isJapaneseEntry(s)) ||
       line.Background?.some((bg) => bg.Syllables.some((s) => isJapaneseEntry(s))) === true
     );
   const adaptiveSectioning = $adaptiveSectioning.get();
   const fixHanGlyphVariants = $fixHanGlyphVariants.get();
-  data.Content.forEach((line, index, arr) => {
+  content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
     lineElem.classList.add("line");
     const leadSourceText = line.Lead.JapaneseReading?.sourceText || joinSyllableDisplayText(line.Lead.Syllables);
@@ -419,6 +425,10 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     if (leadFuriganaCrossesTiming) {
       lineElem.appendChild(createLineLevelJapaneseWord(line.Lead, leadSourceText, leadRenderOptions));
     } else line.Lead.Syllables.forEach((lead, iL, aL) => {
+      // Skip syllables with nothing renderable. Indices stay as authored so the
+      // reading-plan group lookup below (keyed by source index) stays aligned.
+      if (!HasRenderableText(lead)) return;
+
       if (isRtl(lead.Text) && !lineElem.classList.contains("rtl")) {
         lineElem.classList.add("rtl");
       }
@@ -499,6 +509,8 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         if (bgFuriganaCrossesTiming) {
           lineE.appendChild(createLineLevelJapaneseWord(bg, bgSourceText, bgWordRenderOptions, true));
         } else bg.Syllables.forEach((bw, bI, bA) => {
+          if (!HasRenderableText(bw)) return;
+
           if (isRtl(bw.Text) && !lineE.classList.contains("rtl")) {
             lineE.classList.add("rtl");
           }
@@ -662,7 +674,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     console.warn("LyricsStylingContainer not found");
   }
 
-  EmitApply(data.Type, data.Content);
+  EmitApply(data.Type, content);
 
   setRomanizedStatus(UseRomanized);
 }

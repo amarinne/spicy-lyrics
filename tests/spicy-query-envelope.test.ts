@@ -71,7 +71,7 @@ test("a notice-only envelope yields no result, read as lyrics-not-found upstream
   assert.equal(result, undefined);
 });
 
-test("requests carry the official 6.3.15 wire contract", async () => {
+test("requests carry the official 6.3.20 wire contract", async () => {
   BreakerDebug.reset();
   handler = () => jsonResponse(200, { queries: NOTICE_ENVELOPE });
   const queries = [{ operation: "lyrics", variables: { id: "id1", auth: "SpicyLyrics-WebAuth" } }];
@@ -79,11 +79,11 @@ test("requests carry the official 6.3.15 wire contract", async () => {
   assert.equal(lastUrl, QUERY_URL);
   const headers = new Headers(lastInit!.headers);
   assert.equal(headers.get("Content-Type"), "application/json");
-  assert.equal(headers.get("SpicyLyrics-Version"), "6.3.15");
+  assert.equal(headers.get("SpicyLyrics-Version"), "6.3.20");
   assert.equal(headers.get("X-mode"), "2");
   assert.equal(headers.get("SpicyLyrics-WebAuth"), "Bearer secret");
   assert.equal(lastInit!.method, "POST");
-  assert.deepEqual(JSON.parse(String(lastInit!.body)), { queries, client: { version: "6.3.15" } });
+  assert.deepEqual(JSON.parse(String(lastInit!.body)), { queries, client: { version: "6.3.20" } });
 });
 
 test("a transport 429 honors Retry-After and counts against the breaker", async () => {

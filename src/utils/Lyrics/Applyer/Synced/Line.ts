@@ -26,6 +26,7 @@ import { ApplyLyricsCredits } from "../Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "../OnApply.ts";
 import { ApplyLyricsProvider } from "../Credits/ApplyProvider.ts";
 import { appendLineExtras, forceStackedLine, isJapaneseEntry, renderBaseTextWithReadings } from "../ReadingRenderer.ts";
+import { RemoveEmptyLyricsLines } from "../../EmptyLines.ts";
 import type { TimedTextEntry } from "../../Reading/JapaneseReading.ts";
 import { applyHanLanguageTag, createHanLanguageContext } from "../../HanLanguage.ts";
 
@@ -60,9 +61,11 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
     return;
   }
 
-  const hasOppositeAligned = data.Content.some(item => item.OppositeAligned === true);
+  const content = RemoveEmptyLyricsLines(data.Content);
+
+  const hasOppositeAligned = content.some(item => item.OppositeAligned === true);
   LyricsContainer.classList.toggle("HasDuetLines", hasOppositeAligned);
-  const hasRtlLines = data.Content.some(line => isRtl(line.Text));
+  const hasRtlLines = content.some(line => isRtl(line.Text));
   LyricsContainer.classList.toggle("HasRtlLines", hasRtlLines);
 
   LyricsContainer.setAttribute("data-lyrics-type", "Line");
@@ -94,7 +97,7 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
 
     SetWordArrayInCurentLine_LINE_SYNCED();
 
-    if (data.Content[0].OppositeAligned) {
+    if (content[0]?.OppositeAligned) {
       musicalLine.classList.add("OppositeAligned");
     }
 
@@ -174,10 +177,10 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
   const translationPending = (data as any).TranslationPending === true;
   const romanizationPending = (data as any).RomanizationPending === true;
 
-  const isJapaneseLyrics = (data as any).Language === "jpn" || data.Content.some((line) => isJapaneseEntry(line));
+  const isJapaneseLyrics = (data as any).Language === "jpn" || content.some((line) => isJapaneseEntry(line));
   const fixHanGlyphVariants = $fixHanGlyphVariants.get();
 
-  data.Content.forEach((line, index, arr) => {
+  content.forEach((line, index, arr) => {
     const lineElem = document.createElement("div");
     const primaryScript = isJapaneseEntry(line) || (data as any).Language === "jpn"
       ? "Japanese" as const
@@ -353,7 +356,7 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
     console.warn("LyricsStylingContainer not found");
   }
 
-  EmitApply(data.Type, data.Content);
+  EmitApply(data.Type, content);
 
   setRomanizedStatus(UseRomanized);
 }

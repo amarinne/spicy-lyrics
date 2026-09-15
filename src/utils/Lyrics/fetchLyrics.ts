@@ -31,6 +31,7 @@ import { isLyricsSourceCacheCompatible } from "./LyricsSourceCache.ts";
 import { fetchLyricsFromSources, RUNTIME_LYRICS_SOURCE_ADAPTERS, type TrackLyricsInfo } from "./LyricsSources.ts";
 import { LyricsRequestCoordinator, type LyricsRequestSession } from "./LyricsRequestSession.ts";
 import { runProviderAcquisition } from "./ProviderAcquisition.ts";
+import { IsEmptyLyrics, StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
@@ -39,7 +40,7 @@ const prefetchInFlight = new Set<string>();
 const lyricsRequestCoordinator = new LyricsRequestCoordinator<[object | string, number] | null>();
 
 // recently updated key structure - changed name
-export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 4, undefined, isDev as true);
+export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 5, undefined, isDev as true);
 
 function sourceConfigFor(trackUri: string) {
   return effectiveLyricsSourceConfig(
@@ -498,6 +499,20 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     lyrics.uri = uri;
     lyrics.id = trackId;
     lyrics.LyricsSourceCacheSignature = sourceSignature;
+
+    // Pruning blank lines can empty out a payload the API still counted as a
+    // hit. Nothing would render, so treat it as a miss rather than caching and
+    // publishing an empty lyrics card.
+    StripEmptyLyricsLines(lyrics);
+    if (IsEmptyLyrics(lyrics)) {
+      lyricsLogger.warn("Lyrics payload had no renderable lines after pruning");
+      HideLoaderContainer();
+      finishFetching(session);
+      return sourceConfig.override !== "auto"
+        ? [`source-unavailable:${sourceConfig.override}`, 404]
+        : ["lyrics-not-found", 404];
+    }
+
     lyricsLogger.debug("Lyrics source selected", { provider: lyrics.fetchProvider, type: lyrics.Type });
     const originalSnapshot = createAndAttachSnapshot(lyrics);
     lyrics.DetectedChinese = detectChineseQuick(lyrics);

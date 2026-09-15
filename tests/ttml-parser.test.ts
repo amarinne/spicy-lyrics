@@ -33,6 +33,44 @@ test("background vocals and duet alignment remain structured", () => {
   assert.equal(parsed.Content[0].Background?.[0]?.Syllables[0]?.Text, "Back");
 });
 
+test("static TTML keeps x-roman-only lines and drops blank ones", () => {
+  const parsed = parseTTML(
+    tt("None", '<p>Kept</p><p><span ttm:role="x-roman">romaji only</span></p><p>   </p>')
+  );
+  assert.equal(parsed?.Type, "Static");
+  if (parsed?.Type !== "Static") return;
+  assert.deepEqual(parsed.Lines, [
+    { Text: "Kept" },
+    { Text: "", TransliteratedText: "romaji only", HasTransliterations: true },
+  ]);
+});
+
+test("line TTML keeps romanized-only lines", () => {
+  const parsed = parseTTML(
+    tt(
+      "Line",
+      '<p begin="1s" end="2s">Kept</p><p begin="2s" end="3s"><span ttm:role="x-roman">ro</span></p>'
+    )
+  );
+  assert.equal(parsed?.Type, "Line");
+  if (parsed?.Type !== "Line") return;
+  assert.equal(parsed.Content.length, 2);
+  assert.equal(parsed.Content[1].TransliteratedText, "ro");
+});
+
+test("syllable TTML carries an x-roman line fallback into a syllable", () => {
+  const parsed = parseTTML(
+    tt("Word", '<p begin="1s" end="2s"><span ttm:role="x-roman">ro</span></p>')
+  );
+  assert.equal(parsed?.Type, "Syllable");
+  if (parsed?.Type !== "Syllable") return;
+  assert.equal(parsed.Content.length, 1);
+  assert.deepEqual(
+    parsed.Content[0].Lead.Syllables.map((syllable) => [syllable.Text, syllable.TransliteratedText]),
+    [["", "ro"]]
+  );
+});
+
 test("empty malformed unsupported frame and tick timing fail safely", () => {
   assert.equal(parseTTML(""), null);
   assert.equal(parseTTML("<tt><body>"), null);
