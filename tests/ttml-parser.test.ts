@@ -96,3 +96,12 @@ test("empty malformed unsupported frame and tick timing fail safely", () => {
     undefined
   );
 });
+
+
+test("line metadata transliteration preserves word spaces and excludes background vocals", () => {
+  const input = `<tt xmlns:itunes="http://itunes.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Line"><head><metadata><itunes:transliterations><transliteration xml:lang="ja-Latn"><text for="L1"><span>konnichiwa</span> <span>sekai &amp; kimi</span><span ttm:role="x-bg"><span>backing only</span></span></text><text for="L2">plain text reading</text></transliteration></itunes:transliterations></metadata></head><body><div><p itunes:key="L1" begin="1s" end="3s">こんにちは</p><p itunes:key="L2" begin="3s" end="5s">世界</p></div></body></tt>`;
+  const parsed = parseTTML(input);
+  assert.equal(parsed?.Type, "Line");
+  if (parsed?.Type !== "Line") return;
+  assert.deepEqual(parsed.Content.map((line) => line.TransliteratedText), ["konnichiwa sekai & kimi", "plain text reading"]);
+});

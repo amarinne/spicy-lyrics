@@ -33,6 +33,9 @@ import { LyricsRequestCoordinator, type LyricsRequestSession } from "./LyricsReq
 import { runProviderAcquisition } from "./ProviderAcquisition.ts";
 import { IsEmptyLyrics, StripEmptyLyricsLines } from "./EmptyLines.ts";
 
+import { HideLyricsSkeleton, IsLyricsSkeletonEnabled, ShowLyricsSkeleton } from "./LyricsSkeleton.ts";
+import { onExperimentChange } from "../experiments.ts";
+
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
 const lyricsPrefetchLogger = new Logger("Lyrics Prefetch");
@@ -357,6 +360,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
   const sourceSignature = lyricsSourceCacheSignature(sourceConfig);
 
   $currentlyFetching.set(true);
+  if (IsLyricsSkeletonEnabled()) ShowLyricsSkeleton();
 
   if (LyricsContent) {
     LyricsContent.classList.add("HiddenTransitioned");
@@ -463,7 +467,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     return ["offline", 400];
   }
 
-  ShowLoaderContainer();
+  ShowLoaderContainer(uri, session);
 
   try {
     const sourceResult = await fetchLyricsFromSources(uri, sourceConfig.order, sourceConfig.mode, session.signal);
@@ -565,15 +569,16 @@ export const LYRICS_QUEUE_MESSAGE =
 /**
  * Show the loader container after a delay
  */
-function ShowLoaderContainer(): void {
-  const loaderContainer = PageContainer?.querySelector<HTMLElement>(
-    ".LyricsContainer .loaderContainer"
-  );
-  if (loaderContainer) {
-    ContainerShowLoaderTimeout = setTimeout(() => {
-      loaderContainer.classList.add("active");
-    }, 2000);
-  }
+function ShowLoaderContainer(uri: string, session: LyricsRequestSession): void {
+  if (IsLyricsSkeletonEnabled()) return;
+  const loaderContainer = PageContainer?.querySelector<HTMLElement>(".LyricsContainer .loaderContainer");
+  if (!loaderContainer) return;
+  if (ContainerShowLoaderTimeout) clearTimeout(ContainerShowLoaderTimeout);
+  ContainerShowLoaderTimeout = setTimeout(() => {
+    ContainerShowLoaderTimeout = null;
+    if (!requestIsCurrent(session, uri) || !$currentlyFetching.get()) return;
+    loaderContainer.classList.add("active");
+  }, 2000);
 }
 
 /**
@@ -583,6 +588,10 @@ function ShowLoaderContainer(): void {
  * closed (no-ops if there's no loader in the current DOM).
  */
 export function ShowQueueLoader(message: string = LYRICS_QUEUE_MESSAGE): void {
+  if (IsLyricsSkeletonEnabled()) {
+    ShowLyricsSkeleton(message);
+    return;
+  }
   const loaderContainer = PageContainer?.querySelector<HTMLElement>(
     ".LyricsContainer .loaderContainer"
   );
@@ -608,19 +617,40 @@ export function ShowQueueLoader(message: string = LYRICS_QUEUE_MESSAGE): void {
 /**
  * Hide the loader container and clear any pending timeout
  */
-function HideLoaderContainer(): void {
+export function HideLoaderContainer(): void {
+  if (ContainerShowLoaderTimeout) {
+    clearTimeout(ContainerShowLoaderTimeout);
+    ContainerShowLoaderTimeout = null;
+  }
+  const loaderContainer = PageContainer?.querySelector<HTMLElement>(".LyricsContainer .loaderContainer");
+  loaderContainer?.classList.remove("active", "queued");
+  loaderContainer?.querySelector(".loaderMessage")?.remove();
+}
+
+
+onExperimentChange((experiment) => {
+  if (experiment.id !== "lyricsSkeleton") return;
   const loaderContainer = PageContainer?.querySelector<HTMLElement>(
     ".LyricsContainer .loaderContainer"
   );
-  if (loaderContainer) {
-    if (ContainerShowLoaderTimeout) {
-      clearTimeout(ContainerShowLoaderTimeout);
-      ContainerShowLoaderTimeout = null;
-    }
-    loaderContainer.classList.remove("active", "queued");
-    loaderContainer.querySelector(".loaderMessage")?.remove();
+  const skeleton = PageContainer?.querySelector<HTMLElement>(".LyricsContainer .LyricsSkeleton");
+  const queuedMessage = loaderContainer?.classList.contains("queued")
+    ? loaderContainer.querySelector(".loaderMessage")?.textContent
+    : skeleton?.classList.contains("active") && skeleton.classList.contains("LongLabel")
+      ? skeleton.querySelector(".SkeletonLabel")?.textContent
+      : null;
+  if (!$currentlyFetching.get() && !queuedMessage) return;
+
+  if (IsLyricsSkeletonEnabled()) {
+    HideLoaderContainer();
+    ShowLyricsSkeleton(queuedMessage ?? undefined);
+  } else {
+    HideLyricsSkeleton();
+    if (queuedMessage) ShowQueueLoader(queuedMessage);
+    else loaderContainer?.classList.add("active");
   }
-}
+});
+
 
 /**
  * Clear the lyrics container content

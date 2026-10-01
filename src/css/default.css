@@ -291,8 +291,13 @@ body:not(.SpicyLyrics_StaticBackground)
 body:not(.SpicyLyrics_StaticBackground)
   .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
   .main-nowPlayingView-content,
+/* A :has() ancestor with a bare `> div` subject made Blink restyle every div in
+   the document on any DOM change. The aside carries .spicy-dynamic-bg-in-this
+   exactly while it holds the background, and the section implies the old
+   :has(.main-nowPlayingView-section) check; the doubled class keeps specificity. */
 body:not(.SpicyLyrics_StaticBackground)
-  .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
+  .Root__right-sidebar
+  .spicy-dynamic-bg-in-this.spicy-dynamic-bg-in-this
   .main-nowPlayingView-section > div {
   background: transparent;
 }
@@ -306,24 +311,8 @@ body:not(.SpicyLyrics_StaticBackground)
 body:not(.SpicyLyrics_StaticBackground)
   .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
   .spicy-dynamic-bg
-  div[data-overlayscrollbars-viewport],
-.Root__right-sidebar:has(.main-nowPlayingView-section, canvas)
-  .spicy-dynamic-bg
-  div[data-overlayscrollbars-viewport]
-  > div {
+  div[data-overlayscrollbars-viewport] {
   background: transparent;
-}
-
-body:not(.SpicyLyrics_StaticBackground)
-  .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
-  .spicy-dynamic-bg
-  .main-nowPlayingView-coverArtContainer
-  div:has(video)::after,
-.Root__right-sidebar:has(.main-nowPlayingView-section, canvas)
-  .spicy-dynamic-bg
-  .main-nowPlayingView-coverArtContainer
-  div:has(video):before {
-  display: none;
 }
 
 body:not(.SpicyLyrics_StaticBackground)
@@ -397,6 +386,12 @@ body:not(.SpicyLyrics_StaticBackground)
   button[type="button"]
   .Button-sm-buttonSecondary-useBrowserDefaultFocusStyle {
   border: 1px solid hsla(0, 0%, 100%, 0.5);
+}
+
+/* Mirrors Spotify's .main-nowPlayingBar-lyricsButton rule, which our buttons no longer carry. */
+.SpicyLyrics_PlaybarButton {
+  flex-shrink: 0;
+  padding: 0;
 }
 
 #SpicyLyricsPageSvg {
@@ -948,4 +943,10 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay-animated.Active .sl-modal-co
   left: 50%;
   transform: translate(-50%);
   inline-size: 4px !important;
+}
+
+/* "Remove Spotify's lyrics button" setting. Our own button carries #SpicyLyricsPageSvg. */
+body.SpicyLyrics_RemoveSpotifyLyricsButton .main-nowPlayingBar-lyricsButton[data-testid="lyrics-button"]:not(:has(#SpicyLyricsPageSvg)),
+body.SpicyLyrics_RemoveSpotifyLyricsButton .main-nowPlayingBar-extraControls > [data-testid="lyrics-button"]:not(:has(#SpicyLyricsPageSvg)) {
+  display: none !important;
 }

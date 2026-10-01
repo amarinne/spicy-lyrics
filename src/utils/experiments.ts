@@ -48,6 +48,13 @@ export const EXPERIMENTS = [
     default: true,
     pageClass: "Exp_NewProgressBar",
   },
+  {
+    id: "lyricsSkeleton",
+    label: "Lyrics Loading Skeleton",
+    description: "Show placeholder lines while lyrics load. Disable to use the spinner.",
+    default: true,
+    pageClass: "Exp_LyricsSkeleton",
+  },
 ] as const satisfies readonly Experiment[];
 
 /** A registry entry, narrowed to its literal `id` — what the UI iterates over. */

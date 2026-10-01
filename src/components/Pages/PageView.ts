@@ -1,5 +1,6 @@
 import fetchLyrics, { invalidateLyricsPipeline, LyricsStore, ShowQueueLoader } from "../../utils/Lyrics/fetchLyrics.ts";
 import { LyricsQueueRetry } from "../../utils/Lyrics/LyricsQueueRetry.ts";
+import { SkeletonMarkup } from "../../utils/Lyrics/LyricsSkeleton.ts";
 import {
   $chineseCharacterForm,
   $chineseTones,
@@ -38,7 +39,10 @@ import {
   InitializeScrollEvents,
   ResetLastLine,
 } from "../../utils/Scrolling/ScrollToActiveLine.ts";
-import { ScrollSimplebar } from "../../utils/Scrolling/Simplebar/ScrollSimplebar.ts";
+import {
+  ClearScrollSimplebar,
+  ScrollSimplebar,
+} from "../../utils/Scrolling/Simplebar/ScrollSimplebar.ts";
 import ApplyDynamicBackground, { KawarpMap } from "../DynamicBG/dynamicBackground.ts";
 import {
   $adaptiveSectioning,
@@ -79,6 +83,7 @@ import {
 import Fullscreen, {
   EnterSpicyLyricsFullscreen,
   ExitFullscreenElement,
+  IsFullscreenClosing,
 } from "../Utils/Fullscreen.ts";
 import {
   NowBarObj,
@@ -136,6 +141,8 @@ interface TippyInstance {
 
 export const Tooltips: {
   Close: TippyInstance | null;
+  CompactModeToggle: TippyInstance | null;
+  RomanizationToggle: TippyInstance | null;
   NowBarToggle: TippyInstance | null;
   FullscreenToggle: TippyInstance | null;
   CinemaView: TippyInstance | null;
@@ -147,6 +154,8 @@ export const Tooltips: {
   AISound: TippyInstance | null;
 } = {
   Close: null,
+  CompactModeToggle: null,
+  RomanizationToggle: null,
   NowBarToggle: null,
   FullscreenToggle: null,
   CinemaView: null,
@@ -229,6 +238,17 @@ async function OpenPage(
 
   if (PageView.IsOpened) return;
 
+  // The main-view page belongs to the /SpicyLyrics route. The awaits above can
+  // outlast a quick navigate-away; opening now would strand the page on
+  // whatever route the user moved to, with nothing left to destroy it.
+  if (
+    AppendTo === undefined &&
+    !options?.cardMode &&
+    Spicetify.Platform?.History?.location?.pathname !== "/SpicyLyrics"
+  ) {
+    return;
+  }
+
   IsCardMode = !!options?.cardMode;
   /* if (!HoverMode) {
         PageView.IsTippyCapable = false;
@@ -274,6 +294,7 @@ async function OpenPage(
                 <div class="loaderContainer">
                     <div id="DotLoader"></div>
                 </div>
+                ${SkeletonMarkup}
                 <div class="LyricsContent ScrollbarScrollable"></div>
             </div>
             <div class="ViewControls"></div>
@@ -467,21 +488,26 @@ export function Compactify(Element: HTMLElement | undefined = undefined) {
   }
 }
 
+// Deliberately synchronous (async only so callers can keep awaiting it): an
+// await in here let an Open, a second Destroy, or a Fullscreen close tail run
+// against a half torn-down page.
 async function DestroyPage() {
   if (!PageView.IsOpened) return;
   pageLogger.debug("Destroying page");
+  PageView.IsOpened = false;
 
   cleanupApplyLyricsAbortController();
 
-  if (Fullscreen.IsOpen) await Fullscreen.Close();
-  if (!PageContainer) return;
+  // Skip the exit animation — the page is going away — and cancel any animated
+  // close already playing, so it can't re-insert this page afterwards.
+  Fullscreen.CloseImmediately();
 
   KawarpMap.get("lpagebg")?.dispose();
   KawarpMap.delete("lpagebg");
   ResetLastLine();
   CleanupScrollEvents();
   PageResizeListener?.disconnect(); // Disconnect the observer
-  PageView.IsOpened = false;
+  PageResizeListener = null;
   $lyricsContainerExists.set(false);
   DestroyAllLyricsContainers();
   CleanUpIsByCommunity();
@@ -495,10 +521,11 @@ async function DestroyPage() {
 
   PageContainer?.remove();
   removeLinesEvListener();
-  Object.values(Tooltips).forEach((a) => {
-    a?.destroy();
+  (Object.keys(Tooltips) as (keyof typeof Tooltips)[]).forEach((key) => {
+    Tooltips[key]?.destroy();
+    Tooltips[key] = null;
   });
-  ScrollSimplebar?.unMount();
+  ClearScrollSimplebar();
   IsCardMode = false;
   Global.Event.evoke("page:destroy", null);
   PageView.IsTippyCapable = true;
@@ -664,11 +691,17 @@ function AppendViewControls(ReAppend: boolean = false) {
             return;
           }
 
-          if (Fullscreen.IsOpen) {
-            await Fullscreen.Close();
+          // A superseded close (the user navigated, or reopened the page,
+          // during the exit animation) must not navigate on top of that.
+          // A second click mid-animation joins the running close.
+          if (
+            (Fullscreen.IsOpen || IsFullscreenClosing()) &&
+            !(await Fullscreen.Close())
+          ) {
+            return;
           }
 
-          Session.GoBack();
+          Session.GoBackFrom("/SpicyLyrics");
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Close tooltip", err);
@@ -679,7 +712,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (compactModeToggle) {
       try {
         if (!isPip) {
-          Tooltips.Close = Spicetify.Tippy(compactModeToggle, {
+          Tooltips.CompactModeToggle = Spicetify.Tippy(compactModeToggle, {
             ...Spicetify.TippyProps,
             content: `${
               IsCompactMode() ? "Disable Compact Mode" : "Enable Compact Mode"
@@ -714,7 +747,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (romanizationToggle) {
       try {
         if (!isPip) {
-          Tooltips.Close = Spicetify.Tippy(romanizationToggle, {
+          Tooltips.RomanizationToggle = Spicetify.Tippy(romanizationToggle, {
             ...Spicetify.TippyProps,
             content: isRomanized ? `Disable Romanization` : `Enable Romanization`,
           });

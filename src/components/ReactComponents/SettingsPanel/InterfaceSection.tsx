@@ -4,6 +4,7 @@ import {
   $hideNpvLyricsWhenUnavailable,
   $lockedMediaBox,
   $popupLyricsAllowed,
+  $removeSpotifyLyricsButton,
   $showVolumeSlider,
   $timelineOutsideMediaContent,
   $viewControlsPosition,
@@ -30,6 +31,7 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const hideNpvLyricsWhenUnavailable = useStore($hideNpvLyricsWhenUnavailable);
   const disableNpvLyrics = useStore($disableNpvLyrics);
   const showVolumeSlider = useStore($showVolumeSlider);
+  const removeSpotifyLyricsButton = useStore($removeSpotifyLyricsButton);
 
   if (sectionFilter !== "All" && sectionFilter !== SECTION_NAME) return null;
 
@@ -43,7 +45,8 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
   const r9 = matches(query, "Disable NPV Lyrics", "Never show the lyrics card in the Now Playing sidebar.");
   const r10 = matches(query, "Volume Slider", "Show a volume control on the album artwork in Fullscreen, Cinema View and Popup Lyrics.");
 
-  if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7 && !r8 && !r9 && !r10) return null;
+  const r11 = matches(query, "Remove Spotify's Lyrics Button", "Hide Spotify's built-in lyrics button from the playback bar. The Spicy Lyrics button stays.");
+  if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7 && !r8 && !r9 && !r10 && !r11) return null;
 
   return (
     <>
@@ -103,6 +106,12 @@ export default function InterfaceSection({ query, sectionFilter }: Props) {
       {r7 && (
         <Row label="Prefetch Next Lyrics" description="Fetch and process upcoming track lyrics before the song changes.">
           <Toggle checked={prefetchNextLyrics} onChange={(v) => $prefetchNextLyrics.set(v)} />
+        </Row>
+      )}
+
+      {r11 && (
+        <Row label="Remove Spotify's Lyrics Button" description="Hide Spotify's built-in lyrics button from the playback bar. The Spicy Lyrics button stays.">
+          <Toggle checked={removeSpotifyLyricsButton} onChange={(v) => $removeSpotifyLyricsButton.set(v)} />
         </Row>
       )}
 

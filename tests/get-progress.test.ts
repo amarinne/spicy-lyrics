@@ -16,6 +16,7 @@ function clock() {
   let playing = true;
   let uri = "spotify:track:first";
   let offset = 0;
+  let pendingPosition: Promise<{ position: number }> | null = null;
   const state = { positionAsOfTimestamp: 5000, timestamp: now };
   const context = {
     Date: { now: () => now },
@@ -24,10 +25,10 @@ function clock() {
     $playbackOffset: { get: () => offset },
     SpotifyPlayer: { IsPlaying: true, GetUri: () => uri, GetId: () => uri, GetDuration: () => 300_000, GetContentType: () => "track" },
     Spicetify: {
-      Player: { isPlaying: () => playing },
+      Player: { isPlaying: () => playing, getProgress: () => raw },
       Platform: {
         PlaybackAPI: { _isLocal: true },
-        PlayerAPI: { _state: state, _contextPlayer: { getPositionState: async () => ({ position: raw }) } },
+        PlayerAPI: { _state: state, _contextPlayer: { getPositionState: () => pendingPosition ?? Promise.resolve({ position: raw }) } },
       },
     },
   };
@@ -36,6 +37,8 @@ function clock() {
     api, state,
     setPlaying: (value: boolean) => { playing = value; },
     setUri: (value: string) => { uri = value; },
+    delayNextPoll: (promise: Promise<{ position: number }>) => { pendingPosition = promise; },
+    setRaw: (value: number) => { raw = value; },
     setOffset: (value: number) => { offset = value; },
     async poll(elapsed = 0, position = raw) {
       now += elapsed;
@@ -112,4 +115,31 @@ test("unavailable player state keeps the extrapolating local anchor", async () =
   await c.poll();
   assert.equal(await c.poll(501), 1000);
   assert.equal(c.api.GetProgress(), 1601);
+});
+
+
+test("new track uses player progress until its own position poll arrives", async () => {
+  const c = clock();
+  await c.poll(0, 80_000);
+  c.setUri("spotify:track:second");
+  c.setRaw(500);
+  c.setOffset(100);
+  assert.equal(c.api.GetProgress(), 400);
+  await c.poll(0, 500);
+  assert.equal(c.api.GetProgress(), 400);
+});
+
+test("a position poll finishing after a track change cannot seed the new clock", async () => {
+  const c = clock();
+  await c.poll(0, 80_000);
+  let resolve!: (position: { position: number }) => void;
+  c.delayNextPoll(new Promise((done) => { resolve = done; }));
+  c.api.requestPositionSync();
+  c.setUri("spotify:track:second");
+  c.setRaw(250);
+  resolve({ position: 90_000 });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(c.api.sample().TrackUri, "spotify:track:first");
+  assert.equal(c.api.GetProgress(), 250);
 });

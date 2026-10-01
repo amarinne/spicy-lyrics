@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { GetExpireStore } from "../src/modules/Store.ts";
+import { GetExpireStore, GetInstantStore } from "../src/modules/Store.ts";
 
 class MemoryCache {
   private entries = new Map<string, Response>();
@@ -49,4 +49,24 @@ test("persistent stores still reject incompatible cache schema versions", async 
   await seed(name, "song", { ExpiresAt: Number.MAX_SAFE_INTEGER, CacheVersion: 1, Content: { text: "cached" } });
   const store = GetExpireStore<{ text: string }>(name, 2);
   assert.equal(await store.GetItem("song"), undefined);
+});
+
+
+test("instant stores recover malformed records and preserve valid settings", () => {
+  const records = new Map<string, string>();
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: (key: string) => records.get(key) ?? null, setItem: (key: string, value: string) => records.set(key, value) },
+  });
+  const template = { enabled: true, nested: { amount: 10 } };
+  for (const [index, items] of [null, [], { nested: "broken" }].entries()) {
+    const key = `malformed-instant-${index}`;
+    records.set(key, JSON.stringify({ Version: 1, Items: items }));
+    const store = GetInstantStore(key, 1, template);
+    assert.deepEqual(store.Items, template);
+    store.SaveChanges();
+    assert.deepEqual(JSON.parse(records.get(key)!).Items, template);
+  }
+  records.set("valid-instant", JSON.stringify({ Version: 1, Items: { enabled: false } }));
+  assert.deepEqual(GetInstantStore("valid-instant", 1, template).Items, { enabled: false, nested: { amount: 10 } });
 });

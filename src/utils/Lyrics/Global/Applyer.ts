@@ -8,7 +8,7 @@ import { EmitApply, EmitNotApplyed } from "../Applyer/OnApply.ts";
 import { ApplyStaticLyrics, type StaticLyricsData } from "../Applyer/Static.ts";
 import { ApplyLineLyrics } from "../Applyer/Synced/Line.ts";
 import { ApplySyllableLyrics } from "../Applyer/Synced/Syllable.ts";
-import { ClearLyricsPageContainer, ShowQueueLoader } from "../fetchLyrics.ts";
+import { ClearLyricsPageContainer, HideLoaderContainer, ShowQueueLoader } from "../fetchLyrics.ts";
 import { ClearLyricsContentArrays, isRomanized } from "../lyrics.ts";
 import { PageContainer } from "../../../components/Pages/PageView.ts";
 import { CleanUpIsByCommunity } from "../Applyer/Credits/ApplyIsByCommunity.tsx";
@@ -17,6 +17,8 @@ import Fullscreen from "../../../components/Utils/Fullscreen.ts";
 import { SpotifyPlayer } from "../../../components/Global/SpotifyPlayer.ts";
 import { applyTrackSourceOverride } from "../../openLyricsSourcePicker.tsx";
 import { resolveLyricsSourceLabel } from "../LyricsSourcePreferences.ts";
+
+import { HideLyricsSkeleton, IsLyricsSkeletonEnabled, PaintLyricsSkeleton } from "../LyricsSkeleton.ts";
 
 /**
  * Union type for all lyrics data types
@@ -28,8 +30,10 @@ export type LyricsData = {
 
 
 let currentAbortController: AbortController | null = null;
+let applyToken = 0;
 
 export const cleanupApplyLyricsAbortController = () => {
+  applyToken++;
   if (currentAbortController) {
     currentAbortController.abort();
     currentAbortController = null
@@ -41,11 +45,18 @@ export const cleanupApplyLyricsAbortController = () => {
  * @param lyrics - The lyrics data to apply
  */
 export default async function ApplyLyrics(lyricsContent: [object | string, number] | null): Promise<void> {
-  if (!PageContainer) return;
+  if (!PageContainer || !lyricsContent) return;
+  const [descriptor, _status] = lyricsContent;
+  const trackUri = SpotifyPlayer.GetUri();
+  if (typeof descriptor === "object" && descriptor !== null && "uri" in descriptor && descriptor.uri !== trackUri) return;
+  const page = PageContainer;
+  cleanupApplyLyricsAbortController();
+  const token = applyToken;
+  if (typeof descriptor === "object" && IsLyricsSkeletonEnabled()) {
+    await PaintLyricsSkeleton();
+    if (token !== applyToken || PageContainer !== page || !page.isConnected || SpotifyPlayer.GetUri() !== trackUri) return;
+  }
   setBlurringLastLine(null);
-  if (!lyricsContent) return;
-
-  cleanupApplyLyricsAbortController()
 
   EmitNotApplyed();
 
@@ -57,7 +68,7 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
 
   CleanUpIsByCommunity();
 
-  const [descriptor, _status] = lyricsContent;
+  if (descriptor !== "lyrics-queued") HideLoaderContainer();
 
   let noticeContent: string | null = null;
   let sourceUnavailable: string | null = null;
@@ -186,4 +197,6 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
     // Type assertion to StaticLyricsData since we've verified the Type is "Static"
     ApplyStaticLyrics(lyrics as StaticLyricsData, romanize);
   }
+  // EmitApply normally hides it; this covers an applier that bailed early.
+  HideLyricsSkeleton();
 }

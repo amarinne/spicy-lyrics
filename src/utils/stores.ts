@@ -103,6 +103,7 @@ export type SoundOrthography = "Latin" | "Kana" | "Hangul" | "Cyrillic";
 export const $soundBackend = persistAtom<SoundBackend>("soundBackend", "deterministic");
 export const $googleSoundFallback = persistAtom<boolean>("googleSoundFallback", false);
 export const $soundTargetOrthography = persistAtom<SoundOrthography>("soundTargetOrthography", "Latin");
+export const $removeSpotifyLyricsButton = persistAtom<boolean>("removeSpotifyLyricsButton", false);
 export const $lockedMediaBox = persistAtom<boolean>("lockedMediaBox", false);
 // $popupLyricsAllowed: stored as actual boolean "popupLyricsAllowed" in the settings blob.
 export const $popupLyricsAllowed = (() => {
@@ -126,6 +127,14 @@ export const $timelineOutsideMediaContent = persistAtom<boolean>(
 export const $showVolumeSlider = persistAtom<boolean>("showVolumeSlider", true);
 // Playback timing offset in milliseconds (bipolar: negative = earlier, positive = later)
 export const $playbackOffset = persistAtom<number>("playbackOffset", 0);
+// Clicking a line seeks this much earlier, so Spotify's ~300ms fade-in on seek
+// doesn't swallow the start of the line.
+export const $seekFadeCompensation = persistAtom<boolean>("seekFadeCompensation", true);
+// Start auto-scrolling to a line this many ms before it becomes active.
+export const $scrollLeadEnabled = persistAtom<boolean>("scrollLeadEnabled", false);
+export const $scrollLeadMs = persistAtom<number>("scrollLeadMs", 250);
+// Spring-driven auto-scroll instead of the browser's native smooth scroll.
+export const $smoothScrolling = persistAtom<boolean>("smoothScrolling", false);
 
 // Version atom — NOT persisted, set once at startup
 export const $spicyLyricsVersion = atom<string>(
