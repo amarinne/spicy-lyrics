@@ -7,7 +7,10 @@
   --sltoaster-bottom-padding: 32px;
 }
 
-.main-nowPlayingView-contextItemInfo::before {
+.main-nowPlayingView-contextItemInfo::before,
+aside.NowPlayingView.spicy-dynamic-bg-in-this
+  [data-testid="NPV_Panel_OpenDiv"]
+  div:has(> [data-testid="track-visual-enhancement"]) ~ div::before {
   display: none;
 }
 
@@ -84,10 +87,10 @@
   font-family: SpicyLyrics, "Noto Sans TC", "Noto Sans SC", "Noto Sans JP", "Noto Sans Georgian", "VazirmatnRegular", sans-serif !important;
 }
 
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child,
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child-spacer,
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child,
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node-child-spacer {
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container__scroll-node-child,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container__scroll-node-child-spacer,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container__scroll-node-child,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container__scroll-node-child-spacer {
   display: none;
 }
 
@@ -120,7 +123,7 @@
   top: 24px;
 }
 
-.Root:not(.global-nav) .Root__main-view #SpicyLyricsPage.ViewControlsPosition_Top:not(.Fullscreen) .ViewControls {
+.Root:not(.global-nav) :is(.Root__main-view, :where(#main-view)) #SpicyLyricsPage.ViewControlsPosition_Top:not(.Fullscreen) .ViewControls {
   bottom: 36px;
   top: unset;
 }
@@ -281,8 +284,14 @@ body.player-floating:has(.glassify-bg) #SpicyLyricsPage:not(.Fullscreen) .ViewCo
   cursor: pointer;
 }
 
+/* Spotify 1.3.x: Spicetify no longer maps the sidebar or NPV section classes, so
+   these rules also reach the NPV through aside.NowPlayingView, the panel's test id
+   and child position, which hold on both builds. The panel's first child is the
+   cover widget; every later child except our card is a section. */
 body:not(.SpicyLyrics_StaticBackground)
-  .Root__right-sidebar:has(.main-nowPlayingView-section, canvas) {
+  .Root__right-sidebar:has(.main-nowPlayingView-section, canvas),
+body:not(.SpicyLyrics_StaticBackground)
+  aside.NowPlayingView {
   --background-tint: color-mix(in srgb, rgb(var(--spice-rgb-selected-row)) 7%, transparent);
   --spice-card: var(--background-tint);
   --background-tinted-base: var(--background-tint);
@@ -298,7 +307,10 @@ body:not(.SpicyLyrics_StaticBackground)
 body:not(.SpicyLyrics_StaticBackground)
   .Root__right-sidebar
   .spicy-dynamic-bg-in-this.spicy-dynamic-bg-in-this
-  .main-nowPlayingView-section > div {
+  .main-nowPlayingView-section > div,
+body:not(.SpicyLyrics_StaticBackground)
+  aside.NowPlayingView.spicy-dynamic-bg-in-this.spicy-dynamic-bg-in-this
+  [data-testid="NPV_Panel_OpenDiv"] > div:not(:first-child, #SpicyLyricsNPVCard) > div {
   background: transparent;
 }
 
@@ -323,11 +335,17 @@ body:not(.SpicyLyrics_StaticBackground)
   opacity: 0.75;
 }
 
-body:not(.SpicyLyrics_StaticBackground)
-  .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
-  .main-nowPlayingView-coverArt {
+/* Zero-specificity gate so a theme restyling the cover (a round vinyl, its own
+   shadow) wins. No opacity: it made everything a theme draws on the cover,
+   pseudo-elements included, see-through. */
+:where(body:not(.SpicyLyrics_StaticBackground)
+  .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas))
+  .main-nowPlayingView-coverArt,
+:where(body:not(.SpicyLyrics_StaticBackground)
+  aside.NowPlayingView.spicy-dynamic-bg-in-this
+  [data-testid="track-visual-enhancement"])
+  [data-testid="context-link"] > div {
   box-shadow: 0 9px 20px 0 rgba(0, 0, 0, 0.271);
-  opacity: 0.95;
 }
 
 body:not(.SpicyLyrics_StaticBackground)
@@ -351,7 +369,11 @@ body:not(.SpicyLyrics_StaticBackground)
   .Uw4tcZdmh7s4BMdgCCuu,
 body:not(.SpicyLyrics_StaticBackground)
   .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
-  .main-nowPlayingView-aboutArtist {
+  .main-nowPlayingView-aboutArtist,
+body:not(.SpicyLyrics_StaticBackground)
+  aside.NowPlayingView.spicy-dynamic-bg-in-this
+  [data-testid="NPV_Panel_OpenDiv"] > div:not(:first-child, #SpicyLyricsNPVCard):not(:has(button[type="button"])) {
+
   background-color: var(--background-tinted-base) !important;
   backdrop-filter: blur(6px);
 }
@@ -366,12 +388,18 @@ body:not(.SpicyLyrics_StaticBackground)
 
 body:not(.SpicyLyrics_StaticBackground)
   .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
-  .main-nowPlayingView-section:has(button[type="button"]) {
+  .main-nowPlayingView-section:has(button[type="button"]),
+body:not(.SpicyLyrics_StaticBackground)
+  aside.NowPlayingView.spicy-dynamic-bg-in-this
+  [data-testid="NPV_Panel_OpenDiv"] > div:not(:first-child, #SpicyLyricsNPVCard):has(button[type="button"]) {
   background-color: transparent;
 }
 
 body:not(.SpicyLyrics_StaticBackground)
   .Root__right-sidebar:has(.spicy-dynamic-bg):has(.main-nowPlayingView-section, canvas)
+  button[type="button"],
+body:not(.SpicyLyrics_StaticBackground)
+  aside.NowPlayingView.spicy-dynamic-bg-in-this
   button[type="button"] {
   /* background-color: var(--background-tinted-base); */
   background-color: transparent;
@@ -394,6 +422,25 @@ body:not(.SpicyLyrics_StaticBackground)
   padding: 0;
 }
 
+/* Spotify's own tooltip rule. Spicetify's Tippy still renders .main-contextMenu-tippy,
+   which Spotify 1.3.x no longer styles; on older builds this repeats the same values. */
+.SpicyLyrics_Tooltip > .main-contextMenu-tippy {
+  --generic-tooltip-background-color: var(--spice-card);
+  color: var(--spice-text);
+  background-color: var(--generic-tooltip-background-color);
+  text-overflow: ellipsis;
+  -webkit-line-clamp: 4;
+  line-clamp: 4;
+  border-radius: 4px;
+  -webkit-box-orient: vertical;
+  max-width: 50ch;
+  padding: 4px 8px;
+  display: -webkit-box;
+  overflow: hidden;
+  box-shadow: 0 16px 24px #0000004d, 0 6px 8px #0003;
+  font-size: 14px !important;
+}
+
 #SpicyLyricsPageSvg {
   fill: currentColor;
   transform: translateY(2px);
@@ -410,8 +457,17 @@ body:not(.SpicyLyrics_StaticBackground)
   transform: translateY(2px);
 }
 
+/* Our Popup Lyrics button takes the place of Spotify's Miniplayer button. A rule
+   rather than a one-off inline style, so a Miniplayer button Spotify re-renders
+   or adds back later is hidden as well. */
+body.SpicyLyrics_PopupLyricsEnabled
+  :is([data-testid="now-playing-bar"], .Root__now-playing-bar)
+  button[data-testid="pip-toggle-button"] {
+  display: none !important;
+}
+
 button:has(#SpicyLyricsPageSvg)::after {
-  transform: translateX(-370%) translateY(-40%) !important;
+  transform: translateX(-50%) !important;
 }
 
 button:has(#SpicyLyricsPageSvg):not(.main-genericButton-buttonActive, .main-genericButton-buttonActiveDot)::after {
@@ -419,12 +475,12 @@ button:has(#SpicyLyricsPageSvg):not(.main-genericButton-buttonActive, .main-gene
 }
 
 /* "Page Not Visible" fix */
-.Root__main-view:has(#SpicyLyricsPage),
-.Root__main-view:has(#SpicyLyricsPage) .KL8t9WB65UfUEPuTFAhO,
-.Root__main-view:has(#SpicyLyricsPage) .main-content-view,
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container,
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container__scroll-node,
-.Root__main-view:has(#SpicyLyricsPage) .main-view-container .div[data-overlayscrollbars-viewport] {
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage),
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .KL8t9WB65UfUEPuTFAhO,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-content-view,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container__scroll-node,
+:is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) .main-view-container .div[data-overlayscrollbars-viewport] {
   height: 100% !important;
 }
 
@@ -787,8 +843,8 @@ sl-generic-modal.SpicyLyricsModal .sl-modal .sl-modal-container {
 }
 
 
-.Root.global-nav .Root__main-view:has(#SpicyLyricsPage) > header,
-.Root.global-nav .Root__main-view:has(#SpicyLyricsPage) > .main-topBar-container {
+.Root.global-nav :is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) > header,
+.Root.global-nav :is(.Root__main-view, :where(#main-view)):has(#SpicyLyricsPage) > .main-topBar-container {
   display: none !important;
 }
 
@@ -925,6 +981,7 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay-animated.Active .sl-modal-co
   }
 }
 
+aside.NowPlayingView,
 .Root__right-sidebar aside {
   border-radius: var(--radius-sm);
   overflow: hidden;
@@ -947,6 +1004,7 @@ sl-generic-modal.SpicyLyricsModal .sl-modal-overlay-animated.Active .sl-modal-co
 
 /* "Remove Spotify's lyrics button" setting. Our own button carries #SpicyLyricsPageSvg. */
 body.SpicyLyrics_RemoveSpotifyLyricsButton .main-nowPlayingBar-lyricsButton[data-testid="lyrics-button"]:not(:has(#SpicyLyricsPageSvg)),
+body.SpicyLyrics_RemoveSpotifyLyricsButton [data-testid="now-playing-bar"] [data-testid="lyrics-button"]:not(:has(#SpicyLyricsPageSvg)),
 body.SpicyLyrics_RemoveSpotifyLyricsButton .main-nowPlayingBar-extraControls > [data-testid="lyrics-button"]:not(:has(#SpicyLyricsPageSvg)) {
   display: none !important;
 }

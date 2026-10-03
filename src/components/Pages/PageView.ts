@@ -1,3 +1,4 @@
+import { createTooltip } from "../../utils/tooltip.ts";
 import fetchLyrics, { invalidateLyricsPipeline, LyricsStore, ShowQueueLoader } from "../../utils/Lyrics/fetchLyrics.ts";
 import { LyricsQueueRetry } from "../../utils/Lyrics/LyricsQueueRetry.ts";
 import { SkeletonMarkup } from "../../utils/Lyrics/LyricsSkeleton.ts";
@@ -100,6 +101,7 @@ import { CleanUpIsByCommunity } from "../../utils/Lyrics/Applyer/Credits/ApplyIs
 import { OpenLyricsDBPanel } from "../../utils/openLyricsDBPanel.tsx";
 import { openSettingsPanel } from "../../utils/settings.ts";
 import Logger from "../../utils/Logger.ts";
+import { setStockPlaybarPage } from "../../utils/themeMatcher.ts";
 import { ApplyExperimentClasses, onExperimentChange } from "../../utils/experiments.ts";
 import { aiRefinementCoordinator, aiSoundCoordinator, invalidateAIRefinementBaseline, syncAIRefinementBackends } from "../../utils/Lyrics/AIRefinement/singleton.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
@@ -178,20 +180,27 @@ const PageView = {
 export const GetPageRoot = () =>
   /* document.querySelector<HTMLElement>(".QdB2YtfEq0ks5O4QbtwX .WRGTOibB8qNEkgPNtMxq") ?? */
   document.querySelector<HTMLElement>(
-    ".Root__main-view .main-view-container div[data-overlayscrollbars-viewport]"
+    ":is(.Root__main-view, :where(#main-view)) .main-view-container div[data-overlayscrollbars-viewport]"
   ) ??
   (() => {
     const child = document.querySelector<HTMLElement>(
-      ".Root__main-view .main-view-container .main-view-container__scroll-node-child"
+      ":is(.Root__main-view, :where(#main-view)) .main-view-container .main-view-container__scroll-node-child"
     );
     return child?.parentElement as HTMLElement | null;
   })() ??
   document.querySelector<HTMLElement>(
-    ".Root__main-view .main-view-container .os-host"
+    ":is(.Root__main-view, :where(#main-view)) .main-view-container .os-host"
   ) ??
   document.querySelector<HTMLElement>(
-    ".Root__main-view .main-view-container .uGZUPBPcDpzSYqKcQT8r > div"
+    ":is(.Root__main-view, :where(#main-view)) .main-view-container .uGZUPBPcDpzSYqKcQT8r > div"
   );
+
+let PageMountObserver: MutationObserver | null = null;
+
+function cancelPendingPageMount() {
+  PageMountObserver?.disconnect();
+  PageMountObserver = null;
+}
 
 let PageResizeListener: ResizeObserver | null = null;
 export let PageContainer: HTMLElement | null = null;
@@ -236,6 +245,7 @@ async function OpenPage(
     return OpenPage(AppendTo, options);
   }
 
+  cancelPendingPageMount();
   if (PageView.IsOpened) return;
 
   // The main-view page belongs to the /SpicyLyrics route. The awaits above can
@@ -249,12 +259,35 @@ async function OpenPage(
     return;
   }
 
+  const pageRoot = AppendTo ?? GetPageRoot();
+  if (!pageRoot) {
+    pageLogger.warn("Cannot open page: main view is unavailable");
+    if (AppendTo === undefined && !options?.cardMode) {
+      PageMountObserver = new MutationObserver(() => {
+        if (Spicetify.Platform.History.location.pathname !== "/SpicyLyrics") {
+          cancelPendingPageMount();
+          return;
+        }
+        if (!GetPageRoot()) return;
+        cancelPendingPageMount();
+        void OpenPage();
+      });
+      PageMountObserver.observe(document.documentElement, { childList: true, subtree: true });
+    }
+    return;
+  }
+
   IsCardMode = !!options?.cardMode;
   /* if (!HoverMode) {
         PageView.IsTippyCapable = false;
     } */
   const elem = document.createElement("div");
   elem.id = "SpicyLyricsPage";
+  // Spotify's OverlayScrollbars (main view, NPV panel) ignores mutations inside
+  // this marker. Without it, every per-frame word style write made it re-measure
+  // its viewport, forcing an extra style + layout pass mid-frame. The page's size
+  // never depends on its content, so there is nothing for it to pick up.
+  elem.setAttribute("data-scroll-size-contained", "");
 
   elem.classList.add("SpicyRenderer");
 
@@ -384,11 +417,7 @@ async function OpenPage(
     }
   }
 
-  if (AppendTo !== undefined) {
-    AppendTo?.appendChild(elem);
-  } else {
-    GetPageRoot()?.appendChild(elem);
-  }
+  pageRoot.appendChild(elem);
 
   addLinesEvListener();
 
@@ -435,7 +464,7 @@ async function OpenPage(
 
   if (AppendTo === undefined) {
     const legacyPage = document.querySelector<HTMLElement>(
-      ".Root__main-view .main-view-container .os-host"
+      ":is(.Root__main-view, :where(#main-view)) .main-view-container .os-host"
     );
     if (legacyPage) {
       legacyPage.style.containerType = "inline-size";
@@ -446,6 +475,7 @@ async function OpenPage(
 
   $lyricsContainerExists.set(true);
   PageView.IsOpened = true;
+  setStockPlaybarPage(elem);
 
   if (IsPIP) {
     elem?.classList.add("ForcedCompactMode");
@@ -492,6 +522,7 @@ export function Compactify(Element: HTMLElement | undefined = undefined) {
 // await in here let an Open, a second Destroy, or a Fullscreen close tail run
 // against a half torn-down page.
 async function DestroyPage() {
+  cancelPendingPageMount();
   if (!PageView.IsOpened) return;
   pageLogger.debug("Destroying page");
   PageView.IsOpened = false;
@@ -513,13 +544,14 @@ async function DestroyPage() {
   CleanUpIsByCommunity();
 
   const legacyPage = document.querySelector<HTMLElement>(
-    ".Root__main-view .main-view-container .os-host"
+    ":is(.Root__main-view, :where(#main-view)) .main-view-container .os-host"
   );
   if (legacyPage) {
     legacyPage.style.containerType = "";
   }
 
   PageContainer?.remove();
+  setStockPlaybarPage(null);
   removeLinesEvListener();
   (Object.keys(Tooltips) as (keyof typeof Tooltips)[]).forEach((key) => {
     Tooltips[key]?.destroy();
@@ -679,7 +711,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (closeButton) {
       try {
         if (!isPip) {
-          Tooltips.Close = Spicetify.Tippy(closeButton, {
+          Tooltips.Close = createTooltip(closeButton, {
             ...Spicetify.TippyProps,
             content: `Close Page`,
           });
@@ -712,7 +744,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (compactModeToggle) {
       try {
         if (!isPip) {
-          Tooltips.CompactModeToggle = Spicetify.Tippy(compactModeToggle, {
+          Tooltips.CompactModeToggle = createTooltip(compactModeToggle, {
             ...Spicetify.TippyProps,
             content: `${
               IsCompactMode() ? "Disable Compact Mode" : "Enable Compact Mode"
@@ -747,7 +779,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (romanizationToggle) {
       try {
         if (!isPip) {
-          Tooltips.RomanizationToggle = Spicetify.Tippy(romanizationToggle, {
+          Tooltips.RomanizationToggle = createTooltip(romanizationToggle, {
             ...Spicetify.TippyProps,
             content: isRomanized ? `Disable Romanization` : `Enable Romanization`,
           });
@@ -918,7 +950,7 @@ function AppendViewControls(ReAppend: boolean = false) {
       if (nowBarButton) {
         try {
           if (!isPip) {
-            Tooltips.NowBarToggle = Spicetify.Tippy(nowBarButton, {
+            Tooltips.NowBarToggle = createTooltip(nowBarButton, {
               ...Spicetify.TippyProps,
               content: `NowBar`,
             });
@@ -935,7 +967,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (fullscreenBtn) {
       try {
         if (!isPip) {
-          Tooltips.FullscreenToggle = Spicetify.Tippy(fullscreenBtn, {
+          Tooltips.FullscreenToggle = createTooltip(fullscreenBtn, {
             ...Spicetify.TippyProps,
             content: `${
               Fullscreen.CinemaViewOpen ? "Fullscreen" : "Cinema View"
@@ -964,7 +996,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (cinemaViewBtn && !Fullscreen.IsOpen) {
       try {
         if (!isPip) {
-          Tooltips.CinemaView = Spicetify.Tippy(cinemaViewBtn, {
+          Tooltips.CinemaView = createTooltip(cinemaViewBtn, {
             ...Spicetify.TippyProps,
             content: `Cinema View`,
           });
@@ -985,7 +1017,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     ) {
       try {
         if (!isPip) {
-          Tooltips.NowBarSideToggle = Spicetify.Tippy(nowBarSideToggleBtn, {
+          Tooltips.NowBarSideToggle = createTooltip(nowBarSideToggleBtn, {
             ...Spicetify.TippyProps,
             content: `Swap NowBar Side`,
           });
@@ -1022,7 +1054,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     const settingsButton = elem.querySelector("#SettingsToggle");
     if (settingsButton && !isPip) {
       try {
-        Tooltips.Settings = Spicetify.Tippy(settingsButton, {
+        Tooltips.Settings = createTooltip(settingsButton, {
           ...Spicetify.TippyProps,
           content: `Spicy Lyrics Settings`,
         });
@@ -1038,7 +1070,7 @@ function AppendViewControls(ReAppend: boolean = false) {
     if (lyricsManagerButton && isTTMLMakerMode) {
       try {
         if (!isPip) {
-          Tooltips.LyricsManager = Spicetify.Tippy(lyricsManagerButton, {
+          Tooltips.LyricsManager = createTooltip(lyricsManagerButton, {
             ...Spicetify.TippyProps,
             content: `Lyrics Manager`,
           });

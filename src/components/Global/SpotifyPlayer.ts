@@ -1,4 +1,6 @@
 // deno-lint-ignore-file no-explicit-any
+import { createTooltip } from "../../utils/tooltip.ts";
+import Global from "./Global.ts";
 import GetProgress, {
   _DEPRECATED___GetProgress,
 } from "../../utils/Gets/GetProgress.ts";
@@ -226,7 +228,6 @@ export const SpotifyPlayer = {
   },
   Playbar: (() => {
     let rightContainer: HTMLElement | null;
-    let sibling: HTMLElement | null;
     const buttonsStash = new Set<HTMLElement>();
     const NATIVE_LYRICS_BUTTON_CLASSES = new Set(["main-nowPlayingBar-lyricsButton", "vVsHwFW9rx4CZOne"]);
 
@@ -260,7 +261,7 @@ export const SpotifyPlayer = {
         this.disabled = disabled;
         this.active = active;
         addClassname(this.element);
-        this.tippy = (Spicetify as any).Tippy?.(this.element, {
+        this.tippy = createTooltip(this.element, {
           content: label,
           ...(Spicetify as any).TippyProps,
         });
@@ -321,7 +322,7 @@ export const SpotifyPlayer = {
       }
       register() {
         buttonsStash.add(this.element);
-        rightContainer?.prepend(this.element);
+        mountButtons();
       }
       deregister() {
         buttonsStash.delete(this.element);
@@ -329,39 +330,55 @@ export const SpotifyPlayer = {
       }
     }
 
-    (function waitForPlaybarMounted() {
-      rightContainer =
-        document.querySelector<HTMLElement>(
-          ".main-nowPlayingBar-right > div"
-        ) ??
-        document.querySelector<HTMLElement>(
-          ".main-nowPlayingBar-extraControls"
-        );
-      if (!rightContainer) {
-        setTimeout(waitForPlaybarMounted, 300);
-        return;
-      }
+    const controlsSelector = '[data-testid="now-playing-bar"], .Root__now-playing-bar, .main-nowPlayingBar-right, .main-nowPlayingBar-extraControls, button[data-testid="lyrics-button"], button[data-testid="pip-toggle-button"], button[data-testid="fullscreen-mode-button"]';
+
+    function GetControls(): HTMLElement | null {
+      const playbar = document.querySelector('[data-testid="now-playing-bar"], .Root__now-playing-bar');
+      const nativeButton = playbar?.querySelector<HTMLElement>(
+        'button[data-testid="lyrics-button"], button[data-testid="pip-toggle-button"], button[data-testid="fullscreen-mode-button"]'
+      );
+      return nativeButton?.parentElement ?? document.querySelector<HTMLElement>(
+        '.main-nowPlayingBar-right > div, .main-nowPlayingBar-extraControls'
+      );
+    }
+
+    function mountButtons() {
+      rightContainer = GetControls();
+      if (!rightContainer) return;
       for (const button of buttonsStash) {
         addClassname(button);
       }
-      rightContainer.prepend(...Array.from(buttonsStash));
-    })();
+      if ([...buttonsStash].some(button => button.parentElement !== rightContainer)) {
+        rightContainer.prepend(...buttonsStash);
+      }
+      Global.Event.evoke("playbar:controls", rightContainer);
+    }
+
+    const playbarObserver = new MutationObserver(records => {
+      if (records.some(record => record.target === rightContainer ||
+        [...record.addedNodes, ...record.removedNodes].some(node => node instanceof Element &&
+          (node === rightContainer || (rightContainer !== null && node.contains(rightContainer)) ||
+            node.matches(controlsSelector) || node.querySelector(controlsSelector))))) mountButtons();
+    });
+    playbarObserver.observe(document.documentElement, { childList: true, subtree: true });
+    mountButtons();
 
     function addClassname(element: HTMLElement) {
-      sibling =
-        document.querySelector<HTMLElement>(
-          ".main-nowPlayingBar-right .main-genericButton-button"
-        ) ??
-        document.querySelector<HTMLElement>(
-          ".main-nowPlayingBar-extraControls .main-genericButton-button"
-        ) ??
-        document.querySelector<HTMLElement>(
-          `.main-nowPlayingBar-extraControls [data-testid="pip-toggle-button"]`
-        );
-      if (!sibling) {
-        setTimeout(addClassname, 300, element);
-        return;
+      // Tried in order (a selector list would return the first in DOM order, the
+      // lyrics button): buttons that never turn active come first, so we don't
+      // copy an active-state class such as 1.2.98's hashed active dot.
+      const controls = GetControls();
+      let sibling: HTMLElement | null = null;
+      for (const selector of [
+        'button[data-testid="fullscreen-mode-button"]',
+        'button[data-testid="pip-toggle-button"]',
+        'button[data-testid="lyrics-button"]',
+        ".main-genericButton-button:not(.SpicyLyrics_PlaybarButton)",
+      ]) {
+        sibling = controls?.querySelector<HTMLElement>(selector) ?? null;
+        if (sibling) break;
       }
+      if (!sibling) return;
       for (const className of Array.from(sibling.classList)) {
         if (className.startsWith("main-genericButton") || className === "ZfsMQKTLl695iPvUo3GK") continue;
         if (NATIVE_LYRICS_BUTTON_CLASSES.has(className)) continue;
@@ -398,7 +415,7 @@ export const SpotifyPlayer = {
         this.onClick = onClick;
         this.disabled = disabled;
         this.active = active;
-        this.tippy = (Spicetify as any).Tippy?.(this.element, {
+        this.tippy = createTooltip(this.element, {
           content: label,
           ...(Spicetify as any).TippyProps,
         });
@@ -499,6 +516,6 @@ export const SpotifyPlayer = {
       observer.observe(leftPlayer, { childList: true });
     })();
 
-    return { Button, Widget };
+    return { Button, Widget, GetControls };
   })(),
 };
