@@ -875,15 +875,7 @@
   text-align: left;
 }
 
-#SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent button.LyricsProvider {
-  cursor: pointer;
-  transition: opacity 0.2s;
-}
 
-#SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent button.LyricsProvider:hover,
-#SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent button.LyricsProvider:focus-visible {
-  opacity: 0.9;
-}
 
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .SongInfo .song-info-profile-section {
   font-weight: 700;

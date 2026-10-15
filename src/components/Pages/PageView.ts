@@ -57,8 +57,6 @@ import {
   $fixHanGlyphVariants,
   $lineHoverBackground,
   $lyricsContainerExists,
-  $lyricsSelectionMode,
-  $lyricsSourceOrder,
   $minimalLyricsMode,
   $meaningBackend,
   $soundBackend,
@@ -1200,8 +1198,6 @@ $googleSoundFallback.listen(queueProcessingSettingsRefresh);
 
 $soundTargetOrthography.listen(() => aiSoundCoordinator.notifyConfigChanged());
 
-$lyricsSourceOrder.listen(queueProcessingSettingsRefresh);
-$lyricsSelectionMode.listen(queueProcessingSettingsRefresh);
 
 $skipSpicyFont.listen((v) => {
   if (!PageContainer) return;

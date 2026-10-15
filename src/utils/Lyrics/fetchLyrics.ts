@@ -1,7 +1,7 @@
 import { franc } from "franc-all";
 import langs from "langs";
 import { isDev } from "../../components/Global/Defaults.ts";
-import { $currentLyricsData, $currentLyricsType, $currentlyFetching, $lyricsSelectionMode, $lyricsSourceOrder, $lyricsSourceOverrides, $meaningBackend } from "../stores.ts";
+import { $currentLyricsData, $currentLyricsType, $currentlyFetching, $meaningBackend } from "../stores.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import PageView, { PageContainer } from "../../components/Pages/PageView.ts";
 import { LYRICS_PROCESSING_VERSION, ProcessLyrics, READING_PLAN_SCHEMA_VERSION } from "./ProcessLyrics.ts";
@@ -25,10 +25,7 @@ import { $chineseCharacterForm, $japaneseReadingMode } from "../uiState.ts";
 import { buildProcessingContextKey } from "./ProcessingContext.ts";
 import { captureOriginalSnapshot, type CanonicalOriginalSnapshot } from "./AIRefinement/index.ts";
 import { acceptAIRefinementBaseline, getAIRefinementBaseline } from "./AIRefinement/singleton.ts";
-import { getTrackSourceOverride } from "./LyricsSourceOverrides.ts";
-import { effectiveLyricsSourceConfig, lyricsSourceCacheSignature } from "./LyricsSourcePreferences.ts";
-import { isLyricsSourceCacheCompatible } from "./LyricsSourceCache.ts";
-import { fetchLyricsFromSources, RUNTIME_LYRICS_SOURCE_ADAPTERS, type TrackLyricsInfo } from "./LyricsSources.ts";
+import { fetchLyricsFromSpicy, fetchSpicyLyrics, type TrackLyricsInfo } from "./LyricsSources.ts";
 import { LyricsRequestCoordinator, type LyricsRequestSession } from "./LyricsRequestSession.ts";
 import { runProviderAcquisition } from "./ProviderAcquisition.ts";
 import { IsEmptyLyrics, StripEmptyLyricsLines } from "./EmptyLines.ts";
@@ -44,14 +41,6 @@ const lyricsRequestCoordinator = new LyricsRequestCoordinator<[object | string, 
 
 // recently updated key structure - changed name
 export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 5, undefined, isDev as true);
-
-function sourceConfigFor(trackUri: string) {
-  return effectiveLyricsSourceConfig(
-    $lyricsSourceOrder.get(),
-    $lyricsSelectionMode.get(),
-    getTrackSourceOverride($lyricsSourceOverrides.get(), trackUri),
-  );
-}
 
 function requestIsCurrent(session: LyricsRequestSession, trackUri: string): boolean {
   return session.isCurrent() && SpotifyPlayer.GetUri() === trackUri;
@@ -268,12 +257,10 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
   const trackId = uri?.split(":")?.[2];
   if (!trackId || uri.startsWith("spotify:local:")) return;
   if (prefetchInFlight.has(trackId)) return;
-  const sourceConfig = sourceConfigFor(uri);
-  const sourceSignature = lyricsSourceCacheSignature(sourceConfig);
 
   try {
     const cached = await LyricsStore.GetItem(trackId);
-    if (cached && isLyricsSourceCacheCompatible(cached, sourceSignature)) return;
+    if (cached) return;
     const localLyric = await LocalLyricsManager.get(uri);
     if (localLyric) {
       const localDocument = { ...localLyric, id: trackId, uri };
@@ -285,19 +272,14 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
     lyricsPrefetchLogger.debug("Prefetch cache probe failed", error);
   }
 
-  // Automatic source selection needs current-track metadata and a complete
-  // comparison. Only strict Spicy acquisition is safe to prefetch by id.
-  if (sourceConfig.mode !== "strict" || sourceConfig.order[0] !== "spicy") return;
-
   prefetchInFlight.add(trackId);
   try {
     const info: TrackLyricsInfo = { uri, id: trackId, title: "", artists: [], album: "", durationMs: 1 };
-    const outcome = await runProviderAcquisition((signal) => RUNTIME_LYRICS_SOURCE_ADAPTERS.spicy(info, signal));
+    const outcome = await runProviderAcquisition((signal) => fetchSpicyLyrics(info, signal));
     if (outcome.kind !== "lyrics" || !outcome.result.lyrics) return;
     const lyrics = outcome.result.lyrics;
     lyrics.id = trackId;
     lyrics.uri = uri;
-    lyrics.LyricsSourceCacheSignature = sourceSignature;
     createAndAttachSnapshot(lyrics);
 
     if (hasRomanizationWorkQuick(lyrics) || hasTranslationWorkQuick(lyrics)) {
@@ -356,8 +338,6 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
   }
 
   const trackId = uri.split(":")[2];
-  const sourceConfig = sourceConfigFor(uri);
-  const sourceSignature = lyricsSourceCacheSignature(sourceConfig);
 
   $currentlyFetching.set(true);
   if (IsLyricsSkeletonEnabled()) ShowLyricsSkeleton();
@@ -369,7 +349,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
 
   // Check if there's already data in localStorage
   const coordinatorBaseline = getAIRefinementBaseline(uri);
-  const savedLyricsData = coordinatorBaseline && isLyricsSourceCacheCompatible(coordinatorBaseline, sourceSignature)
+  const savedLyricsData = coordinatorBaseline
     ? JSON.stringify(coordinatorBaseline)
     : $currentLyricsData.get();
 
@@ -388,7 +368,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
         // Return stored lyrics only when they match the current track. Prefer the
         // URI guard; fall back to id only for pre-uri cache entries.
         const isCurrentTrack = lyricsData?.uri === uri || (!lyricsData?.uri && lyricsData?.id === trackId);
-        if (isCurrentTrack && isLyricsSourceCacheCompatible(lyricsData, sourceSignature)) {
+        if (isCurrentTrack) {
           const snapshot = snapshotFrom(lyricsData);
           if (snapshot) {
             const processedLyrics = await ensureProcessingVersion(trackId, uri, lyricsData, session);
@@ -432,7 +412,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     try {
       const lyricsFromCacheRes = await LyricsStore.GetItem(trackId);
       if (!requestIsCurrent(session, uri)) return null;
-      if (lyricsFromCacheRes && isLyricsSourceCacheCompatible(lyricsFromCacheRes, sourceSignature)) {
+      if (lyricsFromCacheRes) {
         if (lyricsFromCacheRes?.Value === "NO_LYRICS") {
           finishFetching(session);
           return ["lyrics-not-found", 404];
@@ -470,7 +450,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
   ShowLoaderContainer(uri, session);
 
   try {
-    const sourceResult = await fetchLyricsFromSources(uri, sourceConfig.order, sourceConfig.mode, session.signal);
+    const sourceResult = await fetchLyricsFromSpicy(uri, session.signal);
     if (!requestIsCurrent(session, uri)) return null;
     const status = sourceResult.status;
     if (status === 503) {
@@ -487,12 +467,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     if (status !== 200 || !sourceResult.lyrics) {
       HideLoaderContainer();
       finishFetching(session);
-      if (status === 404) {
-        return sourceConfig.override === "auto"
-          ? ["lyrics-not-found", 404]
-          : [`source-unavailable:${sourceConfig.override}`, 404];
-      }
-      if (sourceConfig.override !== "auto") return [`source-unavailable:${sourceConfig.override}`, status];
+      if (status === 404) return ["lyrics-not-found", 404];
       return ["status-not-200", status];
     }
 
@@ -502,7 +477,6 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     // keys off the stable uri instead of the API-supplied id.
     lyrics.uri = uri;
     lyrics.id = trackId;
-    lyrics.LyricsSourceCacheSignature = sourceSignature;
 
     // Pruning blank lines can empty out a payload the API still counted as a
     // hit. Nothing would render, so treat it as a miss rather than caching and
@@ -512,9 +486,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
       lyricsLogger.warn("Lyrics payload had no renderable lines after pruning");
       HideLoaderContainer();
       finishFetching(session);
-      return sourceConfig.override !== "auto"
-        ? [`source-unavailable:${sourceConfig.override}`, 404]
-        : ["lyrics-not-found", 404];
+      return ["lyrics-not-found", 404];
     }
 
     lyricsLogger.debug("Lyrics source selected", { provider: lyrics.fetchProvider, type: lyrics.Type });
@@ -546,7 +518,6 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     lyricsLogger.error("Lyrics acquisition failed", { category: error instanceof SyntaxError ? "invalid-response" : "request-error" });
     finishFetching(session);
     HideLoaderContainer();
-    if (sourceConfig.override !== "auto") return [`source-unavailable:${sourceConfig.override}`, 0];
     return ["unknown-error", 0];
   }
 }

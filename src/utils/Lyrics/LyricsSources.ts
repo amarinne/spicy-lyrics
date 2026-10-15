@@ -1,17 +1,12 @@
 import Platform from "../../components/Global/Platform.ts";
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
-import { $lyricsSelectionDiagnostics } from "../stores.ts";
 import Logger from "../Logger.ts";
 import { SLObjPack } from "../objpack.ts";
-import { acquireLyricsFromSources, canQueryLrclib, normalizeLrclibLyrics, normalizeSpicyLyrics, normalizeSpotifyLyrics, type LyricsSourceAdapter, type LyricsSourceResult, type TrackLyricsInfo } from "./LyricsSourceDocuments.ts";
+import { normalizeSpicyLyrics, type LyricsSourceResult, type TrackLyricsInfo } from "./LyricsSourceDocuments.ts";
 import { ProviderResponseError, type ProviderAcquisitionOutcome } from "./ProviderAcquisition.ts";
 import { acquireSpicyOutcomeWithBoundedAuthRetry, isSpicyAuthRejectionStatus, type SpicyQueryAttempt } from "./SpicyAuthRetry.ts";
-import type { LyricsSelectionMode, LyricsSourceProviderId } from "./LyricsSourcePreferences.ts";
 import { Query, QueryHttpError, QueryNetworkError, type QueryObjectResult } from "../API/Query.ts";
 import { ServiceUnavailableError } from "../API/CircuitBreaker.ts";
-
-export { acquireLyricsFromSources, canQueryLrclib, normalizeLrclibLyrics, normalizeSpicyLyrics, normalizeSpotifyLyrics } from "./LyricsSourceDocuments.ts";
-export type { LyricsSourceAdapter, LyricsSourceResult, TrackLyricsInfo } from "./LyricsSourceDocuments.ts";
 
 const sourceLogger = new Logger("Lyrics Sources");
 const packer = new SLObjPack();
@@ -19,20 +14,15 @@ const packer = new SLObjPack();
 function currentTrackInfo(uri: string): TrackLyricsInfo | null {
   if (SpotifyPlayer.GetUri() !== uri) return null;
   const id = uri.split(":")[2] ?? "";
-  const title = SpotifyPlayer.GetName() ?? "";
-  const artists = SpotifyPlayer.GetArtists()?.map((artist) => artist.name).filter(Boolean) ?? [];
-  const durationMs = SpotifyPlayer.GetDuration();
   if (!id) return null;
-  return { uri, id, title, artists, album: SpotifyPlayer.GetAlbumName() ?? "", durationMs };
-}
-
-function retryAfterMs(response: Response): number | undefined {
-  const value = response.headers.get("Retry-After");
-  if (!value) return undefined;
-  const seconds = Number(value);
-  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1000;
-  const date = Date.parse(value);
-  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : undefined;
+  return {
+    uri,
+    id,
+    title: SpotifyPlayer.GetName() ?? "",
+    artists: SpotifyPlayer.GetArtists()?.map((artist) => artist.name).filter(Boolean) ?? [],
+    album: SpotifyPlayer.GetAlbumName() ?? "",
+    durationMs: SpotifyPlayer.GetDuration(),
+  };
 }
 
 /**
@@ -86,7 +76,8 @@ async function requestSpicyLyrics(info: TrackLyricsInfo, token: string): Promise
   return { kind: "settled", outcome: normalized ? { kind: "lyrics", result: normalized } : { kind: "no-match" } };
 }
 
-async function spicyAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise<ProviderAcquisitionOutcome<LyricsSourceResult>> {
+/** The Spicy Lyrics service is the only source, with bounded auth retry. */
+export async function fetchSpicyLyrics(info: TrackLyricsInfo, signal: AbortSignal): Promise<ProviderAcquisitionOutcome<LyricsSourceResult>> {
   if (signal.aborted) return { kind: "aborted" };
   try {
     return await acquireSpicyOutcomeWithBoundedAuthRetry<ProviderAcquisitionOutcome<LyricsSourceResult>>({
@@ -104,33 +95,18 @@ async function spicyAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise
   }
 }
 
-async function spotifyAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise<ProviderAcquisitionOutcome<LyricsSourceResult>> {
-  if (signal.aborted) return { kind: "aborted" };
-  const body = await Spicetify.CosmosAsync.get(`https://spclient.wg.spotify.com/color-lyrics/v2/track/${encodeURIComponent(info.id)}?format=json&vocalRemoval=false&market=from_token`);
-  if (signal.aborted) return { kind: "aborted" };
-  const normalized = normalizeSpotifyLyrics(body, info);
-  return normalized ? { kind: "lyrics", result: normalized } : { kind: "no-match" };
-}
-
-async function lrclibAdapter(info: TrackLyricsInfo, signal: AbortSignal): Promise<ProviderAcquisitionOutcome<LyricsSourceResult>> {
-  if (!canQueryLrclib(info)) return { kind: "no-match" };
-  const query = new URLSearchParams({ track_name: info.title, artist_name: info.artists.join(", "), album_name: info.album, duration: String(info.durationMs / 1000) });
-  const response = await fetch(`https://lrclib.net/api/get?${query}`, { signal, headers: { "x-user-agent": "Spicy Lyrics" } });
-  if (response.status === 404 || response.status === 204) return { kind: "no-match" };
-  if (response.status === 429) throw new ProviderResponseError({ kind: "rate-limited", retryAfterMs: retryAfterMs(response) });
-  if (response.status >= 500) throw new ProviderResponseError({ kind: "upstream-error", status: response.status });
-  if (!response.ok) return { kind: "no-match" };
-  const normalized = normalizeLrclibLyrics(await response.json(), info);
-  return normalized ? { kind: "lyrics", result: normalized } : { kind: "no-match" };
-}
-
-export const RUNTIME_LYRICS_SOURCE_ADAPTERS: Record<LyricsSourceProviderId, LyricsSourceAdapter> = { spicy: spicyAdapter, spotify: spotifyAdapter, lrclib: lrclibAdapter };
-
-export async function fetchLyricsFromSources(uri: string, order: readonly LyricsSourceProviderId[], mode: LyricsSelectionMode, signal?: AbortSignal): Promise<LyricsSourceResult> {
+/**
+ * Fetch lyrics for the current track, or a 404-shaped result when the track
+ * changed under us and its metadata is no longer safe to send.
+ */
+export async function fetchLyricsFromSpicy(uri: string, signal?: AbortSignal): Promise<LyricsSourceResult> {
   const info = currentTrackInfo(uri);
   if (!info) return { lyrics: null, status: 404 };
-  const result = await acquireLyricsFromSources(info, order, mode, RUNTIME_LYRICS_SOURCE_ADAPTERS, signal);
-  if (result.lyrics?.SelectionDiagnostics) $lyricsSelectionDiagnostics.set(result.lyrics.SelectionDiagnostics);
-  if (!result.lyrics) sourceLogger.debug("No lyrics source selected", { status: result.status, mode, providers: order });
-  return result;
+  const outcome = await fetchSpicyLyrics(info, signal ?? new AbortController().signal);
+  if (outcome.kind === "lyrics") return outcome.result;
+  if (outcome.kind === "queued") return { lyrics: null, status: 503 };
+  if (outcome.kind === "rate-limited") return { lyrics: null, status: 429 };
+  if (outcome.kind === "upstream-error") return { lyrics: null, status: outcome.status };
+  sourceLogger.debug("No lyrics source selected", { outcome: outcome.kind });
+  return { lyrics: null, status: outcome.kind === "timeout" || outcome.kind === "aborted" ? 0 : 404 };
 }

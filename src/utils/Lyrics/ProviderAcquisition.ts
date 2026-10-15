@@ -18,12 +18,6 @@ export class ProviderResponseError extends Error {
   }
 }
 
-export type ProviderAcquisitionRecord<Provider, Result> = {
-  provider: Provider;
-  orderIndex: number;
-  outcome: ProviderAcquisitionOutcome<Result>;
-};
-
 export async function runProviderAcquisition<Result>(
   task: (signal: AbortSignal) => Promise<ProviderAcquisitionOutcome<Result>>,
   parentSignal?: AbortSignal,
@@ -46,22 +40,4 @@ export async function runProviderAcquisition<Result>(
     clearTimeout(timeout);
     parentSignal?.removeEventListener("abort", abortFromParent);
   }
-}
-
-export async function acquireProviderOutcomes<Provider, Result>(
-  order: readonly Provider[],
-  mode: "sequential" | "concurrent",
-  acquire: (provider: Provider, orderIndex: number) => Promise<ProviderAcquisitionOutcome<Result>>,
-): Promise<Array<ProviderAcquisitionRecord<Provider, Result>>> {
-  if (mode === "concurrent") {
-    return Promise.all(order.map(async (provider, orderIndex) => ({ provider, orderIndex, outcome: await acquire(provider, orderIndex) })));
-  }
-  const records: Array<ProviderAcquisitionRecord<Provider, Result>> = [];
-  for (let orderIndex = 0; orderIndex < order.length; orderIndex++) {
-    const provider = order[orderIndex];
-    const outcome = await acquire(provider, orderIndex);
-    records.push({ provider, orderIndex, outcome });
-    if (outcome.kind === "lyrics") break;
-  }
-  return records;
 }

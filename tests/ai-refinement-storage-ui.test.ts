@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const read = (path: string) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -162,9 +162,10 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(ui, /raw lyrics only/);
   assert.match(singleton, /enabled && \$meaningBackend/);
   assert.doesNotMatch(read("src/utils/Lyrics/Fork/Translation.ts"), /\$meaningBackend\.get\(\) === "ai_auto"/);
-  assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /SelectionDiagnostics/);
-  assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /current\?\.uri === trackUri/);
-  assert.match(read("src/utils/openLyricsSourcePicker.tsx"), /selectionScore/);
+  // The fork fetches from the Spicy Lyrics service only, like upstream, so the
+  // multi-source picker and its selection diagnostics stay removed.
+  assert.equal(existsSync(new URL("../src/utils/openLyricsSourcePicker.tsx", import.meta.url)), false);
+  assert.doesNotMatch(read("src/utils/Lyrics/fetchLyrics.ts"), /SelectionDiagnostics|source-unavailable/);
   assert.match(ui, /Saved AI Results/);
   assert.match(ui, /downloadRefinementCacheRecord/);
   assert.match(ui, /probeControllerRef/);
