@@ -55,7 +55,7 @@ import "./css/NPVLyrics.css";
 import UpdateDialog from "./components/ReactComponents/UpdateDialog.tsx";
 import { PopupModal } from "./components/Modal.ts";
 import { IsPIP, OpenPopupLyrics, ClosePopupLyrics } from "./components/Utils/PopupLyrics.ts";
-import { GetNPVCardElement, GetNPVElement, GetNPVObserverRoot, initNPVLyrics } from "./components/Utils/NPVLyrics.ts";
+import { GetNPVCardElement, GetNPVElementForBackground, GetNPVObserverRoot, initNPVLyrics } from "./components/Utils/NPVLyrics.ts";
 import ReactDOM from "react-dom/client";
 import { runThemeMatcher } from "./utils/themeMatcher.ts";
 import { guardSpicetifyScrollingFix } from "./utils/scrollFixGuard.ts";
@@ -529,7 +529,7 @@ async function main() {
     let nowPlayingBarObservedRoot: Element | null = null;
     let nowPlayingBarMutationTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    const getNowPlayingBarElement = GetNPVElement;
+    const getNowPlayingBarElement = GetNPVElementForBackground;
 
     const scheduleNowPlayingBarDynamicBackgroundApply = () => {
       if (nowPlayingBarMutationTimeout) {

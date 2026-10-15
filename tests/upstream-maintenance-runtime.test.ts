@@ -49,9 +49,9 @@ test("syllable gradients recover after seeking Sung to NotSung and directly back
 
 test("latest-version lookup uses the edge endpoint and parses version without the lyrics query", async () => {
   let ok = true;
-  let body = "6.3.142";
+  let body = "6.3.190";
   const api = runInNewContext(`${source("../src/components/Global/Session.ts")}\nSession.SpicyLyrics;`, {
-    $spicyLyricsVersion: { get: () => "6.3.142" }, AbortSignal,
+    $spicyLyricsVersion: { get: () => "6.3.190" }, AbortSignal,
     fetch: async (url: string, init: RequestInit) => {
       assert.equal(url, "https://api.spicylyrics.org/edge/service?lookup=version");
       assert.equal(init.cache, "no-store");
@@ -59,11 +59,11 @@ test("latest-version lookup uses the edge endpoint and parses version without th
       return { ok, text: async () => body };
     },
   });
-  assert.equal((await api.GetLatestVersion()).Text, "6.3.142");
+  assert.equal((await api.GetLatestVersion()).Text, "6.3.190");
   assert.equal(await api.IsOutdated(), false);
   body = "unavailable";
   assert.equal(await api.GetLatestVersion(), undefined);
-  body = "6.3.143";
+  body = "6.3.191";
   assert.equal(await api.IsOutdated(), true);
   ok = false;
   assert.equal(await api.GetLatestVersion(), undefined);
