@@ -22,23 +22,25 @@ test("Mandarin VN-aid tone marks on ma", () => {
   assert.equal(convertMandarinSyllableToVnAid("ma3", false), "ma");
 });
 
-test("Mandarin VN-aid stop series uses ASCII apostrophe aspiration", () => {
+test("Mandarin eza式 stop series uses p/th/kh without aspiration apostrophes", () => {
   assert.equal(convertMandarinSyllableToVnAid("ba1"), "ba");
-  assert.equal(convertMandarinSyllableToVnAid("pa4"), "p'à");
+  assert.equal(convertMandarinSyllableToVnAid("pa4"), "pà");
   assert.equal(convertMandarinSyllableToVnAid("da1"), "ta");
-  assert.equal(convertMandarinSyllableToVnAid("ta4"), "t'à");
-  assert.equal(convertMandarinSyllableToVnAid("tai4"), "t'ài");
-  assert.equal(convertMandarinSyllableToVnAid("ting1"), "t'ing");
+  assert.equal(convertMandarinSyllableToVnAid("ta4"), "thà");
+  assert.equal(convertMandarinSyllableToVnAid("tai4"), "thài");
+  assert.equal(convertMandarinSyllableToVnAid("ting1"), "thing");
   assert.equal(convertMandarinSyllableToVnAid("ge1"), "kơ");
-  assert.equal(convertMandarinSyllableToVnAid("ke1"), "k'ơ");
-  assert.equal(convertMandarinSyllableToVnAid("kan4"), "k'àn");
-  // The output mark is U+0027, never a curly quote; input Pinyin separator
-  // apostrophes are not content and never reach the output.
-  for (const rendered of ["p'à", "t'ài", "k'àn"]) {
-    assert.ok(rendered.includes("'"));
-    assert.ok(!rendered.includes("’") && !rendered.includes("‘"));
+  assert.equal(convertMandarinSyllableToVnAid("ke1"), "khơ");
+  assert.equal(convertMandarinSyllableToVnAid("kan4"), "khàn");
+  for (const [unaspirated, aspirated, plain, marked] of [
+    ["ba4", "pa4", "ba", "pa"],
+    ["da4", "ta4", "ta", "tha"],
+    ["ga4", "ka4", "ka", "kha"],
+  ]) {
+    assert.equal(convertMandarinSyllableToVnAid(unaspirated, false), plain);
+    assert.equal(convertMandarinSyllableToVnAid(aspirated, false), marked);
+    assert.notEqual(convertMandarinSyllableToVnAid(unaspirated), convertMandarinSyllableToVnAid(aspirated));
   }
-  assert.equal(convertMandarinSyllableToVnAid("tai4").codePointAt(1), 0x27);
   // Affricates stay symmetric-free: z/ts and zh/ch keep their spellings.
   assert.equal(convertMandarinSyllableToVnAid("ca1"), "tsa");
   assert.equal(convertMandarinSyllableToVnAid("zha1"), "zha");
@@ -96,11 +98,11 @@ test("Mandarin VN-aid ê marks the closer vowel in ei/uei only", () => {
   assert.equal(convertMandarinSyllableToVnAid("dui4"), "tuềi");
   assert.equal(convertMandarinSyllableToVnAid("hui4"), "huềi");
   assert.equal(convertMandarinSyllableToVnAid("gui1"), "kuêi");
-  assert.equal(convertMandarinSyllableToVnAid("kui2"), "k'uếi");
+  assert.equal(convertMandarinSyllableToVnAid("kui2"), "khuếi");
   assert.equal(convertMandarinSyllableToVnAid("wei4"), "wềi");
   // The opener e stays plain in ie/ian/yue/yuen environments.
   assert.equal(convertMandarinSyllableToVnAid("xie4"), "shiè");
-  assert.equal(convertMandarinSyllableToVnAid("tian1"), "t'ien");
+  assert.equal(convertMandarinSyllableToVnAid("tian1"), "thien");
   assert.equal(convertMandarinSyllableToVnAid("yue4"), "yuè");
   assert.equal(convertMandarinSyllableToVnAid("yuan2"), "yuén");
 });
@@ -176,6 +178,14 @@ test("Mandarin VN-aid has no collisions across the covered syllable inventory", 
 test("Mandarin VN-aid lyric acceptance corpus", () => {
   assert.equal(romanizeMandarinVn("你好", true), "nỉ hảo");
   assert.equal(romanizeMandarinVn("你好", false), "ni hao");
+  assert.equal(romanizeMandarinVn("唱 mp3 歌", true), "chàng mp3 kơ");
+  assert.equal(romanizeMandarinVn("BTS4 你好", true), "BTS4 nỉ hảo");
+  assert.equal(romanizeMandarinVn("你好 ma3", true), "nỉ hảo ma3");
+  assert.equal(romanizeMandarinVn("don't 太怕看", true), "don't thài pà khàn");
+  assert.equal(romanizeMandarinVn("你好BTS4你好", true), "nỉ hảo BTS4 nỉ hảo");
+  assert.equal(romanizeMandarinVn("你好！😀ma3你好", true), "nỉ hảo ！😀ma3 nỉ hảo");
+  assert.equal(romanizeMandarinVn("BTS4你好mp3", false), "BTS4 ni hao mp3");
+  assert.equal(joinMandarinReadingWords("音乐BTS4银行", romanizeMandarinVn("音乐BTS4银行", true)), "yinyuè BTS4 yínháng");
   assert.equal(romanizeMandarinVn("音乐银行", true), "yin yuè yín háng");
   assert.equal(
     joinMandarinReadingWords("音乐 银行", romanizeMandarinVn("音乐 银行", true)),
@@ -183,15 +193,15 @@ test("Mandarin VN-aid lyric acceptance corpus", () => {
   );
   assert.equal(
     romanizeMandarinVn("算不算愛我不太確定", true),
-    "suàn bù suàn ài wỏ bù t'ài chyuè tìng"
+    "suàn bù suàn ài wỏ bù thài chyuè tìng"
   );
   assert.equal(
     romanizeMandarinVn("看著窗外的小星星", true),
-    "k'àn zhù chuang wài tợ shiảo shing shing"
+    "khàn zhù chuang wài tợ shiảo shing shing"
   );
   assert.equal(
     romanizeMandarinVn("我想要唱給你聽", true),
-    "wỏ shiảng yào chàng kểi nỉ t'ing"
+    "wỏ shiảng yào chàng kểi nỉ thing"
   );
 });
 
@@ -328,6 +338,13 @@ test("Chinese VN-aid attached readings carry their own kind", () => {
   const mandarin = buildChineseAttachedReadings("你好", "pinyin-vn", true, spans);
   assert.deepEqual(mandarin.map((r) => r.kind), ["mandarinVnAid", "mandarinVnAid"]);
   assert.deepEqual(mandarin.map((r) => r.reading), ["nỉ", "hảo"]);
+
+  const aspirationSpans = Array.from({ length: 3 }, (_, i) => ({
+    spanId: String(i), canonicalRange: { startCp: i, endCp: i + 1 },
+  }));
+  const aspirated = buildChineseAttachedReadings("怕太看", "pinyin-vn", true, aspirationSpans);
+  assert.deepEqual(aspirated.map((r) => r.reading), ["pà", "thài", "khàn"]);
+  assert.deepEqual(aspirated.map((r) => r.canonicalRange), aspirationSpans.map((span) => span.canonicalRange));
 
   const cantonese = buildChineseAttachedReadings("你好", "jyutping-vn", true, spans);
   assert.deepEqual(cantonese.map((r) => r.kind), ["cantoneseVnAid", "cantoneseVnAid"]);

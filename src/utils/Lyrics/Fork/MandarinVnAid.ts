@@ -1,13 +1,13 @@
 /**
- * Mandarin VN-aid pronunciation renderer.
+ * Mandarin eza式 pronunciation renderer (legacy VN-aid API name).
  *
  * One-way display from Hanyu Pinyin (tone-numbered syllables, as produced by
  * `pinyin-pro` with `toneType: "num"`) into the locked Vietnamese-informed aid
  * spelling. No dictionary, no G2P: the input Pinyin is already the reading.
  *
  * Locked rules implemented here:
- * - stops: b/p', t/t', k/k' with ASCII apostrophe U+0027 as aspiration mark.
- *   Unaspirated members stay single letters (d->t, g->k); do NOT use th/kh.
+ * - stops: b/p, t/th, k/kh, matching Cantonese eza式.
+ *   p and kh denote /pʰ/ and /kʰ/, not Vietnamese ph and kh.
  * - affricates keep z/ts and zh/ch; contextual j->z, q->ch, x->sh.
  * - /y/ family renders as yu (no ü output): ju->zyu, jue->zyue,
  *   juan->zyuen, jun->zyun; nü->nyu, lü->lyu; yu/yue/yuen/yun.
@@ -22,20 +22,20 @@
  *   nucleus has one; otherwise the Pinyin tone-bearing-vowel order
  *   (a, then o, then e, then the last i/u) on the explicit final.
  *   Input Pinyin syllable-separator apostrophes are not content and are
- *   stripped before parsing; they never interact with the output mark.
+ *   stripped before parsing. Authored Latin apostrophes belong to passthrough text.
  */
 
 const INITIAL_MAP: Record<string, string> = {
   b: "b",
-  p: "p'",
+  p: "p",
   m: "m",
   f: "f",
   d: "t",
-  t: "t'",
+  t: "th",
   n: "n",
   l: "l",
   g: "k",
-  k: "k'",
+  k: "kh",
   h: "h",
   z: "z",
   c: "ts",
@@ -78,9 +78,7 @@ function markVowel(vowel: string, tone: number): string {
  * 2. otherwise the Pinyin order on the explicit final: a, then o, then e;
  * 3. otherwise the last remaining vowel (i/u).
  *
- * Never called with onset text: only the mapped final is scanned, and the
- * output aspiration apostrophe is part of the onset, so tone placement is
- * structural rather than a scan of the rendered string.
+ * Scan only the mapped final. Onset letters never affect tone placement.
  */
 const QUALITY_MARKED_VOWELS = new Set(["ă", "â", "ê", "ô", "ơ", "ư"]);
 

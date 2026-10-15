@@ -249,13 +249,16 @@ export function romanizeMandarin(text: string, tones = true): string {
  */
 export function romanizeMandarinVn(text: string, tones = true): string {
   const readings = pinyin(text, {
-    type: "array",
+    type: "all",
     toneType: "num",
     toneSandhi: false,
     nonZh: "consecutive",
-  }) as string[];
+  });
+
+  // Use the package's source flag so Latin tokens such as mp3, BTS4, and
+  // authored ma3 stay intact. Keep the plain Mandarin token separators.
   return readings
-    .map((reading) => convertMandarinSyllableToVnAid(reading, tones))
+    .map((reading) => reading.isZh ? convertMandarinSyllableToVnAid(reading.pinyin, tones) : reading.origin)
     .join(" ")
     .replace(/\s+/gu, " ")
     .trim();

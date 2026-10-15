@@ -21,6 +21,7 @@ export function buildProcessingContextKey(context: ProcessingContext): string {
   return JSON.stringify({
     translation: context.translationEnabled ? `${context.meaningBackend ?? "google"}:${context.translationTargetLang || ""}` : false,
     chineseTranslitMode: context.chineseTranslitMode,
+    mandarinEzaRevision: context.chineseTranslitMode === "pinyin-vn" ? "eza-2026-10-08.1" : undefined,
     chineseTones: context.chineseTones,
     joinMandarinWords: context.joinMandarinWords,
     chineseReadingPlacement: context.chineseReadingPlacement,

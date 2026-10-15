@@ -26,6 +26,16 @@ test("processing context key is stable for same inputs", () => {
   );
 });
 
+test("Mandarin eza式 rejects cached output from before the spelling revision", () => {
+  const current = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: "pinyin-vn" });
+  const legacy = JSON.parse(current);
+  delete legacy.mandarinEzaRevision;
+  assert.notEqual(current, JSON.stringify(legacy));
+  for (const mode of ["pinyin", "jyutping", "jyutping-vn"] as const) {
+    assert.ok(!buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode }).includes("mandarinEzaRevision"));
+  }
+});
+
 test("processing context key changes when translation target changes", () => {
   assert.notEqual(
     buildProcessingContextKey(baseContext),
