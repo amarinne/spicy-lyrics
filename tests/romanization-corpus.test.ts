@@ -90,6 +90,21 @@ test("romanization branch selection is line-scoped", () => {
   );
 });
 
+test("one-letter Cyrillic words select the Cyrillic branch per item", () => {
+  const cyrillicSongContext = {
+    presentScripts: ["Cyrillic"] as const,
+    primaryLanguage: "rus",
+    iso2Language: "ru",
+  };
+  // Word-timed Russian docs hand over syllables like "Я", "и", "в" — whole
+  // words of a single letter, which the 2+ document rule cannot see.
+  assert.deepEqual(scriptBranchForLine("Я", cyrillicSongContext), ["Cyrillic"]);
+  assert.deepEqual(scriptBranchForLine("и", cyrillicSongContext), ["Cyrillic"]);
+  assert.deepEqual(scriptBranchForLine("Я,", cyrillicSongContext), ["Cyrillic"]);
+  // A lone Cyrillic letter inside a Latin line is still not a Cyrillic line.
+  assert.deepEqual(scriptBranchForLine("DJ Я remix", cyrillicSongContext), []);
+});
+
 test("real mixed and glued lyric lines select per-line romanization branches", () => {
   assert.deepEqual(scriptBranchForLine("だんだん剥がれてく Fake のゴールドメッキ", japaneseSongContext), ["Japanese"]);
   assert.deepEqual(scriptBranchForLine("说不出的sorry", chineseSongContext), ["Chinese"]);

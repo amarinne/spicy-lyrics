@@ -20,6 +20,18 @@ export const JapaneseTextTest = /([ぁ-んァ-ン])/;
 // Cyrillic (basic + supplements + extended) - requires 2+ consecutive chars
 export const CyrillicTextTest = /[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]{2,}/;
 
+// A Cyrillic word can be a single letter ("я", "и", "в", "а"), so the {2,} rule
+// above misses whole one-letter words. Per item the shorter run counts too, as
+// long as the item carries no letters of another script — that keeps a stray
+// Cyrillic letter inside an otherwise Latin line from selecting the branch.
+const CyrillicLetterTest = /[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]/;
+const OtherScriptLetterTest =
+  /[\p{Script=Latin}\p{Script=Greek}\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+
+function isCyrillicWord(text: string): boolean {
+  return CyrillicLetterTest.test(text) && !OtherScriptLetterTest.test(text);
+}
+
 // Greek (Basic + Extended)
 export const GreekTextTest = /[\u0370-\u03FF\u1F00-\u1FFF]/;
 
@@ -251,7 +263,7 @@ export function scriptBranchForLine(
     present.add("Chinese");
   }
   if (KoreanTextTest.test(text)) present.add("Korean");
-  if (CyrillicTextTest.test(text)) present.add("Cyrillic");
+  if (CyrillicTextTest.test(text) || isCyrillicWord(text)) present.add("Cyrillic");
   if (GreekTextTest.test(text)) present.add("Greek");
 
   return SCRIPT_PRIORITY.filter((script) => present.has(script));

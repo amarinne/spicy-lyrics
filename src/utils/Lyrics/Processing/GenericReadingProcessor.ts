@@ -3,13 +3,18 @@ import { DefaultRenderPlanBuilder, validateRenderPlan } from "./RenderPlan.ts";
 import type { ParsedLine, ReadingAnnotation, RenderPlan } from "./Model.ts";
 import { buildChineseAttachedReadings } from "./ChineseReadingSegments.ts";
 
-function align(chunks: string[], display: string): string[] {
+/**
+ * Carves `chunks` into `display` so each unit keeps the spacing of the
+ * romanized line. Returns undefined when a chunk cannot be located — the caller
+ * decides how to space the units instead of gluing them together.
+ */
+function align(chunks: string[], display: string): string[] | undefined {
   const out = [...chunks];
   let cursor = 0;
   for (let index = 0; index < out.length; index += 1) {
     if (!out[index]) continue;
     const found = display.indexOf(out[index], cursor);
-    if (found < 0) return chunks;
+    if (found < 0) return undefined;
     out[index] = `${display.slice(cursor, found)}${out[index]}`;
     cursor = found + chunks[index].length;
   }
@@ -93,6 +98,18 @@ function withTimedBoundaries(
   return output;
 }
 
+/**
+ * Provider-marked word continuations ("у" + "ми" + "рать") never take an
+ * inferred space of their own.
+ */
+function wordContinuationIndices(syllables: readonly any[]): Set<number> {
+  const out = new Set<number>();
+  syllables.forEach((syllable, index) => {
+    if (syllable?.IsPartOfWord === true) out.add(index);
+  });
+  return out;
+}
+
 function joinContextualTokens(
   tokens: string[],
   start: number,
@@ -137,7 +154,7 @@ function alignChineseTimedUnits(
     return withTimedBoundaries(contextualChunks, sourceTexts, suppressSpaceBeforeChunks);
   }
 
-  return align(chunks, display);
+  return align(chunks, display) ?? chunks;
 }
 
 export function buildTimedGenericPlan(
@@ -158,7 +175,11 @@ export function buildTimedGenericPlan(
   const sourceTexts = syllables.map((s: any) => s.Text || "");
   const chunks = processor === "Chinese"
     ? alignChineseTimedUnits(rawChunks, display, sourceTexts, options)
-    : align(rawChunks, display);
+    // A chunk the romanized line doesn't contain (an item the per-syllable pass
+    // skipped, or a provider transliteration in another convention) can't be
+    // carved out of it. Keep the units, but take their boundaries from the
+    // source instead of gluing every word onto the next one.
+    : align(rawChunks, display) ?? withTimedBoundaries(rawChunks, sourceTexts, wordContinuationIndices(syllables));
   const attached = options.attachedReadings
     ? buildChineseAttachedReadings(
       canonical.text,
