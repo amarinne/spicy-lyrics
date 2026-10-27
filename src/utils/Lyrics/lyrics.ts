@@ -75,14 +75,10 @@ export interface SyllableLead {
     StartTime: number;
     EndTime: number;
     AnimatorStore?: LetterAnimatorStore;
-    SLMAnimated?: boolean;
-    PreSLMAnimated?: boolean;
   }>;
   BGWord?: boolean;
   Dot?: boolean;
   AnimatorStore?: SyllableAnimatorStore;
-  SLMAnimated?: boolean;
-  PreSLMAnimated?: boolean;
 }
 
 export interface LyricsSyllable {
@@ -97,8 +93,10 @@ export interface LyricsSyllable {
   DotLine?: boolean;
   BGLine?: boolean;
   AnimatorStore?: LineAnimatorStore;
-  SLMAnimated?: boolean;
-  PreSLMAnimated?: boolean;
+  // State the animator last processed this line in, and whether its words are
+  // still springing to their sung values after it ended.
+  AnimatedState?: "NotSung" | "Active" | "Sung";
+  Settling?: boolean;
 }
 
 export interface LyricsLine {

@@ -17,10 +17,8 @@ import {
 } from "../lyrics.ts";
 import { CreateLyricsContainer, DestroyAllLyricsContainers } from "./CreateLyricsContainer.ts";
 import { initLyricsVirtualizer } from "../LyricsVirtualizer.ts";
-import { ApplyIsByCommunity } from "./Credits/ApplyIsByCommunity.tsx";
-import { ApplyLyricsCredits } from "./Credits/ApplyLyricsCredits.ts";
+import { ApplySongCredits, MarkLastLineSide } from "./Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "./OnApply.ts";
-import { ApplyLyricsProvider } from "./Credits/ApplyProvider.ts";
 import { appendLineExtras, forceStackedLine, isJapaneseEntry, renderBaseTextWithReadings } from "./ReadingRenderer.ts";
 import { RemoveEmptyLyricsLines } from "../EmptyLines.ts";
 import type { ProcessedTextEntry } from "../Reading/JapaneseReading.ts";
@@ -35,7 +33,7 @@ export interface StaticLyricsData {
   offline?: boolean;
   classes?: string;
   styles?: StyleProperties;
-  source?: "spt" | "spl" | "aml";
+  source?: "spt" | "spl" | "aml" | "uns";
 }
 
 /**
@@ -63,6 +61,7 @@ export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean 
   const lines = RemoveEmptyLyricsLines(data.Lines);
 
   LyricsContainer.classList.remove("HasDuetLines");
+  MarkLastLineSide(LyricsContainer, false, false);
   const hasRtlLines = lines.some(line => isRtl(line.Text));
   LyricsContainer.classList.toggle("HasRtlLines", hasRtlLines);
 
@@ -125,9 +124,7 @@ export function ApplyStaticLyrics(data: StaticLyricsData, UseRomanized: boolean 
     lineElements.push(lineElem);
   });
 
-  ApplyLyricsCredits(data, LyricsContainer);
-  ApplyLyricsProvider(data, LyricsContainer);
-  ApplyIsByCommunity(data, LyricsContainer);
+  ApplySongCredits(data, LyricsContainer);
   if (LyricsContainerParent) {
     LyricsContainerInstance.Append(LyricsContainerParent);
   }

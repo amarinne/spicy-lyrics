@@ -1,4 +1,6 @@
 import React from "react";
+import ReactDOM from "react-dom/client";
+import { PopupModal } from "../Modal.ts";
 
 interface UpdateDialogProps {
   fromVersion: string;
@@ -43,3 +45,18 @@ const UpdateDialog: React.FC<UpdateDialogProps> = ({ fromVersion, spicyLyricsVer
 };
 
 export default UpdateDialog;
+
+/** Upstream's boot/expose entry point, rendered with the fork's dialog card. */
+export function showUpdatedDialog(fromVersion: string, toVersion: string) {
+  const div = document.createElement("div");
+  const reactRoot = ReactDOM.createRoot(div);
+  reactRoot.render(<UpdateDialog fromVersion={fromVersion} spicyLyricsVersion={toVersion} />);
+  PopupModal.display({
+    title: "Spicy Lyrics",
+    content: div,
+    isLarge: true,
+    onClose: () => {
+      reactRoot.unmount();
+    }
+  });
+}

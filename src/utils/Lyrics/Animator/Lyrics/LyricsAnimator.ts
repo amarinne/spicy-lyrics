@@ -1,25 +1,23 @@
 // @ts-ignore pkg has no @types on npm
 import Spline from "cubic-spline";
 import { easeSinOut } from "d3-ease";
-import { $currentLyricsType, $simpleLyricsMode, $simpleLyricsModeRenderingType } from "../../../../utils/stores.ts";
+import { $currentLyricsType, $simpleLyricsMode } from "../../../../utils/stores.ts";
 import {
   LyricsObject,
   SimpleLyricsMode_LetterEffectsStrengthConfig,
-  preHiddenDotLineMs,
   type SyllableLead,
+  preHiddenDotLineMs,
 } from "../../lyrics.ts";
 import { BlurMultiplier, timeOffset } from "../Shared.ts";
-import { setOnNewElementMounted } from "../../LyricsVirtualizer.ts";
+import {
+  isBgPopActive,
+  isLyricsListMoving,
+  setOnNewElementMounted,
+  syncDetachedBackgroundLines,
+} from "../../LyricsVirtualizer.ts";
 import { Spring } from "../../../../modules/Spring.ts";
+import { isExperimentEnabled } from "../../../experiments.ts";
 /* import { CurveInterpolator } from "curve-interpolator"; */
-
-const getSLMAnimation = (duration: number) => {
-  return `SLM_Animation ${duration}ms linear forwards`;
-};
-
-const getPreSLMAnimation = (duration: number) => {
-  return `Pre_SLM_GradientAnimation ${duration}ms linear forwards`;
-};
 
 // Define types for animation ranges
 export interface AnimationPoint {
@@ -248,6 +246,354 @@ $simpleLyricsMode.subscribe((simpleLyricsMode) => {
 
 const SungLetterGlow = 0.2;
 
+// Refreshed Simple Lyrics (experiment): the letters of a short held word are
+// emphasised. One after another across the first 40% of the word,
+// each letter swells, spreads away from the middle of the word, lifts and
+// glows, then eases back, over the word's length but never under a second.
+// Under that a gentle float carries each letter up and back down, setting off a
+// little earlier and running a little longer. The longer the word is held the
+// stronger it is, and the line's last word gets more still. The letters ride on
+// the word, which floats up like any other.
+const RefreshedEmphasis = {
+  MinMs: 1000,
+  // The letters set off across this share of the word.
+  Stagger: 1 / 2.5,
+  // × Amount: how much a letter grows, and how far it moves out (em, per
+  // letter from the middle) and up (em).
+  Scale: 0.1,
+  Spread: 0.03,
+  Lift: 0.025,
+  MaxAmount: 1.2,
+  // The glow: its radius is em × Blur, up to MaxRadius.
+  Radius: 0.3,
+  MaxRadius: 0.3,
+  MaxBlur: 0.8,
+  // The float: how high it goes (em; twice that on a background line), how
+  // far ahead of its letter it starts, and how much longer it runs.
+  Float: 0.05,
+  FloatLeadMs: 400,
+  FloatStretch: 1.4,
+  // Dim text is drawn at this alpha (Mixed.css --gradient-alpha-end), and its
+  // glow with it.
+  DimAlpha: 0.4,
+  LastWord: { Amount: 1.6, Blur: 1.5, Duration: 1.2 },
+};
+
+type RefreshedWaveStrength = { Amount: number; Blur: number; Duration: number };
+
+function getRefreshedWaveStrength(duration: number, isLastWord: boolean): RefreshedWaveStrength {
+  const E = RefreshedEmphasis;
+  // Faint below two seconds (three for the glow), then growing slowly.
+  const grow = (x: number) => (x > 1 ? Math.sqrt(x) : x ** 3);
+  let du = Math.max(E.MinMs, duration);
+  let amount = grow(du / 2000) * 0.6;
+  let blur = grow(du / 3000) * 0.5;
+  if (isLastWord) {
+    amount *= E.LastWord.Amount;
+    blur *= E.LastWord.Blur;
+    du *= E.LastWord.Duration;
+  }
+  return {
+    Amount: Math.min(E.MaxAmount, amount),
+    Blur: Math.min(E.MaxBlur, blur),
+    Duration: du,
+  };
+}
+
+// CSS cubic-bezier(x1, y1, x2, y2), as a function of x.
+function cubicBezier(x1: number, y1: number, x2: number, y2: number): (x: number) => number {
+  const cx = 3 * x1;
+  const bx = 3 * (x2 - x1) - cx;
+  const ax = 1 - cx - bx;
+  const cy = 3 * y1;
+  const by = 3 * (y2 - y1) - cy;
+  const ay = 1 - cy - by;
+  const curveX = (t: number) => ((ax * t + bx) * t + cx) * t;
+  const curveY = (t: number) => ((ay * t + by) * t + cy) * t;
+  const slopeX = (t: number) => (3 * ax * t + 2 * bx) * t + cx;
+  return (x: number) => {
+    if (x <= 0) return 0;
+    if (x >= 1) return 1;
+    let t = x;
+    for (let i = 0; i < 8; i++) {
+      const error = curveX(t) - x;
+      if (Math.abs(error) < 1e-6) return curveY(t);
+      const slope = slopeX(t);
+      if (Math.abs(slope) < 1e-6) break;
+      t = Clamp(t - error / slope, 0, 1);
+    }
+    let lo = 0;
+    let hi = 1;
+    t = x;
+    while (hi - lo > 1e-6) {
+      if (curveX(t) < x) lo = t;
+      else hi = t;
+      t = (lo + hi) / 2;
+    }
+    return curveY(t);
+  };
+}
+
+const emphasisIn = cubicBezier(0.2, 0.4, 0.58, 1);
+const emphasisOut = cubicBezier(0.3, 0, 0.58, 1);
+
+// 0 to 1 and back over x from 0 to 1: up over the first half, down over the
+// second.
+function getEmphasis(x: number): number {
+  if (x <= 0 || x >= 1) return 0;
+  return x < 0.5 ? emphasisIn(x / 0.5) : 1 - emphasisOut((x - 0.5) / 0.5);
+}
+
+type SplitLetter = NonNullable<SyllableLead["Letters"]>[number];
+
+// The same for every letter of the word, so worked out once per word.
+type RefreshedFlameState = {
+  Count: number;
+  Start: number;
+  Position: number;
+  Float: number;
+};
+
+function getRefreshedFlame(
+  letters: SplitLetter[],
+  position: number,
+  isBG: boolean
+): RefreshedFlameState {
+  return {
+    Count: Math.max(1, letters.length),
+    Start: letters[0]?.StartTime ?? 0,
+    Position: position,
+    Float: RefreshedEmphasis.Float * (isBG ? 2 : 1),
+  };
+}
+
+// Refreshed Simple Lyrics: a word floats up from the moment it starts, over
+// its own length but never quicker than a letter's emphasis
+// (RefreshedEmphasis.MinMs), easing out. Short
+// words are still rising as the next ones set off, so the line drifts up as
+// one instead of a step at a time. 0 to 1 along YOffsetSpline.
+function getRefreshedFloat(startTime: number, endTime: number, position: number): number {
+  const x = Clamp(
+    (position - startTime) / Math.max(RefreshedEmphasis.MinMs, endTime - startTime),
+    0,
+    1
+  );
+  return 1 - (1 - x) * (1 - x);
+}
+
+// Refreshed Simple Lyrics: the fill runs along the whole line as one soft
+// edge. Each word used to sweep a gradient across its own box
+// only, so the edge went out of sight at the end of every word (and of every
+// split letter) and came back in at the start of the next: the light stopped
+// at each one. Here the words are laid end to end on one strip (each box
+// already holds the space after it), the edge crosses each word in that
+// word's time and waits where the last one ended through a gap, and every word
+// and letter reads its --SLM_GradientPosition off it. The fade so spills into
+// the next word while the one before is finishing.
+const RefreshedSweep = {
+  // Mixed.css --SLR_FadeWidth, in em.
+  FadeEm: 0.55,
+};
+
+type SweepSpan = {
+  X: number;
+  W: number;
+  // Split letters: where each one starts in the word, and how wide it is.
+  LetterX: number[] | null;
+  LetterW: number[] | null;
+};
+
+type LineSweep = {
+  // One per word of the line; null for an interlude dot.
+  Spans: (SweepSpan | null)[];
+  Fade: number;
+  // Where the edge is for each word this frame, in px along the strip;
+  // -Infinity while no light has reached it.
+  Edges: number[];
+};
+
+const _lineSweeps = new WeakMap<HTMLElement, LineSweep>();
+const _sweepLineSizes = new WeakMap<Element, { W: number; H: number }>();
+let _sweepResize: ResizeObserver | null = null;
+// The line list the sweeps were measured for. Every apply makes a new one, and
+// the observer then lets go of the old lines, whatever state they were left in.
+let _sweptLines: unknown[] | null = null;
+
+function resetLineSweeps(lines: unknown[]): void {
+  if (lines === _sweptLines) return;
+  _sweptLines = lines;
+  _sweepResize?.disconnect();
+}
+
+// Measured once a line is being sung, and again when its size changes, since
+// the type is sized to the window. Height counts too: in Popup Lyrics the type
+// also follows the window's height, which changes the font without changing
+// the line's width.
+function getLineSweep(lineEl: HTMLElement, words: SyllableLead[]): LineSweep | null {
+  const kept = _lineSweeps.get(lineEl);
+  if (kept && kept.Spans.length === words.length) return kept;
+  const spans: (SweepSpan | null)[] = [];
+  let x = 0;
+  let fontPx = 0;
+  for (const word of words) {
+    if (word.Dot) {
+      spans.push(null);
+      continue;
+    }
+    const width = word.HTMLElement.offsetWidth;
+    let letterX: number[] | null = null;
+    let letterW: number[] | null = null;
+    if (word.LetterGroup && word.Letters) {
+      letterX = [];
+      letterW = [];
+      let lx = 0;
+      for (const letter of word.Letters) {
+        const lw = letter.HTMLElement.offsetWidth;
+        letterX.push(lx);
+        letterW.push(lw);
+        lx += lw;
+      }
+    }
+    if (!fontPx) fontPx = parseFloat(getComputedStyle(word.HTMLElement).fontSize) || 0;
+    spans.push({ X: x, W: width, LetterX: letterX, LetterW: letterW });
+    x += width;
+  }
+  // Not laid out: nothing to sweep, and nothing kept.
+  if (x <= 0 || fontPx <= 0) return null;
+  const sweep: LineSweep = {
+    Spans: spans,
+    Fade: fontPx * RefreshedSweep.FadeEm,
+    Edges: Array.from({ length: words.length }, () => -Infinity),
+  };
+  _lineSweeps.set(lineEl, sweep);
+  _sweepResize ??= new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      const { width, height } = entry.contentRect;
+      const prev = _sweepLineSizes.get(entry.target);
+      if (prev !== undefined && (prev.W !== width || prev.H !== height)) {
+        _lineSweeps.delete(entry.target as HTMLElement);
+      }
+      _sweepLineSizes.set(entry.target, { W: width, H: height });
+    }
+  });
+  _sweepResize.observe(lineEl);
+  return sweep;
+}
+
+function dropLineSweep(lineEl: HTMLElement): void {
+  if (!_lineSweeps.delete(lineEl)) return;
+  _sweepLineSizes.delete(lineEl);
+  _sweepResize?.unobserve(lineEl);
+}
+
+function updateLineSweep(sweep: LineSweep, words: SyllableLead[], position: number): void {
+  const { Spans: spans, Edges: edges } = sweep;
+  const half = sweep.Fade / 2;
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < spans.length; i++) {
+    if (!spans[i]) continue;
+    if (first < 0) first = i;
+    last = i;
+  }
+  // Where each word has carried the light to. The first word brings the fade
+  // in from before the line and the last takes it out past the end, so the
+  // line starts fully dim and ends fully lit.
+  let reached = -Infinity;
+  for (let i = 0; i < spans.length; i++) {
+    const span = spans[i];
+    if (!span) continue;
+    const word = words[i];
+    const from = i === first ? span.X - half : span.X;
+    const to = span.X + span.W + (i === last ? half : 0);
+    let at = -Infinity;
+    if (position >= word.EndTime) at = to;
+    else if (position > word.StartTime) {
+      at = from + ((to - from) * (position - word.StartTime)) / (word.EndTime - word.StartTime);
+    }
+    edges[i] = at;
+    if (at > reached) reached = at;
+  }
+  // A word being sung shows its own edge, so two words sung across each other
+  // both fill. One still to come is lit only by the words before it, never by
+  // a later one sung early. One already sung follows the light wherever it is.
+  let before = -Infinity;
+  for (let i = 0; i < spans.length; i++) {
+    if (!spans[i]) continue;
+    const word = words[i];
+    const at = edges[i];
+    if (position >= word.EndTime) edges[i] = reached;
+    else if (position <= word.StartTime) edges[i] = before;
+    if (at > before) before = at;
+  }
+}
+
+// --SLM_GradientPosition for a box at `x`, `width` wide, with the edge at
+// `edge`: -50 is fully dim and 100 fully lit (see Mixed.css).
+function getSweepGradientPosition(edge: number, x: number, width: number, fade: number): number {
+  if (edge === -Infinity) return -50;
+  const rest = (width + fade / 2 - (edge - x)) / (width + fade);
+  return Clamp(100 - 150 * rest, -50, 100);
+}
+
+function getSweepLetterPosition(sweep: LineSweep, wordIndex: number, letterIndex: number): number | null {
+  const span = sweep.Spans[wordIndex];
+  if (!span?.LetterX || !span.LetterW || letterIndex >= span.LetterX.length) return null;
+  return getSweepGradientPosition(
+    sweep.Edges[wordIndex],
+    span.X + span.LetterX[letterIndex],
+    span.LetterW[letterIndex],
+    sweep.Fade
+  );
+}
+
+// Writes everything about one split letter but its gradient, which is passed
+// in: the glow dims with the letter, as the text does. Returns
+// whether the letter is still moving.
+function stepRefreshedLetter(
+  letter: SplitLetter,
+  index: number,
+  strength: RefreshedWaveStrength,
+  flame: RefreshedFlameState,
+  gradient: number
+): boolean {
+  const E = RefreshedEmphasis;
+  const du = strength.Duration;
+  const at = flame.Position - flame.Start - ((du * E.Stagger) / flame.Count) * index;
+  const swell = getEmphasis(at / du);
+  const floatAt = (at + E.FloatLeadMs) / (du * E.FloatStretch);
+  const float = floatAt > 0 && floatAt < 1 ? Math.sin(floatAt * Math.PI) * flame.Float : 0;
+  const settled = swell === 0 && float === 0;
+
+  const x = -swell * E.Spread * strength.Amount * (flame.Count / 2 - index);
+  const y = -swell * E.Lift * strength.Amount - float;
+  setStyleIfChanged(
+    letter.HTMLElement,
+    "transform",
+    settled ? "none" : `translate3d(${x.toFixed(4)}em, ${y.toFixed(4)}em, 0)`
+  );
+  setStyleIfChanged(
+    letter.HTMLElement,
+    "scale",
+    `${1 + swell * E.Scale * strength.Amount}`,
+    settled ? 0 : 0.0005
+  );
+  setStyleIfChanged(
+    letter.HTMLElement,
+    "--text-shadow-blur-radius",
+    `${Math.min(E.MaxRadius, strength.Blur * E.Radius)}em`
+  );
+  const lit = Clamp((gradient + 50) / 150, 0, 1);
+  const alpha = swell * strength.Blur * (E.DimAlpha + (1 - E.DimAlpha) * lit);
+  setStyleIfChanged(
+    letter.HTMLElement,
+    "--text-shadow-opacity",
+    `${alpha * 100}%`,
+    settled ? 0 : 0.5
+  );
+  return !settled;
+}
+
 // Promote an element to its own compositor layer for GPU-accelerated animations.
 // Only lines go through here. Words, letters and dots get their layer from CSS
 // (Mixed.css) while their line is Active: an inline will-change on every word
@@ -314,8 +660,172 @@ function setStyleIfChanged(
 }
 
 // classList.add/remove queue a MutationObserver record even when nothing changes.
-function setClass(el: HTMLElement, cls: string, on: boolean): void {
-  if (el.classList.contains(cls) !== on) el.classList.toggle(cls, on);
+// True when the class changed.
+function setClass(el: HTMLElement, cls: string, on: boolean): boolean {
+  if (el.classList.contains(cls) === on) return false;
+  el.classList.toggle(cls, on);
+  return true;
+}
+
+// Flags the sung lines that come after an active one (overlapping lines,
+// background vocals), so Minimal Lyrics Mode can keep them visible instead of
+// fading every sung line out. Done here rather than with a :has() selector so
+// a line change doesn't make Blink re-check the page's ancestors. `first` is
+// the first active line index from the frame's main loop (-1 when none), so
+// only the lines after it are looked at. Last frame's marks are cleared by
+// element, so a line the virtualizer has since unmounted doesn't keep its
+// class.
+//
+// Spicy Lyric Translator puts its rows right after the line they translate and
+// hides the row of every sung line. A line followed by one isn't flagged, so it
+// stays hidden along with its translation rather than showing without it.
+const TRANSLATION_ROW_CLASSES = ["slt-interleaved-translation", "slt-replace-line", "slt-romanization-line"];
+const hasTranslationRow = (line: HTMLElement): boolean => {
+  const next = line.nextElementSibling;
+  return !!next && TRANSLATION_ROW_CLASSES.some((cls) => next.classList.contains(cls));
+};
+// Two lists swapped each frame, so the frame loop doesn't allocate one.
+let sungAfterMarked: HTMLElement[] = [];
+let sungAfterSpare: HTMLElement[] = [];
+function markSungAfterActive(
+  lines: { HTMLElement: HTMLElement; StartTime: number; EndTime: number }[],
+  position: number,
+  first: number
+): void {
+  if (first === -1 && sungAfterMarked.length === 0) return;
+  const marked = sungAfterSpare;
+  marked.length = 0;
+  if (first !== -1) {
+    for (let i = first + 1; i < lines.length; i++) {
+      const line = lines[i];
+      if (!line.HTMLElement.isConnected) continue;
+      if (getElementState(position, line.StartTime, line.EndTime) !== "Sung") continue;
+      if (hasTranslationRow(line.HTMLElement)) continue;
+      setClass(line.HTMLElement, "SungAfterActive", true);
+      marked.push(line.HTMLElement);
+    }
+  }
+  for (const el of sungAfterMarked) {
+    if (!marked.includes(el)) setClass(el, "SungAfterActive", false);
+  }
+  sungAfterSpare = sungAfterMarked;
+  sungAfterMarked = marked;
+}
+
+// Background Vocal Pop-Out (experiment): flags a background line with
+// GroupActive while it or its lead line (the nearest line above that isn't a
+// background line) is Active. Mixed.css collapses the line without it and the
+// virtualizer sizes the row from it. Kept on every line, mounted or not, so a
+// row that mounts mid-song is sized right from its first measure.
+//
+// Once both have been sung the line only folds while the list is scrolling
+// itself. A fold moves every row below it, and the virtualizer can only keep
+// the line being followed in place by re-aiming a scroll that is still moving;
+// on a list at rest it would leave that line off centre. Until then it stays
+// open as a sung line, and folds with the next scroll.
+//
+// Off, it makes one pass to clear the marks left from when it was on, then
+// returns at once.
+//
+// The virtualizer only sees class changes on mounted rows, so lines flipped
+// while unmounted are handed to it after the pass, to resize their rows.
+let bgGroupsMarked = false;
+const bgDetachedFlips: HTMLElement[] = [];
+function markBackgroundGroups(
+  lines: { HTMLElement: HTMLElement; StartTime: number; EndTime: number; BGLine?: boolean }[],
+  position: number,
+  enabled: boolean
+): void {
+  if (!enabled && !bgGroupsMarked) return;
+  bgGroupsMarked = enabled;
+  let leadState: "NotSung" | "Active" | "Sung" = "NotSung";
+  let moving: boolean | null = null;
+  for (const line of lines) {
+    const state = getElementState(position, line.StartTime, line.EndTime);
+    if (!line.BGLine) {
+      leadState = state;
+      continue;
+    }
+    let open = enabled && (leadState === "Active" || state === "Active");
+    if (
+      enabled &&
+      !open &&
+      leadState === "Sung" &&
+      state === "Sung" &&
+      line.HTMLElement.classList.contains("GroupActive")
+    ) {
+      moving ??= isLyricsListMoving();
+      open = !moving;
+    }
+    if (setClass(line.HTMLElement, "GroupActive", open) && !line.HTMLElement.isConnected) {
+      bgDetachedFlips.push(line.HTMLElement);
+    }
+  }
+  if (bgDetachedFlips.length > 0) {
+    syncDetachedBackgroundLines(bgDetachedFlips);
+    bgDetachedFlips.length = 0;
+  }
+}
+
+const smoothstep = (x: number) => {
+  const t = Clamp(x, 0, 1);
+  return t * t * (3 - 2 * t);
+};
+
+const easeInOutCos = (x: number) => 0.5 - 0.5 * Math.cos(Math.PI * Clamp(x, 0, 1));
+
+// Refreshed Simple Lyrics interlude. The dots stop bouncing: each one fills
+// from dim to lit over its own third of the interlude, and the group breathes,
+// swelling and easing back in slow whole cycles fitted to the interlude so the
+// last breath has ended by the time it closes. On opening, the dots fade in
+// one after another. The pre-hidden collapse (Mixed.css) still closes it.
+const RefreshedDots = {
+  Dim: 0.22,
+  Lit: 0.92,
+  EnterMs: 650, // one dot's fade-in
+  EnterStaggerMs: 120,
+  BreathMs: 4200, // aimed-for length of one breath
+  MinBreathMs: 2600, // interludes with less room than this don't breathe
+  BreathScale: 0.16,
+};
+
+type TimedElement = { HTMLElement: HTMLElement; StartTime: number; EndTime: number };
+
+function animateRefreshedDot(
+  line: { StartTime: number; EndTime: number },
+  dot: TimedElement,
+  index: number,
+  position: number
+): void {
+  const el = dot.HTMLElement;
+  const elapsed = position - line.StartTime;
+  const fill = easeInOutCos(getProgressPercentage(position, dot.StartTime, dot.EndTime));
+  const enter = smoothstep((elapsed - index * RefreshedDots.EnterStaggerMs) / RefreshedDots.EnterMs);
+  const opacity = (RefreshedDots.Dim + (RefreshedDots.Lit - RefreshedDots.Dim) * fill) * enter;
+  setStyleIfChanged(el, "opacity", `${opacity}`, 0.001);
+  setStyleIfChanged(el, "scale", "1", 0.001);
+  setStyleIfChanged(el, "transform", "translate3d(0, calc(var(--DefaultLyricsSize) * 0), 0)", 0.0001, 0);
+  setStyleIfChanged(el, "--text-shadow-opacity", "0%", 1);
+
+  // The group's breath, once per line. On `transform`, since the collapse
+  // animates the group's `scale`.
+  const group = el.parentElement;
+  if (index !== 0 || !group) return;
+  const room = line.EndTime - line.StartTime - preHiddenDotLineMs;
+  let scale = 1;
+  if (room >= RefreshedDots.MinBreathMs) {
+    const cycles = Math.max(1, Math.round(room / RefreshedDots.BreathMs));
+    const phase = Clamp(elapsed / (room / cycles), 0, cycles);
+    scale = 1 + RefreshedDots.BreathScale * (0.5 - 0.5 * Math.cos(2 * Math.PI * phase));
+  }
+  setStyleIfChanged(group, "transform", `scale(${scale})`, 0.0005, scale);
+}
+
+// Takes the breath back off a group the previous look is animating.
+function resetDotGroupBreath(dot: TimedElement): void {
+  const group = dot.HTMLElement.parentElement;
+  const prev = group && _styleCache.get(group)?.get("transform");
+  if (group && prev !== undefined && prev !== 1) setStyleIfChanged(group, "transform", "scale(1)", 0, 1);
 }
 
 function flushStyleBatch(): void {
@@ -339,7 +849,12 @@ const createWordSprings = () => {
         Step: () => {},
         SetGoal: () => {},
       }, */
-      YOffset: new Spring(YOffsetSpline.at(0), YOffsetFrequency, YOffsetDamping),
+      // Refreshed: critically damped, so the word comes up and stops with no overshoot.
+      YOffset: new Spring(
+        YOffsetSpline.at(0),
+        YOffsetFrequency,
+        isExperimentEnabled("refreshedSimpleLyrics") ? 1 : YOffsetDamping
+      ),
       Glow: {
         Step: () => {},
         SetGoal: () => {},
@@ -630,6 +1145,11 @@ let lastAnimateFrameTime = 0;
 
 export function Animate(position: number): void {
   const ProcessedPosition = position + timeOffset - ($simpleLyricsMode.get() ? 33.5 : 0);
+  const refreshedSimple =
+    $simpleLyricsMode.get() && isExperimentEnabled("refreshedSimpleLyrics");
+  // Spline point split letters wait at before they're sung: shrunk and low
+  // normally, plain text under the refreshed wave (which starts from rest).
+  const letterRest = refreshedSimple ? 1 : 0;
 
   const now = performance.now();
 
@@ -638,6 +1158,8 @@ export function Animate(position: number): void {
   lastAnimateFrameTime = now;
 
   const CurrentLyricsType = $currentLyricsType.get();
+
+  resetLineSweeps(LyricsObject.Types.Syllable.Lines);
 
   if (!CurrentLyricsType || CurrentLyricsType === "None") return;
 
@@ -741,9 +1263,28 @@ export function Animate(position: number): void {
   // Whether every mounted line has been sung, for LinesAllSung below.
   let mountedLine: HTMLElement | null = null;
   let anyLineUnsung = false;
+  // First active line index, for markSungAfterActive below.
+  let firstActive = -1;
+  const noteActiveLine = (index: number) => {
+    if (firstActive === -1) firstActive = index;
+  };
 
   if (CurrentLyricsType === "Syllable") {
     const arr = LyricsObject.Types.Syllable.Lines;
+    // The pop-out belongs to the refreshed layout; anywhere else every background line stays open.
+    markBackgroundGroups(arr, ProcessedPosition, isBgPopActive());
+
+    // Sweeps are measured here, before this frame changes any class, so the
+    // reads don't force a layout. A line's words are as wide before it turns
+    // Active as after.
+    if (refreshedSimple) {
+      for (const line of arr) {
+        if (!line.HTMLElement.isConnected || !line.Syllables?.Lead) continue;
+        if (getElementState(ProcessedPosition, line.StartTime, line.EndTime) === "Active") {
+          getLineSweep(line.HTMLElement, line.Syllables.Lead);
+        }
+      }
+    }
 
     for (let index = 0; index < arr.length; index++) {
       const line = arr[index];
@@ -751,6 +1292,14 @@ export function Animate(position: number): void {
       const lineState = getElementState(ProcessedPosition, line.StartTime, line.EndTime);
       mountedLine ??= line.HTMLElement;
       if (lineState !== "Sung") anyLineUnsung = true;
+      if (lineState === "Active") noteActiveLine(index);
+      if (line.AnimatedState !== lineState) {
+        // Kept while the line is Active only: the one measured above for a
+        // line turning Active this frame stays.
+        if (line.AnimatedState === "Active") dropLineSweep(line.HTMLElement);
+        line.Settling = lineState === "Sung";
+        line.AnimatedState = lineState;
+      }
 
       if (lineState === "Active") {
         if (Blurring_LastLine !== index) {
@@ -794,10 +1343,16 @@ export function Animate(position: number): void {
         }
 
         const words = line.Syllables.Lead;
+        const sweep = refreshedSimple ? getLineSweep(line.HTMLElement, words) : null;
+        if (sweep) updateLineSweep(sweep, words, ProcessedPosition);
+        // Refreshed: no word floats higher than the one before it, so a word
+        // timed out of order never stands up ahead of the line.
+        let floatCap = 1;
         for (let wordIndex = 0; wordIndex < words.length; wordIndex++) {
           const word = words[wordIndex];
           const wordState = getElementState(ProcessedPosition, word.StartTime, word.EndTime);
           const percentage = getProgressPercentage(ProcessedPosition, word.StartTime, word.EndTime);
+          const sweepSpan = sweep?.Spans[wordIndex];
 
           const isLetterGroup = word?.LetterGroup;
           const isDot = word?.Dot;
@@ -815,14 +1370,14 @@ export function Animate(position: number): void {
             let targetGlow: number;
             let targetGradientPos: number;
 
-            const totalDuration = word.EndTime - word.StartTime; // Kept for future reference
-
             if (wordState === "Active") {
               targetScale = ScaleSpline.at(percentage);
               targetYOffset = YOffsetSpline.at(percentage);
               targetGlow = GlowSpline.at(percentage);
               if ($simpleLyricsMode.get()) {
-                targetGradientPos = -50 + 120 * percentage;
+                // The refreshed look runs on to fully lit, so the step to Sung
+                // at the end of the word changes nothing.
+                targetGradientPos = -50 + (refreshedSimple ? 150 : 120) * percentage;
               } else {
                 targetGradientPos = gradientPositionAt(percentage);
               }
@@ -843,8 +1398,25 @@ export function Animate(position: number): void {
               targetGradientPos = 100;
             }
 
+            if (refreshedSimple) {
+              floatCap = Math.min(
+                floatCap,
+                getRefreshedFloat(word.StartTime, word.EndTime, ProcessedPosition)
+              );
+              targetYOffset = YOffsetSpline.at(floatCap);
+              if (sweepSpan) {
+                targetGradientPos = getSweepGradientPosition(
+                  sweep!.Edges[wordIndex],
+                  sweepSpan.X,
+                  sweepSpan.W,
+                  sweep!.Fade
+                );
+              }
+            }
+
             word.AnimatorStore.Scale.SetGoal(targetScale);
-            word.AnimatorStore.YOffset.SetGoal(targetYOffset);
+            // Refreshed: the float already eases, so the spring is pinned to it.
+            word.AnimatorStore.YOffset.SetGoal(targetYOffset, refreshedSimple);
             word.AnimatorStore.Glow.SetGoal(targetGlow);
 
             const currentScale = word.AnimatorStore.Scale.Step(deltaTime);
@@ -864,87 +1436,9 @@ export function Animate(position: number): void {
               0.0001,
               currentYOffset
             );
-            if (isLetterGroup) {
-              if ($simpleLyricsMode.get()) {
-                if (wordState === "Active") {
-                  if ($simpleLyricsModeRenderingType.get() === "animate") {
-                    const nextWord = words[wordIndex + 1];
-                    if (nextWord && !nextWord?.LetterGroup) {
-                      if (!nextWord.PreSLMAnimated) {
-                        nextWord.PreSLMAnimated = true;
-                        nextWord.HTMLElement.style.removeProperty("--SLM_GradientPosition");
-                        setTimeout(
-                          () => {
-                            nextWord.HTMLElement.style.animation = getPreSLMAnimation(250);
-                          },
-                          Number(totalDuration * 0.845 - 130) ?? totalDuration
-                        );
-                      }
-                    }
-                  }
-                }
-              }
-            }
             if (!isLetterGroup) {
               if ($simpleLyricsMode.get()) {
-                if (wordState === "Active" && !word.SLMAnimated) {
-                  if ($simpleLyricsModeRenderingType.get() === "calculate") {
-                    word.HTMLElement.style.setProperty(
-                      "--SLM_GradientPosition",
-                      `${targetGradientPos}%`
-                    );
-                  } else {
-                    word.HTMLElement.style.removeProperty("--SLM_GradientPosition");
-                    //word.HTMLElement.style.removeProperty("--SLM_TranslateY");
-                    word.HTMLElement.style.animation = getSLMAnimation(totalDuration);
-                    word.SLMAnimated = true;
-                    word.PreSLMAnimated = false;
-                    const nextWord = words[wordIndex + 1];
-                    if (nextWord) {
-                      if (!nextWord.PreSLMAnimated) {
-                        nextWord.PreSLMAnimated = true;
-                        nextWord.HTMLElement.style.removeProperty("--SLM_GradientPosition");
-                        setTimeout(
-                          () => {
-                            nextWord.HTMLElement.style.animation = getPreSLMAnimation(125);
-                          },
-                          Number(totalDuration * 0.6 - 22) ?? totalDuration
-                        );
-                      }
-                    }
-                  }
-                }
-                if (wordState === "NotSung") {
-                  if ($simpleLyricsModeRenderingType.get() === "calculate") {
-                    word.HTMLElement.style.setProperty(
-                      "--SLM_GradientPosition",
-                      `${targetGradientPos}%`
-                    );
-                  } else {
-                    if (!word.PreSLMAnimated) {
-                      word.HTMLElement.style.animation = "none";
-                      word.HTMLElement.style.setProperty("--SLM_GradientPosition", "-50%");
-                      //word.HTMLElement.style.setProperty("--SLM_TranslateY", "0.01");
-                    }
-                    word.SLMAnimated = false;
-                    /* word.PreSLMAnimated = false; */
-                  }
-                }
-                if (wordState === "Sung") {
-                  if ($simpleLyricsModeRenderingType.get() === "calculate") {
-                    word.HTMLElement.style.setProperty(
-                      "--SLM_GradientPosition",
-                      `${targetGradientPos}%`
-                    );
-                  } else {
-                    word.HTMLElement.style.animation = "none";
-                    word.HTMLElement.style.setProperty("--SLM_GradientPosition", "100%");
-                    //word.HTMLElement.style.setProperty("--SLM_TranslateY", "-0.03");
-                    //word.HTMLElement.style.animation = getSLMAnimation(0);
-                    word.SLMAnimated = false;
-                    word.PreSLMAnimated = false;
-                  }
-                }
+                setStyleIfChanged(word.HTMLElement, "--SLM_GradientPosition", `${targetGradientPos}%`);
               } else {
                 setStyleIfChanged(word.HTMLElement, "--gradient-position", `${targetGradientPos}%`);
                 if (word.RomajiElement) {
@@ -965,7 +1459,10 @@ export function Animate(position: number): void {
                 1
               );
             }
+          } else if (isDot && !isLetterGroup && refreshedSimple) {
+            animateRefreshedDot(line, word, wordIndex, ProcessedPosition);
           } else if (isDot && !isLetterGroup) {
+            if (wordIndex === 0) resetDotGroupBreath(word);
             // DotGroup
             // (still undone)
             /* {
@@ -1076,13 +1573,22 @@ export function Animate(position: number): void {
 
           if (isLetterGroup && word.Letters) {
             if (wordState === "Active") {
+              const waveStrength = refreshedSimple
+                ? getRefreshedWaveStrength(
+                    word.EndTime - word.StartTime,
+                    word.HTMLElement.classList.contains("LastWordInLine")
+                  )
+                : null;
+              const waveFlame = waveStrength
+                ? getRefreshedFlame(word.Letters, ProcessedPosition, !!word.BGWord)
+                : null;
               for (let k = 0; k < word.Letters.length; k++) {
                 const letter = word.Letters[k];
 
                 if (!letter.AnimatorStore) {
                   letter.AnimatorStore = createLetterSprings();
-                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0), true);
-                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0), true);
+                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(letterRest), true);
+                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(letterRest), true);
                   letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0), true);
                 }
 
@@ -1216,6 +1722,26 @@ export function Animate(position: number): void {
                   }
                 }
 
+                if (waveFlame) {
+                  // The line's edge where it can be measured. Otherwise the
+                  // fill goes one letter after another: a letter starts when
+                  // the one before it is lit, and ends fully lit.
+                  targetGradient =
+                    (sweep && getSweepLetterPosition(sweep, wordIndex, k)) ??
+                    (k === activeLetterIndex ? -50 + 150 * activeLetterPercentage : targetGradient);
+                }
+
+                // Apply the calculated gradient
+                if ($simpleLyricsMode.get()) {
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", `${targetGradient}%`);
+                } else {
+                  setStyleIfChanged(letter.HTMLElement, "--gradient-position", `${targetGradient}%`);
+                }
+                if (waveStrength) {
+                  stepRefreshedLetter(letter, k, waveStrength, waveFlame!, targetGradient);
+                  continue;
+                }
+
                 // Set spring goals (smooth animation)
                 letter.AnimatorStore.Scale.SetGoal(targetScale);
                 letter.AnimatorStore.YOffset.SetGoal(targetYOffset);
@@ -1226,37 +1752,6 @@ export function Animate(position: number): void {
                 const currentYOffset = letter.AnimatorStore.YOffset.Step(deltaTime);
                 const currentGlow = letter.AnimatorStore.Glow.Step(deltaTime);
 
-                const totalDuration = letter.EndTime - letter.StartTime;
-                // Apply styles from springs and calculated gradient
-                if ($simpleLyricsMode.get()) {
-                  if ($simpleLyricsModeRenderingType.get() === "calculate") {
-                    letter.HTMLElement.style.setProperty(
-                      "--SLM_GradientPosition",
-                      `${targetGradient}%`
-                    );
-                  } else {
-                    if (letterState === "Active" && !letter.SLMAnimated) {
-                      letter.HTMLElement.style.removeProperty("--SLM_GradientPosition");
-                      letter.HTMLElement.style.animation = getSLMAnimation(totalDuration);
-                      letter.SLMAnimated = true;
-                    }
-                    if (letterState === "NotSung") {
-                      if (!letter.PreSLMAnimated) {
-                        letter.HTMLElement.style.animation = "none";
-                        letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "-50%");
-                      }
-                      letter.SLMAnimated = false;
-                    }
-                    if (letterState === "Sung") {
-                      letter.HTMLElement.style.animation = "none";
-                      letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "100%");
-                      // letter.HTMLElement.style.animation = getSLMAnimation(0);
-                      letter.SLMAnimated = false;
-                    }
-                  }
-                } else {
-                  setStyleIfChanged(letter.HTMLElement, "--gradient-position", `${targetGradient}%`);
-                }
                 // Use translate3d to ensure GPU-accelerated transforms
                 setStyleIfChanged(
                   letter.HTMLElement,
@@ -1280,18 +1775,38 @@ export function Animate(position: number): void {
                 );
               }
             } else if (wordState === "NotSung" && word.Letters) {
+              // Pinned to rest, not eased there: a word left raised by an
+              // earlier pass (seeking back) would otherwise spring down and
+              // wobble before it starts.
+              const restStrength = refreshedSimple
+                ? getRefreshedWaveStrength(
+                    word.EndTime - word.StartTime,
+                    word.HTMLElement.classList.contains("LastWordInLine")
+                  )
+                : null;
+              const restFlame = restStrength
+                ? getRefreshedFlame(word.Letters, ProcessedPosition, !!word.BGWord)
+                : null;
               for (let k = 0; k < word.Letters.length; k++) {
                 const letter = word.Letters[k];
 
                 if (!letter.AnimatorStore) {
                   letter.AnimatorStore = createLetterSprings();
-                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0), true);
-                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0), true);
+                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(letterRest), true);
+                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(letterRest), true);
                   letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0), true);
                 }
 
-                letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0));
-                letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0));
+                if (restStrength) {
+                  // The edge of the word before can already reach in.
+                  const gradient = (sweep && getSweepLetterPosition(sweep, wordIndex, k)) ?? -50;
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", `${gradient}%`);
+                  stepRefreshedLetter(letter, k, restStrength, restFlame!, gradient);
+                  continue;
+                }
+
+                letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(letterRest));
+                letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(letterRest));
                 letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0));
 
                 const currentScale = letter.AnimatorStore.Scale.Step(deltaTime);
@@ -1299,8 +1814,7 @@ export function Animate(position: number): void {
                 const currentGlow = letter.AnimatorStore.Glow.Step(deltaTime);
 
                 if ($simpleLyricsMode.get()) {
-                  letter.HTMLElement.style.animation = "none";
-                  letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "-50%");
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", "-50%");
                 } else {
                   setStyleIfChanged(letter.HTMLElement, "--gradient-position", `${GradientUnsungPosition}%`);
                 }
@@ -1327,14 +1841,32 @@ export function Animate(position: number): void {
                 );
               }
             } else if (wordState === "Sung" && word.Letters) {
+              // The letters settle after the word, where it ended.
+              const sungStrength = refreshedSimple
+                ? getRefreshedWaveStrength(
+                    word.EndTime - word.StartTime,
+                    word.HTMLElement.classList.contains("LastWordInLine")
+                  )
+                : null;
+              const sungFlame = sungStrength
+                ? getRefreshedFlame(word.Letters, ProcessedPosition, !!word.BGWord)
+                : null;
               for (let k = 0; k < word.Letters.length; k++) {
                 const letter = word.Letters[k];
 
                 if (!letter.AnimatorStore) {
                   letter.AnimatorStore = createLetterSprings();
-                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0), true);
-                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0), true);
+                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(letterRest), true);
+                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(letterRest), true);
                   letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0), true);
+                }
+
+                if (sungStrength) {
+                  // The last letters finish lighting as the edge moves on.
+                  const gradient = (sweep && getSweepLetterPosition(sweep, wordIndex, k)) ?? 100;
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", `${gradient}%`);
+                  stepRefreshedLetter(letter, k, sungStrength, sungFlame!, gradient);
+                  continue;
                 }
 
                 letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(1));
@@ -1346,8 +1878,7 @@ export function Animate(position: number): void {
                 const currentGlow = letter.AnimatorStore.Glow.Step(deltaTime);
 
                 if ($simpleLyricsMode.get()) {
-                  letter.HTMLElement.style.animation = "none";
-                  letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "100%");
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", "100%");
                 } else {
                   setStyleIfChanged(letter.HTMLElement, "--gradient-position", `100%`);
                 }
@@ -1476,18 +2007,42 @@ export function Animate(position: number): void {
           } */
         }
 
-        const checkNextLine = () => {
+        // Steps the line's words to their sung values. Returns whether every
+        // spring has come to rest.
+        const checkNextLine = (): boolean => {
           const words = line.Syllables?.Lead;
-          if (!words) return;
+          if (!words) return true;
+          let settled = true;
+          const track = (springs: Record<string, any>) => {
+            if (!settled) return;
+            for (const key in springs) {
+              if (springs[key].CanSleep && !springs[key].CanSleep()) {
+                settled = false;
+                return;
+              }
+            }
+          };
+          let floatCap = 1;
           for (let i = 0; i < words.length; i++) {
             const word = words[i];
             if (word.AnimatorStore && !word.Dot) {
               word.AnimatorStore.Scale.SetGoal(ScaleSpline.at(1));
-              word.AnimatorStore.YOffset.SetGoal(YOffsetSpline.at(1));
+              if (refreshedSimple) {
+                // The last words of a line are still floating up after it ends.
+                floatCap = Math.min(
+                  floatCap,
+                  getRefreshedFloat(word.StartTime, word.EndTime, ProcessedPosition)
+                );
+                if (floatCap < 1) settled = false;
+                word.AnimatorStore.YOffset.SetGoal(YOffsetSpline.at(floatCap), true);
+              } else {
+                word.AnimatorStore.YOffset.SetGoal(YOffsetSpline.at(1));
+              }
               word.AnimatorStore.Glow.SetGoal(GlowSpline.at(1));
               const currentScale = word.AnimatorStore.Scale.Step(deltaTime);
               const currentYOffset = word.AnimatorStore.YOffset.Step(deltaTime);
               const currentGlow = word.AnimatorStore.Glow.Step(deltaTime);
+              track(word.AnimatorStore);
               //if (!$simpleLyricsMode.get()) {
               // Use translate3d to ensure GPU-accelerated transforms
               setStyleIfChanged(
@@ -1504,8 +2059,7 @@ export function Animate(position: number): void {
               }
               if (!word.LetterGroup) {
                 if ($simpleLyricsMode.get()) {
-                  word.HTMLElement.style.animation = "none";
-                  word.HTMLElement.style.setProperty("--SLM_GradientPosition", "100%");
+                  setStyleIfChanged(word.HTMLElement, "--SLM_GradientPosition", "100%");
                 } else {
                   setStyleIfChanged(word.HTMLElement, "--gradient-position", "100%");
                   if (word.RomajiElement) {
@@ -1660,6 +2214,7 @@ export function Animate(position: number): void {
               const currentYOffset = word.AnimatorStore.YOffset.Step(deltaTime);
               const currentGlow = word.AnimatorStore.Glow.Step(deltaTime);
               const currentOpacity = word.AnimatorStore.Opacity.Step(deltaTime);
+              track(word.AnimatorStore);
 
               setStyleIfChanged(
                 word.HTMLElement,
@@ -1684,14 +2239,32 @@ export function Animate(position: number): void {
               );
             }
             if (word.LetterGroup && word.Letters) {
+              const sungStrength = refreshedSimple
+                ? getRefreshedWaveStrength(
+                    word.EndTime - word.StartTime,
+                    word.HTMLElement.classList.contains("LastWordInLine")
+                  )
+                : null;
+              const sungFlame = sungStrength
+                ? getRefreshedFlame(word.Letters, ProcessedPosition, !!word.BGWord)
+                : null;
               for (let k = 0; k < word.Letters.length; k++) {
                 const letter = word.Letters[k];
 
                 if (!letter.AnimatorStore) {
                   letter.AnimatorStore = createLetterSprings();
-                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(0), true);
-                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(0), true);
+                  letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(letterRest), true);
+                  letter.AnimatorStore.YOffset.SetGoal(LetterYOffsetSpline.at(letterRest), true);
                   letter.AnimatorStore.Glow.SetGoal(GlowSpline.at(0), true);
+                }
+
+                if (sungStrength) {
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", "100%");
+                  // A letter still up keeps the line settling until it's back at rest.
+                  if (stepRefreshedLetter(letter, k, sungStrength, sungFlame!, 100)) {
+                    settled = false;
+                  }
+                  continue;
                 }
 
                 letter.AnimatorStore.Scale.SetGoal(LetterScaleSpline.at(1));
@@ -1701,10 +2274,10 @@ export function Animate(position: number): void {
                 const currentScale = letter.AnimatorStore.Scale.Step(deltaTime);
                 const currentYOffset = letter.AnimatorStore.YOffset.Step(deltaTime);
                 const currentGlow = letter.AnimatorStore.Glow.Step(deltaTime);
+                track(letter.AnimatorStore);
 
                 if ($simpleLyricsMode.get()) {
-                  letter.HTMLElement.style.animation = "none";
-                  letter.HTMLElement.style.setProperty("--SLM_GradientPosition", "100%");
+                  setStyleIfChanged(letter.HTMLElement, "--SLM_GradientPosition", "100%");
                 } else {
                   setStyleIfChanged(letter.HTMLElement, "--gradient-position", `100%`);
                 }
@@ -1731,21 +2304,24 @@ export function Animate(position: number): void {
               }
             }
           }
+          return settled;
         };
 
         {
           const NextLine = arr[index + 1];
-          if (NextLine) {
-            const nextLineStatus = getElementState(
-              ProcessedPosition,
-              NextLine.StartTime,
-              NextLine.EndTime
-            );
-            if (nextLineStatus === "NotSung" || nextLineStatus === "Active") {
-              checkNextLine();
-            }
-          } else if (!NextLine) {
-            checkNextLine();
+          const nextLineStatus = NextLine
+            ? getElementState(ProcessedPosition, NextLine.StartTime, NextLine.EndTime)
+            : null;
+          // A line keeps settling until its springs rest, even when the line
+          // after it has already ended: with overlapping lines that one can end
+          // first, and the late line would otherwise freeze mid-animation.
+          if (
+            line.Settling ||
+            !NextLine ||
+            nextLineStatus === "NotSung" ||
+            nextLineStatus === "Active"
+          ) {
+            if (checkNextLine()) line.Settling = false;
           }
         }
       }
@@ -1759,6 +2335,7 @@ export function Animate(position: number): void {
       const lineState = getElementState(ProcessedPosition, line.StartTime, line.EndTime);
       mountedLine ??= line.HTMLElement;
       if (lineState !== "Sung") anyLineUnsung = true;
+      if (lineState === "Active") noteActiveLine(index);
 
       if (lineState === "Active") {
         if (Blurring_LastLine !== index) {
@@ -1803,6 +2380,12 @@ export function Animate(position: number): void {
               dot.StartTime,
               dot.EndTime
             );
+
+            if (refreshedSimple) {
+              animateRefreshedDot(line, dot, i, ProcessedPosition);
+              continue;
+            }
+            if (i === 0) resetDotGroupBreath(dot);
 
             // Refactored Dot Animation using Springs for Line Type
             if (!dot.AnimatorStore) {
@@ -1942,6 +2525,14 @@ export function Animate(position: number): void {
         }
       }
     }
+  }
+  if (CurrentLyricsType === "Syllable" || CurrentLyricsType === "Line") {
+    // Off, -1 clears the marks left from when it was on.
+    markSungAfterActive(
+      LyricsObject.Types[CurrentLyricsType].Lines,
+      ProcessedPosition,
+      isExperimentEnabled("keepOverlappingLines") ? firstActive : -1
+    );
   }
   // Stands in for `.LyricsContent:not(:has(.line.Active)):not(:has(.line.NotSung))`
   // in Mixed.css: with line classes inside a :has(), every line change made

@@ -234,8 +234,53 @@ body.player-floating:has(.glassify-bg) #SpicyLyricsPage:not(.Fullscreen) .ViewCo
   fill: none !important;
 }
 
-#SpicyLyricsPage .ViewControls .ViewControl#Close svg {
-  scale: 1.15;
+/* Icon parts (Icons.ts) follow page state, so the icon always shows the layout the page has. */
+#SpicyLyricsPage .ViewControls .SL_IconPart {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--dur-base, 0.25s) var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+#SpicyLyricsPage.NowBarSide__Right .ViewControls #NowBarToggle .SL_IconCover {
+  transform: translateX(9px);
+}
+
+#SpicyLyricsPage.NowBarSide__Right .ViewControls #NowBarToggle .SL_IconLyrics {
+  transform: translateX(-12.5px);
+}
+
+#SpicyLyricsPage.NowBarSide__Right .ViewControls #NowBarSideToggle .SL_IconCover {
+  transform: translateX(7px);
+}
+
+#SpicyLyricsPage.NowBarSide__Right .ViewControls .SL_IconSwapArrow {
+  transform: translateX(-8px) rotate(180deg);
+}
+
+/* Hover leans each part toward what the button will do: corners out, the gear a tooth on. */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+  #SpicyLyricsPage .ViewControls .ViewControl:hover .SL_NudgeTL { translate: -1px -1px; }
+  #SpicyLyricsPage .ViewControls .ViewControl:hover .SL_NudgeTR { translate: 1px -1px; }
+  #SpicyLyricsPage .ViewControls .ViewControl:hover .SL_NudgeBR { translate: 1px 1px; }
+  #SpicyLyricsPage .ViewControls .ViewControl:hover .SL_NudgeBL { translate: -1px 1px; }
+  #SpicyLyricsPage .ViewControls .ViewControl:hover .SL_IconGear { rotate: 45deg; }
+}
+
+#SpicyLyricsPage .ViewControls .SL_NudgeTL,
+#SpicyLyricsPage .ViewControls .SL_NudgeTR,
+#SpicyLyricsPage .ViewControls .SL_NudgeBR,
+#SpicyLyricsPage .ViewControls .SL_NudgeBL,
+#SpicyLyricsPage .ViewControls .SL_IconGear {
+  transition:
+    transform var(--dur-base, 0.25s) var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)),
+    translate 0.2s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1)),
+    rotate 0.3s var(--ease-out, cubic-bezier(0.23, 1, 0.32, 1));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #SpicyLyricsPage .ViewControls .SL_IconPart {
+    transition: none;
+  }
 }
 
 #SpicyLyricsPage .ViewControls .ViewControl.AIRefined {
@@ -426,6 +471,200 @@ body:not(.SpicyLyrics_StaticBackground)
   border: 1px solid hsla(0, 0%, 100%, 0.5);
 }
 
+/* Spotify's newer NPV layout (enableNowPlayingViewTraits). Its classes are hashed
+   differently on every build, but the panel root carries [data-npv-root] and
+   paints through variables: itself with --background-base, every section card
+   with --section-background-base. Inside the scroll content, the cards are the
+   children of the info block's children (the sections list and the "Next in
+   queue" wrapper); nested cards such as "About the artist" reuse the same
+   variable, so it's cleared below the cards to keep the tint from stacking. */
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root] {
+  --background-tint: color-mix(in srgb, rgb(var(--spice-rgb-selected-row)) 7%, transparent);
+  --spice-card: var(--background-tint);
+  --background-tinted-base: var(--background-tint);
+  --section-background-base: var(--background-tint);
+  background-color: transparent;
+}
+
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root]
+  [data-overlayscrollbars-viewport] > * > * > * > * > * {
+  --section-background-base: transparent;
+}
+
+/* Tour date badges paint --background-base, the old panel colour. */
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root] a time:has(> p) {
+  background: rgba(255, 255, 255, 0.078);
+}
+
+/* The header fills in with --background-base and a shadow as the panel scrolls (a
+   scroll-driven animation on --npv-scroll). It gets the legacy layout's header
+   instead (default.scss): clear, over a blur that eases in once the panel is
+   scrolled, while the content slides down and fades out under it. The blur sits
+   behind the header's own content, which is all static. The legacy layout
+   keeps the blur at rest too, but over a bright Canvas that cuts a hard edge
+   at the header's bottom, so here it waits for the scroll.
+   app.tsx sets data-sl-npv-scrolled on the panel root while it's scrolled, so
+   these play as timed transitions, as on the legacy layout, rather than
+   following the scroll position. It also sets data-sl-npv-canvas while a Canvas
+   is showing: the legacy header floats over a Canvas but sits above the content
+   without one, so there the content is cut off at the header's bottom. */
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root] > :first-child:not([data-scroll-background-disabled]) {
+  animation: none;
+  isolation: isolate;
+}
+
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root] > :first-child:not([data-scroll-background-disabled])::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  transition: backdrop-filter .5s ease, bottom .5s step-end;
+}
+
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root][data-sl-npv-scrolled] > :first-child:not([data-scroll-background-disabled])::before {
+  backdrop-filter: blur(6px);
+}
+
+/* Without a Canvas the content moves up 4px into the header (below), and the
+   legacy content paints over the header's blur, so the blur stops where the
+   content starts, until it has faded back out. */
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root][data-sl-npv-scrolled]:not([data-sl-npv-canvas]) > :first-child:not([data-scroll-background-disabled])::before {
+  bottom: 4px;
+  transition: backdrop-filter .5s ease;
+}
+
+@property --sl_npvFadeFrom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+/* The host fills a block parent that clips it, so it gives up the height it's
+   pushed down by rather than taking a bottom margin as on the legacy layout.
+   The mask stays set at rest, as on the legacy layout, so it follows the fade
+   both ways. It makes the host a backdrop root, so glass inside it blurs only
+   the host's own content.
+   Without a Canvas the host still runs under the header, so the mask starts
+   --sl_npvFadeFrom down (outside it the host is hidden): the header's 4rem while
+   scrolled, from the moment the panel scrolls until the fade has run back out,
+   so the fade always starts at the header's bottom and runs over the same
+   height as the legacy content's. The host also moves up 4px there, at once
+   and easing back, as the legacy content does. */
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root] > :first-child:not([data-scroll-background-disabled])
+  ~ [data-overlayscrollbars] {
+  --sl_rsb-wrapperFade: 0%;
+  --sl_npvFadeFrom: 0px;
+  top: 0;
+  height: 100%;
+  mask-image: linear-gradient(to bottom, transparent 0%, black var(--sl_rsb-wrapperFade));
+  mask-position: 0 var(--sl_npvFadeFrom);
+  mask-size: 100% calc(100% - var(--sl_npvFadeFrom));
+  mask-repeat: no-repeat;
+  transition: top .5s ease, height .5s ease, --sl_rsb-wrapperFade .5s ease, --sl_npvFadeFrom .5s step-end;
+}
+
+/* The expanded lyrics card starts at the host's top, so it doesn't wait for it. */
+body.SpicyLyrics_NPVCardExpanded:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root]:not([data-sl-npv-scrolled]) > :first-child:not([data-scroll-background-disabled])
+  ~ [data-overlayscrollbars] {
+  --sl_npvFadeFrom: 0px;
+  transition: top .5s ease, height .5s ease, --sl_rsb-wrapperFade .5s ease;
+}
+
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root][data-sl-npv-scrolled] > :first-child:not([data-scroll-background-disabled])
+  ~ [data-overlayscrollbars] {
+  --sl_rsb-wrapperFade: 10%;
+  --sl_npvFadeFrom: 4rem;
+  top: -4px;
+  height: calc(100% + 4px);
+  transition: --sl_rsb-wrapperFade .5s ease;
+}
+
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this > [data-npv-root][data-sl-npv-scrolled][data-sl-npv-canvas] > :first-child:not([data-scroll-background-disabled])
+  ~ [data-overlayscrollbars] {
+  --sl_rsb-wrapperFade: 20%;
+  --sl_npvFadeFrom: 0px;
+  top: 2rem;
+  height: calc(100% - 2rem);
+  transition: top .5s ease, height .5s ease, --sl_rsb-wrapperFade .5s ease;
+}
+
+/* The Canvas's scrims darken to the old panel colour, solid at the bottom, which
+   cut a hard edge across the dynamic background. The video sits in the first
+   child of the surface's wrapper and the scrims in the one after it; the video
+   already fades out on its own (spicy-dynamic-bg.css). */
+body:not(.SpicyLyrics_StaticBackground)
+  aside.spicy-dynamic-bg-in-this [data-canvas-surface] > * > :not(:first-child) {
+  display: none;
+}
+
+/* The info column under the cover (title row, sections, queue) is kept on its own
+   compositor layer, which snaps it to the device pixel grid apart from the rest of
+   the panel: at fractional zoom, text and images in it landed a pixel off from the
+   legacy layout's. Without the hint it's painted with the panel, as there; a
+   transform animation still gets its own layer while it runs. */
+[data-npv-root] > [data-overlayscrollbars] [data-overlayscrollbars-viewport] > :first-child > :nth-child(2) {
+  will-change: auto;
+}
+
+/* The legacy layout's scroll content tones subdued text (subtitles, credits roles,
+   the queue's artists) as translucent text colour rather than solid grey. */
+[data-npv-root] > [data-overlayscrollbars] [data-overlayscrollbars-viewport] > :first-child {
+  --text-subdued: rgba(var(--spice-rgb-text), 0.7019607843137254);
+}
+
+/* "Next in queue" (app.tsx marks it): the legacy card is 8px shorter at the bottom. */
+[data-npv-root] [data-sl-npv-queue] > :first-child {
+  padding-bottom: 8px;
+}
+
+/* A list row's labelled icon (e.g. a music video's) is followed by its label and a
+   separator on the legacy layout; the icon's label is the same localized text. */
+[data-npv-root] [data-encore-id="listRowSubtitle"] [data-encore-id="text"][aria-label][title]::before {
+  content: attr(aria-label);
+  order: 1;
+  font-size: 14px;
+}
+
+[data-npv-root] [data-encore-id="listRowSubtitle"] [data-encore-id="text"][aria-label][title]::after {
+  content: "•";
+  order: 2;
+  font-size: 14px;
+}
+
+/* The track's title row (app.tsx marks it): as tall as the legacy layout's, which
+   holds a 56px cover slot, with its text centred in it and the same space below,
+   and the artists at the legacy size and tone. The names sit in a 14px span
+   coloured through a --text-subdued that's white at that depth. */
+[data-npv-root] [data-sl-npv-track-info] {
+  min-height: 56px;
+  margin-bottom: 8px;
+}
+
+[data-npv-root] [data-sl-npv-track-info] a[href^="/artist/"] {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+[data-npv-root] [data-sl-npv-track-info] a[href^="/artist/"]:is(:hover, :focus, :active) {
+  color: var(--spice-text);
+}
+
+[data-npv-root] [data-sl-npv-track-info] a[href^="/artist/"] > * {
+  color: inherit;
+  font-size: 16px;
+}
+
 /* Mirrors Spotify's .main-nowPlayingBar-lyricsButton rule, which our buttons no longer carry. */
 .SpicyLyrics_PlaybarButton {
   flex-shrink: 0;
@@ -480,7 +719,7 @@ button:has(#SpicyLyricsPageSvg)::after {
   transform: translateX(-50%) !important;
 }
 
-button:has(#SpicyLyricsPageSvg):not(.main-genericButton-buttonActive, .main-genericButton-buttonActiveDot)::after {
+button:has(#SpicyLyricsPageSvg):not(.main-genericButton-buttonActive, .main-genericButton-buttonActiveDot, .OJsKOflU3SmUHnQ5_QKE)::after {
   content: unset;
 }
 

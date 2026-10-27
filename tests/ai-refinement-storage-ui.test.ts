@@ -149,7 +149,7 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(settingsCss, /sl-modal-container-large:has\(\.sl-ai-request-composer\)/);
   assert.match(settingsCss, /select option \{ background: #fff; color: #111; \}/);
   assert.match(settingsCss, /flex-wrap: wrap/);
-  const lyricsUi = read("src/components/ReactComponents/SettingsPanel/LyricsSection.tsx");
+  const lyricsUi = read("src/components/ReactComponents/SettingsPanel/ForkSettings.tsx");
   assert.match(lyricsUi, /Google Transliteration Fallback/);
   assert.match(lyricsUi, /Lyrics are sent to Google when needed/);
   assert.match(lyricsUi, /Target Orthography/);
@@ -184,8 +184,9 @@ test("AI features are a first-class settings section, not hidden in Experiments"
   const experiments = read("src/utils/experiments.ts");
   assert.doesNotMatch(panel, /AIRefinementSettings/);
   assert.doesNotMatch(experiments, /aiRefinement/);
-  assert.match(settings, /AITranslationSection/);
-  assert.match(settings, /"AI Features"/);
+  assert.match(settings, /aiSection/);
+  assert.match(read("src/components/ReactComponents/SettingsPanel/ForkSettings.tsx"), /AIRefinementSettings/);
+  assert.match(read("src/components/ReactComponents/SettingsPanel/ForkSettings.tsx"), /"AI Features"/);
 });
 
 test("key storage and cache clearing remain separated from normal settings and credentials", () => {

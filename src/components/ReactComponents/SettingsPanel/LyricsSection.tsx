@@ -1,367 +1,112 @@
 import { useStore } from "@nanostores/react";
-import React from "react";
 import {
-  $adaptiveSectioning,
+  $creditsFollowLastLine,
+  $duetLinePadding,
+  $joinSplitWords,
   $lineHoverBackground,
   $minimalLyricsMode,
   $simpleLyricsMode,
-  $simpleLyricsModeRenderingType,
-  $soundBackend,
-  $googleSoundFallback,
-  $soundTargetOrthography,
-  type SoundBackend,
-  type SoundOrthography,
 } from "../../../utils/stores.ts";
-import {
-  $chineseCharacterForm,
-  $chineseTones,
-  $chineseTranslitMode,
-  $cyrillicKeepSigns,
-  $cyrillicRomanizationMode,
-  $japaneseReadingMode,
-  $chineseReadingPlacement,
-  $joinMandarinWords,
-  $koreanDisplayMode,
-  $lyricsCopyFormat,
-  $showChineseTranslitButton,
-  $translationEnabled,
-  $translationTargetLang,
-} from "../../../utils/uiState.ts";
-import { matches, Row, Select, SectionTitle, Toggle } from "./components.tsx";
-import { isJyutpingTranslitMode } from "../../../utils/Lyrics/Fork/Romanization.ts";
+import { Toggle } from "./components.tsx";
+import { LyricsIcon } from "./icons.tsx";
+import type { GroupDef, SectionDef } from "./model.ts";
+import { forkLyricsGroups } from "./ForkSettings.tsx";
 
-const SECTION_NAME = "Lyrics Display";
-
-const SIMPLE_RENDERING_OPTIONS = ["calculate", "animate"];
-const CHINESE_TRANSLIT_OPTIONS = [
-  { value: "pinyin", label: "Mandarin Pinyin" },
-  { value: "pinyin-vn", label: "Mandarin eza式" },
-  { value: "jyutping", label: "Cantonese Jyutping" },
-  { value: "jyutping-vn", label: "Cantonese eza式" },
-] as const;
-const KOREAN_ROMANIZATION_OPTIONS = [
-  { value: "wordTranslit", label: "Word-by-word transliteration" },
-  { value: "rrStandard", label: "Standard Korean RR" },
-  { value: "rrPronunciation", label: "Follow pronunciation (RR)" },
-  { value: "vnPronunciation", label: "Follow pronunciation (eza式)" },
-] as const;
-const CYRILLIC_ROMANIZATION_OPTIONS = ["Russian", "Ukrainian"];
-
-const JAPANESE_READING_OPTIONS = [
-  { value: "romaji", label: "Romaji line only" },
-  { value: "furigana", label: "Furigana only" },
-  { value: "both", label: "Furigana + romaji line" },
-] as const;
-
-const TRANSLATION_TARGETS = [
-  { value: "en", label: "English" },
-  { value: "ja", label: "Japanese" },
-  { value: "ko", label: "Korean" },
-  { value: "zh-CN", label: "Chinese (Simplified)" },
-  { value: "zh-TW", label: "Chinese (Traditional)" },
-  { value: "es", label: "Spanish" },
-  { value: "fr", label: "French" },
-  { value: "de", label: "German" },
-  { value: "it", label: "Italian" },
-  { value: "pt", label: "Portuguese" },
-  { value: "pl", label: "Polish" },
-  { value: "ru", label: "Russian" },
-  { value: "uk", label: "Ukrainian" },
-  { value: "tr", label: "Turkish" },
-  { value: "id", label: "Indonesian" },
-  { value: "vi", label: "Vietnamese" },
-  { value: "th", label: "Thai" },
-  { value: "hi", label: "Hindi" },
-] as const;
-
-const LYRICS_COPY_FORMAT_OPTIONS = [
-  { value: "plain", label: "Plain lyrics" },
-  { value: "timestamps", label: "Lyrics + timestamps" },
-  { value: "translation", label: "Lyrics + translation" },
-  { value: "transliteration", label: "Lyrics + transliteration" },
-  { value: "metadata", label: "Artist/title + lyrics" },
-] as const;
-
-const optionValues = <T extends readonly { value: string }[]>(options: T) => options.map(({ value }) => value);
-const optionLabels = <T extends readonly { label: string }[]>(options: T) => options.map(({ label }) => label);
-
-interface Props {
-  query: string;
-  sectionFilter: string;
-}
-
-export default function LyricsSection({ query, sectionFilter }: Props) {
-  const simpleLyricsMode = useStore($simpleLyricsMode);
-  const simpleLyricsModeRenderingType = useStore($simpleLyricsModeRenderingType);
-  const minimalLyricsMode = useStore($minimalLyricsMode);
-  const adaptiveSectioning = useStore($adaptiveSectioning);
-  const lineHoverBackground = useStore($lineHoverBackground);
-  const chineseTranslitMode = useStore($chineseTranslitMode);
-  const chineseTones = useStore($chineseTones);
-  const chineseCharacterForm = useStore($chineseCharacterForm);
-  const joinMandarinWords = useStore($joinMandarinWords);
-  const chineseReadingPlacement = useStore($chineseReadingPlacement);
-  const japaneseReadingMode = useStore($japaneseReadingMode);
-  const koreanDisplayMode = useStore($koreanDisplayMode);
-  const cyrillicRomanizationMode = useStore($cyrillicRomanizationMode);
-  const cyrillicKeepSigns = useStore($cyrillicKeepSigns);
-  const translationEnabled = useStore($translationEnabled);
-  const translationTargetLang = useStore($translationTargetLang);
-  const soundBackend = useStore($soundBackend);
-  const googleSoundFallback = useStore($googleSoundFallback);
-  const soundTargetOrthography = useStore($soundTargetOrthography);
-  const lyricsCopyFormat = useStore($lyricsCopyFormat);
-  const showChineseTranslitButton = useStore($showChineseTranslitButton);
-
-  if (sectionFilter !== "All" && sectionFilter !== SECTION_NAME) return null;
-
-  const showSimpleLyricsMode = matches(query, "Simple Lyrics Mode", "Remove extra visual effects from lyrics");
-  const showSimpleRenderingStyle = matches(query, "Simple Mode: Text Animation Style", "How lyrics text transitions are rendered in Simple Lyrics Mode.");
-  const showMinimalLyricsMode = matches(query, "Minimal Lyrics Mode", "Hides sung lyrics lines in Fullscreen and Cinema Mode");
-  const showAdaptiveSectioning = matches(query, "Adaptive Sectioning", "Keep Japanese semantic groups together and improve wrapping for reading and translation rows.");
-  const showLineHoverBackground = matches(query, "Line Hover Background", "Show a highlight box behind a lyrics line when you hover over it.");
-  const showChineseTransliteration = matches(query, "Chinese Transliteration", "Choose Mandarin pinyin, Cantonese jyutping, or eza式 for Chinese lyrics.");
-  const showChineseTones = matches(query, "Chinese Tones", "Show Mandarin tone marks and Cantonese jyutping tone numbers.");
-  const showChineseCharacterForm = matches(query, "Chinese Character Form", "Keep original characters or convert Chinese lyrics locally.");
-  const showMandarinWordGrouping = matches(query, "Group Pinyin by Word", "Keep Pinyin syllables together when they form one Mandarin word.");
-  const showChineseReadingPlacement = matches(query, "Chinese Reading Placement", "Put the reading under the line, under each word, or above each word.");
-  const showJapaneseReadingDisplay = matches(query, "Japanese Reading Display", "Choose romaji, furigana, or both for Japanese lyrics.");
-  const showKoreanDisplay = matches(query, "Korean Display", "Choose Korean transliteration mode for the extra romanized line.");
-  const showCyrillicRomanization = matches(query, "Cyrillic Language", "Choose Russian or Ukrainian Cyrillic romanization rules.");
-  const showCyrillicKeepSigns = matches(query, "Keep Cyrillic Signs", "Preserve Cyrillic hard and soft sign marks.");
-  const showLyricsTranslation = matches(query, "Lyrics Translation", "Show translated lyrics under each line.");
-  const showGoogleSoundFallback = matches(query, "Google Transliteration Fallback", "Use Google transliteration when the built-in path has no reading.");
-  const showSoundTarget = matches(query, "Target Orthography", "Choose the script used for AI pronunciation.");
-  const showTranslationTarget = matches(query, "Translation Target Language", "Language used for lyrics translation.");
-  const showChineseQuickButton = matches(query, "Chinese Transliteration Quick Button", "Show the pinyin/jyutping toggle in lyrics controls when Chinese lyrics are detected.");
-  const showCopyFormat = matches(query, "Copy Lyrics Format", "Choose what the lyrics copy button writes to clipboard.");
-
-  const hasVisibleRows =
-    showSimpleLyricsMode ||
-    showSimpleRenderingStyle ||
-    showMinimalLyricsMode ||
-    showAdaptiveSectioning ||
-    showLineHoverBackground ||
-    showChineseTransliteration ||
-    showChineseTones ||
-    showChineseCharacterForm ||
-    showMandarinWordGrouping ||
-    showChineseReadingPlacement ||
-    showJapaneseReadingDisplay ||
-    showKoreanDisplay ||
-    showCyrillicRomanization ||
-    showCyrillicKeepSigns ||
-    showLyricsTranslation ||
-    showGoogleSoundFallback ||
-    showSoundTarget ||
-    showTranslationTarget ||
-    showChineseQuickButton ||
-    showCopyFormat;
-
-  if (!hasVisibleRows) return null;
-
-  return (
-    <>
-      <SectionTitle>Lyrics Display</SectionTitle>
-
-      {showSimpleLyricsMode && (
-        <Row label="Simple Lyrics Mode" description="Remove extra visual effects from lyrics">
-          <Toggle checked={simpleLyricsMode} onChange={(v) => $simpleLyricsMode.set(v)} />
-        </Row>
-      )}
-
-      {showSimpleRenderingStyle && (
-        <Row
-          label="Simple Mode: Text Animation Style"
-          description="How lyrics text transitions are rendered in Simple Lyrics Mode."
-          disabled={!simpleLyricsMode}
-          disabledReason="Enable Simple Lyrics Mode to modify this setting"
-        >
-          <Select
-            value={simpleLyricsModeRenderingType}
-            options={SIMPLE_RENDERING_OPTIONS}
-            onChange={(v) => $simpleLyricsModeRenderingType.set(v)}
-            disabled={!simpleLyricsMode}
-          />
-        </Row>
-      )}
-
-      {showMinimalLyricsMode && (
-        <Row
-          label="Minimal Lyrics Mode"
-          description="Hides sung lyrics lines in Fullscreen and Cinema Mode"
-        >
-          <Toggle checked={minimalLyricsMode} onChange={(v) => $minimalLyricsMode.set(v)} />
-        </Row>
-      )}
-
-      {showAdaptiveSectioning && (
-        <Row
-          label="Adaptive Sectioning"
-          description="Keep Japanese semantic groups together and improve wrapping for reading and translation rows."
-        >
-          <Toggle checked={adaptiveSectioning} onChange={(v) => $adaptiveSectioning.set(v)} />
-        </Row>
-      )}
-
-      {showLineHoverBackground && (
-        <Row
-          label="Line Hover Background"
-          description="Show a highlight box behind a lyrics line when you hover over it."
-        >
+// Built once: the Control components must keep their identity across renders.
+const groups: GroupDef[] = [
+  {
+    title: "Style",
+    settings: [
+      {
+        id: "simpleLyricsMode",
+        label: "Simple Lyrics Mode",
+        description: "Drop the extra visual effects from the lyrics.",
+        keywords: "effects plain",
+        Control: ({ label }) => (
           <Toggle
-            checked={lineHoverBackground}
+            label={label}
+            checked={useStore($simpleLyricsMode)}
+            onChange={(v) => $simpleLyricsMode.set(v)}
+          />
+        ),
+      },
+      {
+        id: "minimalLyricsMode",
+        label: "Minimal Lyrics Mode",
+        description: "Hide lines that have already been sung in Fullscreen and Cinema View.",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($minimalLyricsMode)}
+            onChange={(v) => $minimalLyricsMode.set(v)}
+          />
+        ),
+      },
+      {
+        id: "joinSplitWords",
+        label: "Join Split Words",
+        description: "Show a word that's sung in syllables as one word, when its parts line up evenly.",
+        keywords: "syllables merge",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($joinSplitWords)}
+            onChange={(v) => $joinSplitWords.set(v)}
+          />
+        ),
+      },
+    ],
+  },
+  {
+    title: "Lines",
+    settings: [
+      {
+        id: "lineHoverBackground",
+        label: "Highlight on Hover",
+        description: "Show a soft box behind a line when you point at it.",
+        keywords: "line hover background",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($lineHoverBackground)}
             onChange={(v) => $lineHoverBackground.set(v)}
           />
-        </Row>
-      )}
-
-      {showChineseTransliteration && (
-        <Row label="Chinese Transliteration" description="Choose Mandarin pinyin, Cantonese jyutping, or their eza式 spellings.">
-          <Select
-            value={chineseTranslitMode}
-            options={optionValues(CHINESE_TRANSLIT_OPTIONS)}
-            labels={optionLabels(CHINESE_TRANSLIT_OPTIONS)}
-            onChange={(v) => $chineseTranslitMode.set(v as typeof chineseTranslitMode)}
-          />
-        </Row>
-      )}
-
-      {showGoogleSoundFallback && (
-        <Row label="Google Transliteration Fallback" description="Use Google only for lines where the built-in Latin reading path has no output. Lyrics are sent to Google when needed.">
-          <Toggle checked={googleSoundFallback} onChange={(value) => $googleSoundFallback.set(value)} />
-        </Row>
-      )}
-
-      {showSoundTarget && soundBackend !== "deterministic" && (
-        <Row label="Target Orthography">
-          <Select value={soundTargetOrthography} options={["Latin", "Kana", "Hangul", "Cyrillic"]} onChange={(value) => $soundTargetOrthography.set(value as SoundOrthography)} />
-        </Row>
-      )}
-
-      {showChineseCharacterForm && (
-        <Row
-          label="Chinese Character Form"
-          description="Keep original characters or convert Chinese lyrics locally."
-        >
-          <Select
-            value={chineseCharacterForm}
-            options={["original", "simplified", "traditional"]}
-            labels={["Original", "Simplified", "Traditional"]}
-            onChange={(value) => $chineseCharacterForm.set(value as typeof chineseCharacterForm)}
-          />
-        </Row>
-      )}
-
-      {showChineseTones && (
-        <Row label="Chinese Tones" description="Show Mandarin tone marks and Cantonese jyutping tone numbers (eza式 uses tone marks).">
-          <Toggle checked={chineseTones} onChange={(v) => $chineseTones.set(v)} />
-        </Row>
-      )}
-
-      {showChineseReadingPlacement && (
-        <Row
-          label="Chinese Reading Placement"
-          description="Put the reading under the line, under each word, or above each word."
-        >
-          <Select
-            value={chineseReadingPlacement}
-            options={["lineBelow", "wordBelow", "wordAbove"]}
-            labels={["Under the line", "Under each word", "Above each word"]}
-            onChange={(value) => $chineseReadingPlacement.set(value as typeof chineseReadingPlacement)}
-          />
-        </Row>
-      )}
-
-      {showMandarinWordGrouping && (
-        <Row
-          label="Group Pinyin by Word"
-          description="Keep Pinyin syllables together when they form one detected Mandarin word."
-          disabled={isJyutpingTranslitMode(chineseTranslitMode) || chineseReadingPlacement !== "lineBelow"}
-          disabledReason={isJyutpingTranslitMode(chineseTranslitMode)
-            ? "Choose a Mandarin mode first."
-            : "Readings already sit on their own words."}
-        >
+        ),
+      },
+      {
+        id: "duetLinePadding",
+        label: "Duet Line Padding",
+        description: "Indent each singer's lines toward their side, so duets read as two columns.",
+        keywords: "indent voices",
+        Control: ({ label }) => (
           <Toggle
-            checked={joinMandarinWords}
-            disabled={isJyutpingTranslitMode(chineseTranslitMode) || chineseReadingPlacement !== "lineBelow"}
-            onChange={(value) => $joinMandarinWords.set(value)}
+            label={label}
+            checked={useStore($duetLinePadding)}
+            onChange={(v) => $duetLinePadding.set(v)}
           />
-        </Row>
-      )}
-
-      {showJapaneseReadingDisplay && (
-        <Row label="Japanese Reading Display" description="Choose romaji, furigana, or both for Japanese lyrics.">
-          <Select
-            value={japaneseReadingMode}
-            options={optionValues(JAPANESE_READING_OPTIONS)}
-            labels={optionLabels(JAPANESE_READING_OPTIONS)}
-            onChange={(v) => $japaneseReadingMode.set(v as "romaji" | "furigana" | "both")}
+        ),
+      },
+      {
+        id: "creditsFollowLastLine",
+        label: "Credits Follow the Last Singer",
+        description:
+          "When a song ends on a duet line on the right, show the songwriter and provider lines on the right too.",
+        keywords: "duet credits written by songwriters provided by provider align side",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($creditsFollowLastLine)}
+            onChange={(v) => $creditsFollowLastLine.set(v)}
           />
-        </Row>
-      )}
+        ),
+      },
+    ],
+  },
+];
 
-      {showKoreanDisplay && (
-        <Row label="Korean Display" description="Choose Korean transliteration mode for the extra romanized line.">
-          <Select
-            value={koreanDisplayMode}
-            options={optionValues(KOREAN_ROMANIZATION_OPTIONS)}
-            labels={optionLabels(KOREAN_ROMANIZATION_OPTIONS)}
-            onChange={(v) => $koreanDisplayMode.set(v as "wordTranslit" | "rrStandard" | "rrPronunciation" | "vnPronunciation")}
-          />
-        </Row>
-      )}
-
-      {showCyrillicRomanization && (
-        <Row label="Cyrillic Language" description="Choose Russian or Ukrainian Cyrillic romanization rules.">
-          <Select
-            value={cyrillicRomanizationMode}
-            options={CYRILLIC_ROMANIZATION_OPTIONS}
-            onChange={(v) => $cyrillicRomanizationMode.set(v as "Russian" | "Ukrainian")}
-          />
-        </Row>
-      )}
-
-      {showCyrillicKeepSigns && (
-        <Row label="Keep Cyrillic Signs" description="Preserve Cyrillic hard and soft sign marks.">
-          <Toggle checked={cyrillicKeepSigns} onChange={(v) => $cyrillicKeepSigns.set(v)} />
-        </Row>
-      )}
-
-      {showLyricsTranslation && (
-        <Row label="Lyrics Translation" description="Show translated lyrics under each line.">
-          <Toggle checked={translationEnabled} onChange={(v) => $translationEnabled.set(v)} />
-        </Row>
-      )}
-
-
-      {showChineseQuickButton && (
-        <Row label="Chinese Transliteration Quick Button" description="Show the pinyin/jyutping toggle in lyrics controls when Chinese lyrics are detected.">
-          <Toggle checked={showChineseTranslitButton} onChange={(v) => $showChineseTranslitButton.set(v)} />
-        </Row>
-      )}
-
-      {showTranslationTarget && (
-        <Row label="Translation Target Language" description="Language used for lyrics translation.">
-          <Select
-            value={translationTargetLang}
-            options={optionValues(TRANSLATION_TARGETS)}
-            labels={optionLabels(TRANSLATION_TARGETS)}
-            onChange={(v) => $translationTargetLang.set(v)}
-          />
-        </Row>
-      )}
-
-      {showCopyFormat && (
-        <Row label="Copy Lyrics Format" description="Choose what the lyrics copy button writes to clipboard.">
-          <Select
-            value={lyricsCopyFormat}
-            options={optionValues(LYRICS_COPY_FORMAT_OPTIONS)}
-            labels={optionLabels(LYRICS_COPY_FORMAT_OPTIONS)}
-            onChange={(v) => $lyricsCopyFormat.set(v as "plain" | "timestamps" | "translation" | "metadata" | "transliteration")}
-          />
-        </Row>
-      )}
-    </>
-  );
-}
+export const lyricsSection: SectionDef = {
+  id: "lyrics",
+  title: "Lyrics",
+  icon: LyricsIcon,
+  groups: () => [...groups, ...forkLyricsGroups],
+};

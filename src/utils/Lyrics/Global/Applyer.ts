@@ -8,12 +8,16 @@ import { EmitApply, EmitNotApplyed } from "../Applyer/OnApply.ts";
 import { ApplyStaticLyrics, type StaticLyricsData } from "../Applyer/Static.ts";
 import { ApplyLineLyrics } from "../Applyer/Synced/Line.ts";
 import { ApplySyllableLyrics } from "../Applyer/Synced/Syllable.ts";
-import { ClearLyricsPageContainer, HideLoaderContainer, ShowQueueLoader } from "../fetchLyrics.ts";
+import fetchLyrics, {
+  ClearLyricsPageContainer,
+  HideLoaderContainer,
+  ShowQueueLoader,
+  type FetchLyricsResult,
+} from "../fetchLyrics.ts";
+import { BuildLyricsNotice, HasNotice, SetShownNotice, SyncNoLyricsLayout } from "../LyricsNotice.ts";
 import { ClearLyricsContentArrays, isRomanized } from "../lyrics.ts";
 import { PageContainer } from "../../../components/Pages/PageView.ts";
 import { CleanUpIsByCommunity } from "../Applyer/Credits/ApplyIsByCommunity.tsx";
-import { IsCompactMode } from "../../../components/Utils/CompactMode.ts";
-import Fullscreen from "../../../components/Utils/Fullscreen.ts";
 import { SpotifyPlayer } from "../../../components/Global/SpotifyPlayer.ts";
 
 import { HideLyricsSkeleton, IsLyricsSkeletonEnabled, PaintLyricsSkeleton } from "../LyricsSkeleton.ts";
@@ -42,14 +46,32 @@ export const cleanupApplyLyricsAbortController = () => {
  * Apply lyrics based on their type
  * @param lyrics - The lyrics data to apply
  */
-export default async function ApplyLyrics(lyricsContent: [object | string, number] | null): Promise<void> {
-  if (!PageContainer || !lyricsContent) return;
-  const [descriptor, _status] = lyricsContent;
-  const trackUri = SpotifyPlayer.GetUri();
-  if (typeof descriptor === "object" && descriptor !== null && "uri" in descriptor && descriptor.uri !== trackUri) return;
+export default async function ApplyLyrics(lyricsContent: FetchLyricsResult): Promise<void> {
+  if (!PageContainer) return;
+  if (!lyricsContent) {
+    setBlurringLastLine(null);
+    return;
+  }
+
+  const [descriptor, status, requestedUri] = lyricsContent;
+
+  // Fetching is async, so a result can land after the user has already skipped
+  // on. Applying it would paint the previous track's lyrics — or its "no
+  // lyrics" notice — over the new track, and the notice branch below would
+  // stamp the NO_LYRICS sentinel with the new track's uri, making every later
+  // fetch for that track short-circuit to "no lyrics" for good. Drop it and
+  // leave the current track's own apply to do the work.
+  const currentUri = SpotifyPlayer.GetUri();
+  if (requestedUri && currentUri && requestedUri !== currentUri) return;
   const page = PageContainer;
-  cleanupApplyLyricsAbortController();
-  const token = applyToken;
+  const trackUri = currentUri;
+
+  // Every apply takes a token, so one parked on the skeleton frame below can
+  // tell that any later apply — notice or lyrics — has already painted.
+  const token = ++applyToken;
+
+  // Building the lyrics DOM blocks the main thread; get the skeleton on screen
+  // first. Another apply, or a track change, may land while we wait a frame.
   if (typeof descriptor === "object" && IsLyricsSkeletonEnabled()) {
     await PaintLyricsSkeleton();
     if (token !== applyToken || PageContainer !== page || !page.isConnected || SpotifyPlayer.GetUri() !== trackUri) return;
@@ -68,61 +90,18 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
 
   if (descriptor !== "lyrics-queued") HideLoaderContainer();
 
-  let noticeContent: string | null = null;
-
-  switch (descriptor) {
-    case "lyrics-queued": {
-      // HTTP 503: the lyrics server has queued our request. Keep the loader and
-      // queue message visible (LyricsQueueRetry drives the backoff retry loop)
-      // and render nothing else — the loop re-applies once it resolves.
-      ShowQueueLoader();
-      return;
-    }
-    case "lyrics-not-found": {
-      noticeContent = `We don't have any lyrics for this song`
-      break;
-    }
-    case "dj": {
-      noticeContent = `Viewing lyrics, while using the DJ, is not supported`
-      break;
-    }
-    case "unknown-track": {
-      noticeContent = `We could not access the info for this song`
-      break;
-    }
-    case "unknown-error": {
-      noticeContent = `An unknown error happened`
-      break;
-    }
-    case "offline": {
-      noticeContent = `Please go online to enjoy your lyrics experience!`
-      break;
-    }
-    case "status-not-200": {
-      noticeContent = `A server error occurred`
-      break;
-    }
-    case "video-track": {
-      noticeContent = `We currently don't have support for video lyrics`
-      break;
-    }
-    case "episode-track": {
-      noticeContent = `We currently don't have support for podcast episode lyrics`
-      break;
-    }
-    case "mixed-track": {
-      noticeContent = `We currently don't have support for video podcast episode lyrics`
-      break;
-    }
-    case "local-track": {
-      noticeContent = `Lyrics aren't available for local files`
-      break;
-    }
-    default:
-      break;
+  if (descriptor === "lyrics-queued") {
+    // HTTP 503: the lyrics server has queued our request. Keep the loader and
+    // queue message visible (LyricsQueueRetry drives the backoff retry loop)
+    // and render nothing else — the loop re-applies once it resolves.
+    ShowQueueLoader();
+    SetShownNotice(null);
+    SyncNoLyricsLayout();
+    return;
   }
 
-  if (noticeContent) {
+  // The copy for each keyword lives in LyricsNotice.ts.
+  if (typeof descriptor === "string" && HasNotice(descriptor)) {
     $currentLyricsType.set("None");
 
     if (descriptor === "lyrics-not-found") {
@@ -142,33 +121,29 @@ export default async function ApplyLyrics(lyricsContent: [object | string, numbe
       currentAbortController = new AbortController();
     }
 
-    const currentNoticeElement = document.createElement("div");
-    currentNoticeElement.classList.add("LyricsNotice");
-    lyricsContainer.appendChild(currentNoticeElement);
+    const noticeUri = requestedUri ?? currentUri;
+    lyricsContainer.appendChild(
+      BuildLyricsNotice(descriptor, status, noticeUri, currentAbortController.signal, () => {
+        // Retry the track that's playing now; a notice left over from a
+        // skipped track is replaced by that track's own apply anyway.
+        const uri = SpotifyPlayer.GetUri();
+        if (uri) fetchLyrics(uri).then(ApplyLyrics);
+      })
+    );
 
-    if (!IsCompactMode() && (Fullscreen.IsOpen || Fullscreen.CinemaViewOpen) && (descriptor === "lyrics-not-found" || descriptor === "local-track")) {
-      PageContainer?.querySelector<HTMLElement>(".ContentBox .LyricsContainer")?.classList.add("Hidden");
-      PageContainer?.querySelector<HTMLElement>(".ContentBox")?.classList.add("LyricsHidden");
-    }
-
-    currentNoticeElement.innerHTML = `
-      <p class="notice-descriptor">${noticeContent.trim()}</p>
-      <p class="notice-footer">Need more help? Join our <a>Discord</a>.</p>
-    `;
-
-    // Add click handler to log when the Discord link is clicked
-    const discordLink = currentNoticeElement.querySelector("a");
-    if (discordLink) {
-      discordLink.addEventListener("click", () => {
-        window.open("https://discord.com/invite/uqgXU5wh8j", "_blank");
-      }, { signal: currentAbortController.signal });
-    }
+    SetShownNotice(descriptor);
+    SyncNoLyricsLayout();
 
     EmitApply("None", null)
     return;
   }
 
   const lyrics = descriptor as LyricsData;
+
+  // Lyrics replace any notice, whichever path applied them (a TTML upload re-applies
+  // without going through fetchLyrics), so a later layout sync can't hide them.
+  SetShownNotice(null);
+  SyncNoLyricsLayout();
 
   const romanize = isRomanized;
 

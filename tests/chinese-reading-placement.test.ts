@@ -6,7 +6,7 @@ const read = (relativePath: string): string =>
   readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 
 const uiState = read("src/utils/uiState.ts");
-const settingsSection = read("src/components/ReactComponents/SettingsPanel/LyricsSection.tsx");
+const settingsSection = read("src/components/ReactComponents/SettingsPanel/ForkSettings.tsx");
 const pageView = read("src/components/Pages/PageView.ts");
 
 /**

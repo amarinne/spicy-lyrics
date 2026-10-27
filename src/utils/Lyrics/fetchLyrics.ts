@@ -32,15 +32,45 @@ import { IsEmptyLyrics, StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 import { HideLyricsSkeleton, IsLyricsSkeletonEnabled, ShowLyricsSkeleton } from "./LyricsSkeleton.ts";
 import { onExperimentChange } from "../experiments.ts";
+import { getRemoteConfig } from "../remoteConfig.ts";
+import { SetShownNotice, SyncNoLyricsLayout } from "./LyricsNotice.ts";
 
 const lyricsLogger = new Logger("Lyrics Pipeline");
 const lyricsCacheLogger = new Logger("Lyrics Cache");
 const lyricsPrefetchLogger = new Logger("Lyrics Prefetch");
 const prefetchInFlight = new Set<string>();
-const lyricsRequestCoordinator = new LyricsRequestCoordinator<[object | string, number] | null>();
+export type FetchLyricsResult = [object | string, number] | null;
+
+export type LyricsFetchFailure = {
+  uri: string;
+  source: string;
+  detail?: string;
+};
+
+let lastFailure: LyricsFetchFailure | null = null;
+
+function noteFailure(uri: string, source: string, detail?: unknown): void {
+  let text: string | undefined;
+  if (detail instanceof Error) text = `${detail.name}: ${detail.message}`;
+  else if (detail !== undefined) text = String(detail);
+  lastFailure = { uri, source, detail: text };
+}
+
+export function GetLastLyricsFailure(uri: string | undefined): LyricsFetchFailure | null {
+  return uri && lastFailure?.uri === uri ? lastFailure : null;
+}
+
+const lyricsRequestCoordinator = new LyricsRequestCoordinator<FetchLyricsResult>();
 
 // recently updated key structure - changed name
-export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 5, undefined, isDev as true);
+// A getter, because the expiry is computed on every write: a pushed TTL applies
+// to entries cached from then on, while existing ones keep the one they got.
+export const LyricsStore = GetExpireStore<any>("SpicyLyrics_LyricsStore_g1", 6, {
+  Unit: "Days",
+  get Duration() {
+    return getRemoteConfig().cache.lyricsTtlDays;
+  },
+}, isDev as true);
 
 function requestIsCurrent(session: LyricsRequestSession, trackUri: string): boolean {
   return session.isCurrent() && SpotifyPlayer.GetUri() === trackUri;
@@ -299,6 +329,8 @@ export async function PrefetchLyrics(uri: string): Promise<void> {
 async function fetchLyricsForSession(uri: string, session: LyricsRequestSession): Promise<[object | string, number] | null> {
   lyricsLogger.debug("Fetch requested", uri);
   //if (!PageContainer) return;
+  SetShownNotice(null);
+  SyncNoLyricsLayout();
   const LyricsContent =
     PageContainer?.querySelector(".LyricsContainer .LyricsContent") ?? undefined;
   if (!LyricsContent) return;
@@ -381,6 +413,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
         }
       }
     } catch (error) {
+      noteFailure(uri, "saved state", error);
       lyricsCacheLogger.error("Error parsing saved lyrics data", error);
       finishFetching(session);
       HideLoaderContainer();
@@ -435,6 +468,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
         lyricsCacheLogger.debug("Ignoring processed cache without canonical original snapshot", { trackId });
       }
     } catch (error) {
+      noteFailure(uri, "lyrics cache", error);
       lyricsCacheLogger.error("Error parsing cache entry", error);
       finishFetching(session);
       return ["unknown-error", 0];
@@ -465,6 +499,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     }
 
     if (status !== 200 || !sourceResult.lyrics) {
+      noteFailure(uri, "API", `query status ${status}`);
       HideLoaderContainer();
       finishFetching(session);
       if (status === 404) return ["lyrics-not-found", 404];
@@ -483,6 +518,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     // publishing an empty lyrics card.
     StripEmptyLyricsLines(lyrics);
     if (IsEmptyLyrics(lyrics)) {
+      noteFailure(uri, "API", "no renderable lines after pruning");
       lyricsLogger.warn("Lyrics payload had no renderable lines after pruning");
       HideLoaderContainer();
       finishFetching(session);
@@ -515,6 +551,7 @@ async function fetchLyricsForSession(uri: string, session: LyricsRequestSession)
     return null;
   } catch (error) {
     if (!requestIsCurrent(session, uri)) return null;
+    noteFailure(uri, "API", error);
     lyricsLogger.error("Lyrics acquisition failed", { category: error instanceof SyntaxError ? "invalid-response" : "request-error" });
     finishFetching(session);
     HideLoaderContainer();
@@ -527,7 +564,7 @@ export function invalidateLyricsPipeline(): void {
   $currentlyFetching.set(false);
 }
 
-export default function fetchLyrics(uri: string): Promise<[object | string, number] | null> {
+export default function fetchLyrics(uri: string): Promise<FetchLyricsResult> {
   return lyricsRequestCoordinator.run(uri, (session) => fetchLyricsForSession(uri, session));
 }
 

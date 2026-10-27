@@ -49,21 +49,20 @@ test("syllable gradients recover after seeking Sung to NotSung and directly back
 
 test("latest-version lookup uses the edge endpoint and parses version without the lyrics query", async () => {
   let ok = true;
-  let body = "6.3.190";
+  let body = "6.4.70";
   const api = runInNewContext(`${source("../src/components/Global/Session.ts")}\nSession.SpicyLyrics;`, {
-    $spicyLyricsVersion: { get: () => "6.3.190" }, AbortSignal,
-    fetch: async (url: string, init: RequestInit) => {
-      assert.equal(url, "https://api.spicylyrics.org/edge/service?lookup=version");
-      assert.equal(init.cache, "no-store");
-      assert.ok(init.signal instanceof AbortSignal);
-      return { ok, text: async () => body };
+    $spicyLyricsVersion: { get: () => "6.4.70" },
+    getRemoteConfig: () => ({ updates: { latestVersionTimeoutMs: 5000 } }),
+    EdgeLookup: async (lookup: string) => {
+      assert.equal(lookup, "version");
+      return { ok, json: async () => ({ branches: [{ tag: "public", version: body }] }) };
     },
   });
-  assert.equal((await api.GetLatestVersion()).Text, "6.3.190");
+  assert.equal((await api.GetLatestVersion()).Text, "6.4.70");
   assert.equal(await api.IsOutdated(), false);
   body = "unavailable";
   assert.equal(await api.GetLatestVersion(), undefined);
-  body = "6.3.191";
+  body = "6.4.71";
   assert.equal(await api.IsOutdated(), true);
   ok = false;
   assert.equal(await api.GetLatestVersion(), undefined);
@@ -77,6 +76,8 @@ function frameHarness(enabled = false, fps: unknown = 60) {
     $animationFpsCapEnabled: { get: () => enabled, listen: (fn: () => void) => listeners.push(fn) },
     $animationFpsCap: { get: () => fps, listen: (fn: () => void) => listeners.push(fn) },
     requestAnimationFrame: (fn: (timestamp: number) => void) => { nextFrame = fn; },
+    window: {},
+    performance: { now: () => 0, timeOrigin: 0 },
     console: { error: (...args: unknown[]) => errors.push(args) },
   });
   return {
@@ -151,6 +152,7 @@ test("popup volume drags end in their own document and ignore emulated mouse tap
       getBoundingClientRect: () => ({ top: 0, height: 100 }),
     },
     performance: { now: () => now },
+    CreateScrubPreview: () => ({ Show: () => {}, Hide: () => {} }),
     SetControlsDragLock: (value: boolean) => { locked = value; },
     Spicetify: { Player: { setVolume: (value: number) => volumes.push(value), setMute: () => {} } },
   });
@@ -195,11 +197,12 @@ for (const frameMs of [16, 1000 / 15]) test(`smooth scrolling follows geometry a
     cancelCappedFrame: (id: number) => frames.delete(id),
   });
   const scroll = {
+    ownerDocument: { defaultView: { devicePixelRatio: 1 } },
     scrollTop: 0, clientHeight: 200, scrollHeight: 1200,
     getBoundingClientRect: () => ({ top: 0 }),
     scrollTo: ({ top }: { top: number }) => { scroll.scrollTop = top; },
   };
-  const container = { style: { translate: "" }, getBoundingClientRect: () => ({ top: -scroll.scrollTop }) };
+  const container = { ownerDocument: { defaultView: { devicePixelRatio: 1 } }, style: { translate: "" }, getBoundingClientRect: () => ({ top: -scroll.scrollTop }) };
   const row = { start: 400, size: 40 };
   api._virtualizer = { scrollElement: scroll, measurementsCache: [row], getTotalSize: () => 1000, scrollOffset: 0 };
   api._virtualContainer = container;
@@ -256,6 +259,8 @@ test("a parked skeleton apply cannot publish after a track switch or page teardo
     ClearScrollSimplebar: () => {}, ClearLyricsPageContainer: () => {}, CleanUpIsByCommunity: () => {},
     isRomanized: true,
     ApplyStaticLyrics: () => { applied++; },
+    BuildLyricsNotice: () => {}, HasNotice: () => false,
+    SetShownNotice: () => {}, SyncNoLyricsLayout: () => {},
   };
   const api = runInNewContext(`${source("../src/utils/Lyrics/Global/Applyer.ts")}\n({ ApplyLyrics, cleanupApplyLyricsAbortController });`, context);
   const oldApply = api.ApplyLyrics([{ uri, Type: "Static", Lines: [] }, 200]);

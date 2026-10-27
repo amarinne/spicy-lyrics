@@ -1,4 +1,11 @@
-import { $adaptiveSectioning, $fixHanGlyphVariants, $lyricsContainerExists, $minimalLyricsMode, $simpleLyricsMode } from "../../../../utils/stores.ts";
+import {
+  $adaptiveSectioning,
+  $fixHanGlyphVariants,
+  $joinSplitWords,
+  $lyricsContainerExists,
+  $minimalLyricsMode,
+  $simpleLyricsMode,
+} from "../../../../utils/stores.ts";
 import { PageContainer } from "../../../../components/Pages/PageView.ts";
 import { applyStyles, removeAllStyles } from "../../../CSS/Styles.ts";
 import {
@@ -22,11 +29,12 @@ import {
 } from "../../lyrics.ts";
 import { CreateLyricsContainer, DestroyAllLyricsContainers } from "../CreateLyricsContainer.ts";
 import { initLyricsVirtualizer } from "../../LyricsVirtualizer.ts";
-import { ApplyIsByCommunity } from "../Credits/ApplyIsByCommunity.tsx";
-import { ApplyLyricsCredits } from "../Credits/ApplyLyricsCredits.ts";
+import { ApplySongCredits, MarkLastLineSide } from "../Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "../OnApply.ts";
 import Emphasize from "../Utils/Emphasize.ts";
-import { IsLetterCapable } from "../Utils/IsLetterCapable.ts";
+import { IsLetterCapable, MinLetterCapableDuration } from "../Utils/IsLetterCapable.ts";
+import { JoinSplitWords } from "../Utils/JoinSplitWords.ts";
+import { SplitLetters } from "../Utils/SplitLetters.ts";
 import StripZeroWidth from "../Utils/StripZeroWidth.ts";
 import { ApplyLyricsProvider } from "../Credits/ApplyProvider.ts";
 import {
@@ -63,7 +71,7 @@ interface LyricsData {
   Content: LineData[];
   StartTime: number;
   SongWriters?: string[];
-  source?: "spt" | "spl" | "aml";
+  source?: "spt" | "spl" | "aml" | "uns";
   classes?: string;
   styles?: Record<string, string>;
 }
@@ -125,7 +133,9 @@ const createSyllableWord = (
   // Falls back to the romanization when the source text is blank (x-roman-only
   // TTML syllables), so the syllable still shows and times its own letters.
   const renderText = StripZeroWidth(pickBaseText(syllable));
-  const letterLength = renderText.split("").length;
+  // Too short to split whatever its letters: skip the grapheme split.
+  const letters = totalDuration >= MinLetterCapableDuration() ? SplitLetters(renderText) : [];
+  const letterLength = letters.length;
   const hasFurigana = shouldRenderFurigana(syllable, renderOptions);
   const reservesFuriganaRow = hasFurigana || (renderOptions.reserveFurigana === true && useRomanized);
   // Package-backed Japanese words need a registered word element in every
@@ -142,7 +152,7 @@ const createSyllableWord = (
   if (letterCapable) {
     word = document.createElement("div");
     if (wordLanguage) word.lang = wordLanguage;
-    Emphasize(renderText.split(""), word, syllable, isBackground);
+    Emphasize(letters, word, syllable, isBackground);
     applyWordPositionClasses(word, syllable, index, all);
 
     if (!$simpleLyricsMode.get()) {
@@ -245,6 +255,12 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     line.Background?.some(bg => bg.Syllables.some(syllable => isRtl(syllable.Text))) === true
   );
   LyricsContainer.classList.toggle("HasRtlLines", hasRtlLines);
+  const lastLine = content[content.length - 1];
+  MarkLastLineSide(
+    LyricsContainer,
+    !!lastLine?.OppositeAligned,
+    !!lastLine?.Lead.Syllables.some(syllable => isRtl(syllable.Text))
+  );
 
   LyricsContainer.setAttribute("data-lyrics-type", "Syllable");
 
@@ -422,9 +438,16 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     const leadFuriganaCrossesTiming = leadHasFurigana && hasFuriganaCrossingTimedUnits(line.Lead.ReadingRenderPlan);
     const leadLogicalGroupIds = timedLogicalGroupIds(line.Lead.ReadingRenderPlan);
 
+    // Upstream's split-word joining merges timed fragments into whole words.
+    // A reading plan keys its units by authored syllable index, so lines that
+    // carry one keep their authored syllables untouched.
+    const leadSyllables = !line.Lead.ReadingRenderPlan && $joinSplitWords.get()
+      ? JoinSplitWords(line.Lead.Syllables)
+      : line.Lead.Syllables;
+
     if (leadFuriganaCrossesTiming) {
       lineElem.appendChild(createLineLevelJapaneseWord(line.Lead, leadSourceText, leadRenderOptions));
-    } else line.Lead.Syllables.forEach((lead, iL, aL) => {
+    } else leadSyllables.forEach((lead, iL, aL) => {
       // Skip syllables with nothing renderable. Indices stay as authored so the
       // reading-plan group lookup below (keyed by source index) stays aligned.
       if (!HasRenderableText(lead)) return;
@@ -506,9 +529,13 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
         const bgFuriganaCrossesTiming = bgHasFurigana && hasFuriganaCrossingTimedUnits(bg.ReadingRenderPlan);
         const bgLogicalGroupIds = timedLogicalGroupIds(bg.ReadingRenderPlan);
 
+        const bgSyllables = !bg.ReadingRenderPlan && $joinSplitWords.get()
+          ? JoinSplitWords(bg.Syllables)
+          : bg.Syllables;
+
         if (bgFuriganaCrossesTiming) {
           lineE.appendChild(createLineLevelJapaneseWord(bg, bgSourceText, bgWordRenderOptions, true));
-        } else bg.Syllables.forEach((bw, bI, bA) => {
+        } else bgSyllables.forEach((bw, bI, bA) => {
           if (!HasRenderableText(bw)) return;
 
           if (isRtl(bw.Text) && !lineE.classList.contains("rtl")) {
@@ -641,9 +668,7 @@ export function ApplySyllableLyrics(data: LyricsData, UseRomanized: boolean = fa
     }
   });
 
-  ApplyLyricsCredits(data, LyricsContainer);
-  ApplyLyricsProvider(data, LyricsContainer);
-  ApplyIsByCommunity(data, LyricsContainer);
+  ApplySongCredits(data, LyricsContainer);
 
   if (LyricsContainerParent) {
     LyricsContainerInstance.Append(LyricsContainerParent);

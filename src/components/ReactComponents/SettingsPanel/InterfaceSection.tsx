@@ -5,147 +5,166 @@ import {
   $lockedMediaBox,
   $popupLyricsAllowed,
   $removeSpotifyLyricsButton,
+  $showNoLyricsNotice,
   $showVolumeSlider,
   $timelineOutsideMediaContent,
   $viewControlsPosition,
 } from "../../../utils/stores.ts";
-import { $flatViewControls, $isGlobalNav, $prefetchNextLyrics } from "../../../utils/uiState.ts";
-import { matches, Row, Select, SectionTitle, Toggle } from "./components.tsx";
+import { $isGlobalNav } from "../../../utils/uiState.ts";
+import { Select, Toggle } from "./components.tsx";
+import { InterfaceIcon } from "./icons.tsx";
+import type { GroupDef, SectionDef } from "./model.ts";
+import { forkInterfaceGroups } from "./ForkSettings.tsx";
 
-const SECTION_NAME = "Interface";
-const vcPositionOptions = ["Top", "Bottom"];
-
-interface Props {
-  query: string;
-  sectionFilter: string;
-}
-
-export default function InterfaceSection({ query, sectionFilter }: Props) {
-  const lockedMediaBox = useStore($lockedMediaBox);
-  const popupLyricsAllowed = useStore($popupLyricsAllowed);
-  const viewControlsPosition = useStore($viewControlsPosition);
-  const timelineOutsideMediaContent = useStore($timelineOutsideMediaContent);
-  const isGlobalNav = useStore($isGlobalNav);
-  const flatViewControls = useStore($flatViewControls);
-  const prefetchNextLyrics = useStore($prefetchNextLyrics);
-  const hideNpvLyricsWhenUnavailable = useStore($hideNpvLyricsWhenUnavailable);
-  const disableNpvLyrics = useStore($disableNpvLyrics);
-  const showVolumeSlider = useStore($showVolumeSlider);
-  const removeSpotifyLyricsButton = useStore($removeSpotifyLyricsButton);
-
-  if (sectionFilter !== "All" && sectionFilter !== SECTION_NAME) return null;
-
-  const r2 = matches(query, "Lock Media Box Size in Compact Mode", "Prevent the media box from resizing when Forced Compact Mode is active.");
-  const r3 = matches(query, "Disable Popup Lyrics Window", "Prevent lyrics from opening in a floating popup window.");
-  const r4 = matches(query, "Lyrics Controls Position", "Where the lyrics view controls (play, scroll, etc.) appear.");
-  const r5 = matches(query, "Timeline Outside Media Box", "Display the playback timeline outside the media box, in the NowBar header. Stays inside the media box in Compact Mode or PIP.");
-  const r6 = matches(query, "Flat Controls (No Liquid Glass)", "Use flat lyrics control buttons instead of liquid-glass buttons.");
-  const r7 = matches(query, "Prefetch Next Lyrics", "Fetch and process upcoming track lyrics before the song changes.");
-  const r8 = matches(query, "Hide NPV Lyrics When No Lyrics Are Available", "Remove the lyrics card from the Now Playing sidebar while the current song has no lyrics, instead of showing a notice. It comes back on the next song that has them.");
-  const r9 = matches(query, "Disable NPV Lyrics", "Never show the lyrics card in the Now Playing sidebar.");
-  const r10 = matches(query, "Volume Slider", "Show a volume control on the album artwork in Fullscreen, Cinema View and Popup Lyrics.");
-
-  const r11 = matches(query, "Remove Spotify's Lyrics Button", "Hide Spotify's built-in lyrics button from the playback bar. The Spicy Lyrics button stays.");
-  if (!r2 && !r3 && !r4 && !r5 && !r6 && !r7 && !r8 && !r9 && !r10 && !r11) return null;
-
-  return (
-    <>
-      <SectionTitle>Interface</SectionTitle>
-
-      {r2 && (
-        <Row
-          label="Lock Media Box Size in Compact Mode"
-          description="Prevent the media box from resizing when Forced Compact Mode is active."
-        >
-          <Toggle checked={lockedMediaBox} onChange={(v) => $lockedMediaBox.set(v)} />
-        </Row>
-      )}
-
-      {r3 && (
-        <Row label="Disable Popup Lyrics Window" description="Prevent lyrics from opening in a floating popup window.">
-          <Toggle
-            checked={!popupLyricsAllowed}
-            onChange={(v) => $popupLyricsAllowed.set(!v)}
-          />
-        </Row>
-      )}
-
-      {r4 && (
-        <Row
-          label="View Controls Position"
-          description="Where the view controls (play, scroll, etc.) appear."
-          disabled={!isGlobalNav}
-          disabledReason="Only available in Spotify's new navigation layout"
-        >
+// Built once: the Control components must keep their identity across renders.
+const groups: GroupDef[] = [
+  {
+    title: "Lyrics View",
+    settings: [
+      {
+        id: "viewControlsPosition",
+        label: "View Controls Position",
+        description: "Where the view controls (play, scroll and so on) sit.",
+        keywords: "lyrics controls top bottom",
+        useDisabled: () =>
+          !useStore($isGlobalNav) && "Only available with Spotify's new navigation layout.",
+        Control: ({ disabled, label }) => (
           <Select
-            value={viewControlsPosition}
-            options={vcPositionOptions}
+            label={label}
+            value={useStore($viewControlsPosition)}
+            options={["Top", "Bottom"]}
             onChange={(v) => $viewControlsPosition.set(v)}
+            disabled={disabled}
           />
-        </Row>
-      )}
-
-      {r5 && (
-        <Row
-          label="Timeline Outside Media Box"
-          description="Display the playback timeline outside the media box, in the NowBar header. Stays inside the media box in Compact Mode or PIP."
-        >
+        ),
+      },
+      {
+        id: "timelineOutsideMediaContent",
+        label: "Timeline Outside Media Box",
+        description:
+          "Show the playback timeline in the NowBar header instead of inside the media box. Compact Mode and PiP keep it inside.",
+        keywords: "progress bar seek",
+        Control: ({ label }) => (
           <Toggle
-            checked={timelineOutsideMediaContent}
+            label={label}
+            checked={useStore($timelineOutsideMediaContent)}
             onChange={(v) => $timelineOutsideMediaContent.set(v)}
           />
-        </Row>
-      )}
-
-      {r6 && (
-        <Row label="Flat Controls (No Liquid Glass)" description="Use flat lyrics control buttons instead of liquid-glass buttons.">
-          <Toggle checked={flatViewControls} onChange={(v) => $flatViewControls.set(v)} />
-        </Row>
-      )}
-
-      {r7 && (
-        <Row label="Prefetch Next Lyrics" description="Fetch and process upcoming track lyrics before the song changes.">
-          <Toggle checked={prefetchNextLyrics} onChange={(v) => $prefetchNextLyrics.set(v)} />
-        </Row>
-      )}
-
-      {r11 && (
-        <Row label="Remove Spotify's Lyrics Button" description="Hide Spotify's built-in lyrics button from the playback bar. The Spicy Lyrics button stays.">
-          <Toggle checked={removeSpotifyLyricsButton} onChange={(v) => $removeSpotifyLyricsButton.set(v)} />
-        </Row>
-      )}
-
-      {r10 && (
-        <Row
-          label="Volume Slider"
-          description="Show a volume control on the album artwork in Fullscreen, Cinema View and Popup Lyrics."
-        >
-          <Toggle checked={showVolumeSlider} onChange={(v) => $showVolumeSlider.set(v)} />
-        </Row>
-      )}
-
-      {r9 && (
-        <Row
-          label="Disable NPV Lyrics"
-          description="Never show the lyrics card in the Now Playing sidebar."
-        >
-          <Toggle checked={disableNpvLyrics} onChange={(v) => $disableNpvLyrics.set(v)} />
-        </Row>
-      )}
-
-      {r8 && (
-        <Row
-          label="Hide NPV Lyrics When No Lyrics Are Available"
-          description="Remove the lyrics card from the Now Playing sidebar while the current song has no lyrics, instead of showing a notice. It comes back on the next song that has them."
-          disabled={disableNpvLyrics}
-          disabledReason="The NPV lyrics card is disabled"
-        >
+        ),
+      },
+      {
+        id: "lockedMediaBox",
+        label: "Lock Media Box in Compact Mode",
+        description: "Keep the media box from resizing while Forced Compact Mode is on.",
+        keywords: "size artwork",
+        Control: ({ label }) => (
           <Toggle
-            checked={hideNpvLyricsWhenUnavailable}
-            onChange={(v) => $hideNpvLyricsWhenUnavailable.set(v)}
+            label={label}
+            checked={useStore($lockedMediaBox)}
+            onChange={(v) => $lockedMediaBox.set(v)}
           />
-        </Row>
-      )}
-    </>
-  );
-}
+        ),
+      },
+      {
+        id: "showNoLyricsNotice",
+        label: "No Lyrics Notice",
+        description:
+          "Explain why a song has no lyrics. Off hides it in the lyrics page, Fullscreen and Popup Lyrics, leaving just the song info. Errors still show their notice.",
+        keywords: "unavailable missing message hide popup pip page",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($showNoLyricsNotice)}
+            onChange={(v) => $showNoLyricsNotice.set(v)}
+          />
+        ),
+      },
+      {
+        id: "showVolumeSlider",
+        label: "Volume Slider",
+        description:
+          "Show a volume control on the artwork in Fullscreen, Cinema View and Popup Lyrics.",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($showVolumeSlider)}
+            onChange={(v) => $showVolumeSlider.set(v)}
+          />
+        ),
+      },
+    ],
+  },
+  {
+    title: "Now Playing Sidebar",
+    settings: [
+      {
+        id: "npvLyrics",
+        label: "Lyrics Card",
+        description: "Show lyrics in the Now Playing sidebar.",
+        keywords: "disable npv lyrics now playing view",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={!useStore($disableNpvLyrics)}
+            onChange={(v) => $disableNpvLyrics.set(!v)}
+          />
+        ),
+      },
+      {
+        id: "hideNpvLyricsWhenUnavailable",
+        label: "Hide When a Song Has No Lyrics",
+        description:
+          "Remove the card instead of showing a notice. It comes back on the next song with lyrics.",
+        keywords: "npv lyrics unavailable",
+        useDisabled: () => useStore($disableNpvLyrics) && "Turn on Lyrics Card to change this.",
+        Control: ({ disabled, label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($hideNpvLyricsWhenUnavailable)}
+            onChange={(v) => $hideNpvLyricsWhenUnavailable.set(v)}
+            disabled={disabled}
+          />
+        ),
+      },
+    ],
+  },
+  {
+    title: "Windows and Buttons",
+    settings: [
+      {
+        id: "popupLyricsAllowed",
+        label: "Popup Lyrics",
+        description: "Let lyrics open in a floating window.",
+        keywords: "disable popup lyrics window pip picture in picture",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($popupLyricsAllowed)}
+            onChange={(v) => $popupLyricsAllowed.set(v)}
+          />
+        ),
+      },
+      {
+        id: "removeSpotifyLyricsButton",
+        label: "Hide Spotify's Lyrics Button",
+        description:
+          "Remove Spotify's own lyrics button from the playback bar. The Spicy Lyrics button stays.",
+        keywords: "remove playbar",
+        Control: ({ label }) => (
+          <Toggle
+            label={label}
+            checked={useStore($removeSpotifyLyricsButton)}
+            onChange={(v) => $removeSpotifyLyricsButton.set(v)}
+          />
+        ),
+      },
+    ],
+  },
+];
+
+export const interfaceSection: SectionDef = {
+  id: "interface",
+  title: "Interface",
+  icon: InterfaceIcon,
+  groups: () => [...groups, ...forkInterfaceGroups],
+};

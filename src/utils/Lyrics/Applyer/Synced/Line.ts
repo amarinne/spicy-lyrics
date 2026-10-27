@@ -21,10 +21,8 @@ import {
 } from "../../lyrics.ts";
 import { CreateLyricsContainer, DestroyAllLyricsContainers } from "../CreateLyricsContainer.ts";
 import { initLyricsVirtualizer } from "../../LyricsVirtualizer.ts";
-import { ApplyIsByCommunity } from "../Credits/ApplyIsByCommunity.tsx";
-import { ApplyLyricsCredits } from "../Credits/ApplyLyricsCredits.ts";
+import { ApplySongCredits, MarkLastLineSide } from "../Credits/ApplyLyricsCredits.ts";
 import { EmitApply, EmitNotApplyed } from "../OnApply.ts";
-import { ApplyLyricsProvider } from "../Credits/ApplyProvider.ts";
 import { appendLineExtras, forceStackedLine, isJapaneseEntry, renderBaseTextWithReadings } from "../ReadingRenderer.ts";
 import { RemoveEmptyLyricsLines } from "../../EmptyLines.ts";
 import type { TimedTextEntry } from "../../Reading/JapaneseReading.ts";
@@ -38,7 +36,7 @@ interface LyricsData {
   Content: LyricsLineData[];
   StartTime: number;
   SongWriters?: string[];
-  source?: "spt" | "spl" | "aml";
+  source?: "spt" | "spl" | "aml" | "uns";
   classes?: string;
   styles?: Record<string, string>;
 }
@@ -67,6 +65,8 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
   LyricsContainer.classList.toggle("HasDuetLines", hasOppositeAligned);
   const hasRtlLines = content.some(line => isRtl(line.Text));
   LyricsContainer.classList.toggle("HasRtlLines", hasRtlLines);
+  const lastLine = content[content.length - 1];
+  MarkLastLineSide(LyricsContainer, !!lastLine?.OppositeAligned, !!lastLine && isRtl(lastLine.Text));
 
   LyricsContainer.setAttribute("data-lyrics-type", "Line");
 
@@ -323,9 +323,7 @@ export function ApplyLineLyrics(data: LyricsData, UseRomanized: boolean = false)
     }
   });
 
-  ApplyLyricsCredits(data, LyricsContainer);
-  ApplyLyricsProvider(data, LyricsContainer);
-  ApplyIsByCommunity(data, LyricsContainer);
+  ApplySongCredits(data, LyricsContainer);
 
   if (LyricsContainerParent) {
     LyricsContainerInstance.Append(LyricsContainerParent);

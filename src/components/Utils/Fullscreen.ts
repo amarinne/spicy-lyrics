@@ -1,8 +1,10 @@
 import { GetCurrentLyricsContainerInstance } from "../../utils/Lyrics/Applyer/CreateLyricsContainer.ts";
+import { SyncNoLyricsLayout } from "../../utils/Lyrics/LyricsNotice.ts";
 import { ResetLastLine } from "../../utils/Scrolling/ScrollToActiveLine.ts";
 import { $currentLyricsData } from "../../utils/stores.ts";
 import { $forceCompactMode, $isNowBarOpen } from "../../utils/uiState.ts";
 import Global from "../Global/Global.ts";
+import { SetKawarpSuspended } from "../DynamicBG/dynamicBackground.ts";
 import PageView, { Compactify, GetPageRoot, PageContainer, Tooltips } from "../Pages/PageView.ts";
 import { EnableCompactMode, IsCompactMode } from "./CompactMode.ts";
 import { CleanUpNowBarComponents, CloseNowBar, DeregisterNowBarBtn, OpenNowBar } from "./NowBar.ts";
@@ -11,6 +13,7 @@ import { IsPIP } from "./PopupLyrics.ts";
 import { Spring } from "../../modules/Spring.ts";
 import { Maid } from "../../modules/Maid.ts";
 import Scheduler from "../../modules/Scheduler.ts";
+import { cancelCappedFrame, requestCappedFrame } from "../../utils/AnimationFrameLoop.ts";
 
 const Fullscreen = {
   Open,
@@ -25,8 +28,35 @@ const ControlsMaid = new Maid();
 
 const controlsOpacitySpring = new Spring(0, 2, 2, 0); // Goal: 0.65
 const artworkBrightnessSpring = new Spring(0, 2, 2, 0); // Goal: 0.78
+// Canvas Stage's dock rows: up with the controls, down only once they've fully faded.
+const dockLiftSpring = new Spring(0, 2.5, 1, 0);
 
 let animationLastTimestamp: number | undefined;
+
+// The layouts whose dock rows read --DockLift (Canvas Stage, the popup dock). Nothing else does.
+const isDockLayout = () =>
+  (PageContainer?.classList.contains("CanvasImmersive") ||
+    (IsPIP && PageContainer?.classList.contains("Exp_PopupDock"))) ??
+  false;
+
+// --DockLift sits on the Header, so every write restyles the whole Header; identical values are skipped.
+let dockLiftWritten: { el: HTMLElement; value: string } | null = null;
+
+function writeDockLift(header: HTMLElement, dockLift: number) {
+  const value = dockLift.toString();
+  if (dockLiftWritten?.el === header && dockLiftWritten.value === value) return;
+  header.style.setProperty("--DockLift", value);
+  dockLiftWritten = { el: header, value };
+}
+
+// Canvas Stage's stage element, kept between frames instead of looked up on each one.
+let canvasStage: HTMLElement | null = null;
+
+function getCanvasStage(): HTMLElement | null {
+  if (canvasStage?.isConnected && PageContainer?.contains(canvasStage)) return canvasStage;
+  canvasStage = PageContainer?.querySelector<HTMLElement>(".ContentBox > .CanvasStage") ?? null;
+  return canvasStage;
+}
 
 let visualsApplied = false;
 let pageHover = false;
@@ -61,6 +91,15 @@ const RunMediaBoxAnimation = () => {
     const deltaTime = (timestampNow - animationLastTimestamp) / 1000;
     const controlsOpacity = controlsOpacitySpring.Step(deltaTime);
     const artworkBrightness = artworkBrightnessSpring.Step(deltaTime);
+    if (controlsOpacitySpring.GetGoal() > 0) {
+      dockLiftSpring.SetGoal(1);
+    } else if (controlsOpacity <= 0.005) {
+      dockLiftSpring.SetGoal(0);
+    }
+    // Outside the dock layouts nothing reads the lift, so it isn't animated there: it sits at
+    // its goal, ready for a dock layout that turns on, and doesn't keep this loop running.
+    if (!isDockLayout()) dockLiftSpring.SetGoal(dockLiftSpring.GetGoal(), true);
+    const dockLift = dockLiftSpring.Step(deltaTime);
 
     const MediaBox = PageContainer?.querySelector<HTMLElement>(
       ".ContentBox .NowBar .Header .MediaBox"
@@ -69,9 +108,11 @@ const RunMediaBoxAnimation = () => {
     if (MediaBox) {
       MediaBox.style.setProperty("--ArtworkBrightness", artworkBrightness.toString());
       MediaBox.style.setProperty("--ControlsOpacity", controlsOpacity.toString());
+      if (MediaBox.parentElement) writeDockLift(MediaBox.parentElement, dockLift);
     }
+    getCanvasStage()?.style.setProperty("--StageBrightness", artworkBrightness.toString());
 
-    if (controlsOpacitySpring.CanSleep() && artworkBrightnessSpring.CanSleep()) {
+    if (controlsOpacitySpring.CanSleep() && artworkBrightnessSpring.CanSleep() && dockLiftSpring.CanSleep()) {
       animationLastTimestamp = undefined;
       visualsApplied = false;
       return;
@@ -124,6 +165,14 @@ const ToggleControls = (force: boolean = false) => {
       return 1;
     }
   };
+
+  // Canvas Stage and the popup dock move the dock rows on this spring, so it runs critically
+  // damped at a quicker response there; the cover layout keeps its slow overdamped fade.
+  const immersive = isDockLayout();
+  for (const spring of [controlsOpacitySpring, artworkBrightnessSpring]) {
+    spring.SetFrequency(immersive ? 2.5 : 2);
+    spring.SetDampingRatio(immersive ? 1 : 2);
+  }
 
   controlsOpacitySpring.SetGoal(getControlsOpacityGoal());
   artworkBrightnessSpring.SetGoal(getArtworkBrightnessGoal());
@@ -183,13 +232,69 @@ const HIDDEN_MAIN_STYLES = {
   inset: "0",
 } as const;
 
+// The Now Playing sidebar is inside #main, so its background has nothing to draw while it's hidden.
 function hideMainElement(mainElement: HTMLElement) {
   for (const [property, value] of Object.entries(HIDDEN_MAIN_STYLES)) {
     mainElement.style.setProperty(property, value);
   }
+  SetKawarpSuspended("npvbg", true);
+}
+
+/* Spotify draws its menu button (top left) and window buttons (top right) natively over the web
+   content, and holds their places in the global nav with empty spacers. Cinema View stays in the
+   window, so those buttons sit over the page too. The page's corner controls line up with them
+   the way the nav does: on the nav bar's centreline, no taller than its buttons, and set off from
+   each spacer by the gap of the flex row it sits in. */
+const NATIVE_CHROME_VARS = [
+  "--NativeChromeMid",
+  "--NativeChromeControlMax",
+  "--NativeChromeLeftInset",
+  "--NativeChromeRightInset",
+] as const;
+
+function syncNativeChromeInsets(page: HTMLElement) {
+  const spacerIn = (row: HTMLElement | null, edge: "first" | "last") => {
+    const el = edge === "first" ? row?.firstElementChild : row?.lastElementChild;
+    return el instanceof HTMLElement && el.childElementCount === 0 && el.offsetWidth > 0
+      ? el.getBoundingClientRect()
+      : null;
+  };
+  const gapOf = (row: HTMLElement) => parseFloat(getComputedStyle(row).columnGap) || 0;
+
+  const navBar = document.querySelector<HTMLElement>("#global-nav-bar");
+  const leftRow = document.querySelector<HTMLElement>(".main-globalNav-historyButtonsWrapper");
+  const rightRow = document.querySelector<HTMLElement>(".main-globalNav-contentRight");
+  const left = spacerIn(leftRow, "first");
+  const right = spacerIn(rightRow, "last");
+
+  const values: Record<(typeof NATIVE_CHROME_VARS)[number], number | null> = {
+    "--NativeChromeMid": null,
+    "--NativeChromeControlMax": null,
+    "--NativeChromeLeftInset": left && leftRow ? left.right + gapOf(leftRow) : null,
+    "--NativeChromeRightInset":
+      right && rightRow ? window.innerWidth - right.left + gapOf(rightRow) : null,
+  };
+  if (navBar && leftRow && (left || right)) {
+    const bar = navBar.getBoundingClientRect();
+    values["--NativeChromeMid"] = bar.top + bar.height / 2;
+    values["--NativeChromeControlMax"] = leftRow.getBoundingClientRect().height;
+  }
+
+  // Every write restyles the whole page, so unchanged values are skipped.
+  for (const name of NATIVE_CHROME_VARS) {
+    const value = values[name] === null ? "" : `${values[name]}px`;
+    if (page.style.getPropertyValue(name) === value) continue;
+    if (value) page.style.setProperty(name, value);
+    else page.style.removeProperty(name);
+  }
+}
+
+function clearNativeChromeInsets(page: HTMLElement) {
+  for (const name of NATIVE_CHROME_VARS) page.style.removeProperty(name);
 }
 
 function showMainElement() {
+  SetKawarpSuspended("npvbg", false);
   const mainElement = document.querySelector<HTMLElement>("#main");
   if (!mainElement) return;
   for (const property of Object.keys(HIDDEN_MAIN_STYLES)) {
@@ -327,6 +432,37 @@ function Open(skipDocumentFullscreen: boolean = false, moveElement: boolean = tr
         SpicyPage.addEventListener("mousemove", Page_MouseMove, { signal });
         SpicyPage.addEventListener("mouseleave", Page_MouseOut, { signal });
       }
+
+      if (!IsPIP) {
+        syncNativeChromeInsets(SpicyPage);
+        // Resize fires on every pointer move of a window drag; one measure per frame is enough.
+        let syncFrame: number | null = null;
+        const sync = () => {
+          if (syncFrame !== null) return;
+          syncFrame = requestCappedFrame(() => {
+            syncFrame = null;
+            syncNativeChromeInsets(SpicyPage);
+          });
+        };
+        signal.addEventListener("abort", () => {
+          if (syncFrame !== null) cancelCappedFrame(syncFrame);
+        });
+        window.addEventListener("resize", sync, { signal });
+        // On zoom, Spotify resizes the spacers only once it writes --zoom-level on .Root, after the resize event.
+        const root = document.querySelector<HTMLElement>(".Root");
+        if (root) {
+          // The attribute carries other values too; only a zoom change moves the spacers.
+          let zoom = root.style.getPropertyValue("--zoom-level");
+          const zoomObserver = new MutationObserver(() => {
+            const next = root.style.getPropertyValue("--zoom-level");
+            if (next === zoom) return;
+            zoom = next;
+            sync();
+          });
+          zoomObserver.observe(root, { attributes: true, attributeFilter: ["style"] });
+          signal.addEventListener("abort", () => zoomObserver.disconnect());
+        }
+      }
     }
 
     Global.Event.evoke("fullscreen:open", null);
@@ -346,15 +482,7 @@ function Open(skipDocumentFullscreen: boolean = false, moveElement: boolean = tr
     if (!stillOpen()) return;
     PageView.AppendViewControls(true);
 
-    const NoLyrics = $currentLyricsData.get().includes("NO_LYRICS");
-    if (NoLyrics && !IsCompactMode()) {
-      SpicyPage
-        ?.querySelector(".ContentBox .LyricsContainer")
-        ?.classList.add("Hidden");
-      SpicyPage
-        ?.querySelector<HTMLElement>(".ContentBox")
-        ?.classList.add("LyricsHidden");
-    }
+    SyncNoLyricsLayout();
   }, 75);
 
   GetCurrentLyricsContainerInstance()?.Resize();
@@ -378,16 +506,14 @@ function finishClose(SpicyPage: HTMLElement, transfer: boolean) {
     }
   }
   SpicyPage.classList.remove("Fullscreen", "frame_F_Exit");
+  clearNativeChromeInsets(SpicyPage);
 
   void ExitFullscreenElement().then(() => {
     if (transfer) setTimeout(() => PageView.AppendViewControls(true), 50);
   });
 
-  if ($currentLyricsData.get().includes("NO_LYRICS")) {
-    SpicyPage.querySelector(".ContentBox .LyricsContainer")?.classList.remove("Hidden");
-    SpicyPage.querySelector<HTMLElement>(".ContentBox")?.classList.remove("LyricsHidden");
-    if (transfer) DeregisterNowBarBtn();
-  }
+  SyncNoLyricsLayout();
+  if (transfer && $currentLyricsData.get().includes("NO_LYRICS")) DeregisterNowBarBtn();
 
   ResetLastLine();
 

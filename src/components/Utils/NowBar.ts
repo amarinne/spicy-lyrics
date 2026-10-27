@@ -1,6 +1,6 @@
 import BlobURLMaker from "../../utils/BlobURLMaker.ts";
 import { GetCurrentLyricsContainerInstance } from "../../utils/Lyrics/Applyer/CreateLyricsContainer.ts";
-import { SongProgressBar } from "./../../utils/Lyrics/SongProgressBar.ts";
+import { FormatPlaybackTime, SongProgressBar } from "./../../utils/Lyrics/SongProgressBar.ts";
 import { QueueForceScroll, ResetLastLine } from "../../utils/Scrolling/ScrollToActiveLine.ts";
 import { $showVolumeSlider, $timelineOutsideMediaContent } from "../../utils/stores.ts";
 import { onExperimentChange } from "../../utils/experiments.ts";
@@ -30,6 +30,42 @@ function setText(el: HTMLElement, text: string): void {
   } else if (el.textContent !== text) {
     el.textContent = text;
   }
+}
+
+// The readout over a hovered or dragged track: what a click there would set. It follows
+// the pointer through `translate`, so tracking never touches layout; CSS places the other axis.
+function CreateScrubPreview(host: HTMLElement, keepInsideHost: boolean) {
+  const el = document.createElement("div");
+  el.className = "ScrubPreview";
+  el.setAttribute("aria-hidden", "true");
+  host.appendChild(el);
+
+  return {
+    /** `point` is the screen coordinate on the track's long axis the preview points at. */
+    Show: (text: string, point: number, vertical: boolean) => {
+      setText(el, text);
+      el.classList.toggle("Vertical", vertical);
+      // Undo any scale on the overlay (the artwork's press shrink) to get layout px.
+      const rect = host.getBoundingClientRect();
+      const scale = vertical
+        ? rect.height / (host.offsetHeight || 1)
+        : rect.width / (host.offsetWidth || 1);
+      const offset = (point - (vertical ? rect.top : rect.left)) / (scale || 1);
+      if (vertical) {
+        el.style.translate = `0 ${offset}px`;
+      } else if (!keepInsideHost) {
+        el.style.translate = `${offset}px 0`;
+      } else {
+        // Measured each time: the host reads above have already laid the page out, so
+        // this costs no extra layout, and it follows the type when the window resizes it.
+        const half = el.offsetWidth / 2;
+        const max = host.offsetWidth - half;
+        el.style.translate = `${Math.max(half, Math.min(max, offset))}px 0`;
+      }
+      el.classList.add("Visible");
+    },
+    Hide: () => el.classList.remove("Visible"),
+  };
 }
 
 // Define interfaces for our control instances
@@ -166,8 +202,10 @@ function OpenNowBar(skipSaving: boolean = false) {
   NowBar.classList.add("Active");
 
   if (spicyLyricsPage) {
+    const wasOpen = spicyLyricsPage.classList.contains("NowBarStatus__Open");
     spicyLyricsPage.classList.remove("NowBarStatus__Closed");
     spicyLyricsPage.classList.add("NowBarStatus__Open");
+    if (!wasOpen) Global.Event.evoke("nowbar:open", null);
   }
 
   if (!skipSaving) $isNowBarOpen.set(true);
@@ -449,6 +487,33 @@ function OpenNowBar(skipSaving: boolean = false) {
         let isDragging = false;
         let dragPositionMs: number | null = null; // Track the current drag position in ms
 
+        const scrubPreview = CreateScrubPreview(TimelineElem, true);
+        let isHovering = false;
+
+        // Same math as the drag and click seeks, so the preview is exactly where a click lands.
+        const previewAt = (clientX: number) => {
+          const duration = SpotifyPlayer.GetDuration() ?? 0;
+          const rect = SliderBar.getBoundingClientRect();
+          if (duration <= 0 || rect.width === 0) {
+            scrubPreview.Hide();
+            return;
+          }
+          const x = Math.max(rect.left, Math.min(rect.right, clientX));
+          const positionMs = Math.floor(((x - rect.left) / rect.width) * duration);
+          scrubPreview.Show(FormatPlaybackTime(positionMs), x, false);
+        };
+
+        const handleHoverMove = (event: PointerEvent) => {
+          if (event.pointerType !== "mouse") return;
+          isHovering = true;
+          if (!isDragging) previewAt(event.clientX);
+        };
+
+        const handleHoverLeave = () => {
+          isHovering = false;
+          if (!isDragging) scrubPreview.Hide();
+        };
+
         const updateTimelineState = (e = null) => {
           const PositionElem = TimelineElem.querySelector<HTMLElement>(".Time.Position");
           const DurationElem = TimelineElem.querySelector<HTMLElement>(".Time.Duration");
@@ -544,6 +609,7 @@ function OpenNowBar(skipSaving: boolean = false) {
 
           // Update the slider visually during drag
           SliderBar.style.setProperty("--SliderProgress", percentage.toString());
+          previewAt(clientX);
 
           // Calculate position in milliseconds
           const positionMs = Math.floor(percentage * (SpotifyPlayer.GetDuration() ?? 0));
@@ -574,6 +640,7 @@ function OpenNowBar(skipSaving: boolean = false) {
           isDragging = false;
           SliderBar.classList.remove("Dragging");
           dragDoc.body.style.userSelect = ""; // Restore text selection
+          if (!isHovering) scrubPreview.Hide();
 
           // Remove the event listeners
           dragDoc.removeEventListener("mousemove", handleDragMove);
@@ -624,8 +691,15 @@ function OpenNowBar(skipSaving: boolean = false) {
         // Keep the click handler for simple clicks
         SliderBar.addEventListener("click", sliderBarHandler);
 
+        SliderBar.addEventListener("pointerenter", handleHoverMove);
+        SliderBar.addEventListener("pointermove", handleHoverMove);
+        SliderBar.addEventListener("pointerleave", handleHoverLeave);
+
         timelineMaid.Give(() => {
           SliderBar.removeEventListener("click", sliderBarHandler);
+          SliderBar.removeEventListener("pointerenter", handleHoverMove);
+          SliderBar.removeEventListener("pointermove", handleHoverMove);
+          SliderBar.removeEventListener("pointerleave", handleHoverLeave);
           SliderBar.removeEventListener("mousedown", handleDragStart);
           SliderBar.removeEventListener("touchstart", handleDragStart);
           dragDoc.removeEventListener("mousemove", handleDragMove);
@@ -702,6 +776,9 @@ function OpenNowBar(skipSaving: boolean = false) {
 
         const clamp = (value: number) => Math.max(0, Math.min(1, value));
 
+        const scrubPreview = CreateScrubPreview(VolumeElement, false);
+        let isHovering = false;
+
         // The glyph rests near the foot of the capsule (centered ~3cqh up a 32cqh
         // track); once the fill's top edge clears it the icon sits on solid white,
         // and .IconOnFill flips it from white to ink. Only the new skin acts on
@@ -748,13 +825,42 @@ function OpenNowBar(skipSaving: boolean = false) {
           }
           return event as MouseEvent;
         };
-        const clientYFromEvent = (event: MouseEvent | TouchEvent) => pointFromEvent(event).clientY;
-
         const percentageFromEvent = (event: MouseEvent | TouchEvent) => {
-          const clientY = clientYFromEvent(event);
+          const point = pointFromEvent(event);
           const rect = VolumeElement.getBoundingClientRect();
+          // The Canvas Stage dock lays the capsule flat; its shape says which axis to read.
+          if (rect.width > rect.height) {
+            return clamp((point.clientX - rect.left) / rect.width);
+          }
           if (rect.height === 0) return currentLevel;
-          return clamp(1 - (clientY - rect.top) / rect.height);
+          return clamp(1 - (point.clientY - rect.top) / rect.height);
+        };
+
+        const previewLevel = (event: MouseEvent | TouchEvent, level: number) => {
+          const point = pointFromEvent(event);
+          const rect = VolumeElement.getBoundingClientRect();
+          const vertical = rect.width <= rect.height;
+          const along = vertical
+            ? Math.max(rect.top, Math.min(rect.bottom, point.clientY))
+            : Math.max(rect.left, Math.min(rect.right, point.clientX));
+          scrubPreview.Show(`${Math.round(level * 100)}%`, along, vertical);
+        };
+
+        const handleHoverMove = (event: PointerEvent) => {
+          if (event.pointerType !== "mouse") return;
+          isHovering = true;
+          if (isDragging) return;
+          // A click on the glyph mutes rather than setting a level.
+          if ((event.target as HTMLElement | null)?.closest?.(".VolumeIcon")) {
+            scrubPreview.Hide();
+          } else {
+            previewLevel(event, percentageFromEvent(event));
+          }
+        };
+
+        const handleHoverLeave = () => {
+          isHovering = false;
+          if (!isDragging) scrubPreview.Hide();
         };
 
         // Mute is done here rather than with Spicetify.Player.toggleMute(), which
@@ -826,7 +932,9 @@ function OpenNowBar(skipSaving: boolean = false) {
             if (travel < ICON_DRAG_THRESHOLD_PX) return;
             pendingIconTap = false;
           }
-          commit(percentageFromEvent(event));
+          const level = percentageFromEvent(event);
+          commit(level);
+          previewLevel(event, level);
         };
 
         const stopDrag = () => {
@@ -839,6 +947,7 @@ function OpenNowBar(skipSaving: boolean = false) {
           dragDoc.removeEventListener("mouseup", handleDragEnd);
           dragDoc.removeEventListener("touchend", handleDragEnd);
           dragDoc.removeEventListener("touchcancel", handleDragCancel);
+          if (!isHovering) scrubPreview.Hide();
         };
 
         const handleDragEnd = (event: MouseEvent | TouchEvent) => {
@@ -877,8 +986,14 @@ function OpenNowBar(skipSaving: boolean = false) {
         VolumeElement.addEventListener("mousedown", handleDragStart);
         VolumeElement.addEventListener("touchstart", handleDragStart);
         VolumeElement.addEventListener("wheel", wheelHandler, { passive: false });
+        VolumeElement.addEventListener("pointerenter", handleHoverMove);
+        VolumeElement.addEventListener("pointermove", handleHoverMove);
+        VolumeElement.addEventListener("pointerleave", handleHoverLeave);
 
         volumeMaid.Give(() => {
+          VolumeElement.removeEventListener("pointerenter", handleHoverMove);
+          VolumeElement.removeEventListener("pointermove", handleHoverMove);
+          VolumeElement.removeEventListener("pointerleave", handleHoverLeave);
           VolumeElement.removeEventListener("mousedown", handleDragStart);
           VolumeElement.removeEventListener("touchstart", handleDragStart);
           VolumeElement.removeEventListener("wheel", wheelHandler);
@@ -1139,8 +1254,10 @@ function CloseNowBar() {
 
   const spicyLyricsPage = PageContainer;
   if (spicyLyricsPage) {
+    const wasOpen = spicyLyricsPage.classList.contains("NowBarStatus__Open");
     spicyLyricsPage.classList.remove("NowBarStatus__Open");
     spicyLyricsPage.classList.add("NowBarStatus__Closed");
+    if (wasOpen) Global.Event.evoke("nowbar:close", null);
   }
 
   setTimeout(() => {
@@ -1287,13 +1404,15 @@ async function getAVCStreamUrl(manifestUrl: string) {
 /**
  * The fullscreen song/artist links. In PiP the page lives in the popup window
  * and `Fullscreen.IsOpen` is true too, but the main-window Close would drag the
- * page out of the popup — so there we only navigate the main window. A click
- * during the exit animation is dropped rather than navigating twice.
+ * page out of the popup — so there we only navigate the main window, and bring
+ * it forward so the navigation is visible. A click during the exit animation is
+ * dropped rather than navigating twice.
  */
 async function navigateFromFullscreen(pathname: string) {
   if (IsFullscreenClosing()) return;
   if (!IsPIP && Fullscreen.IsOpen && !(await Fullscreen.Close())) return;
   Session.Navigate({ pathname });
+  if (IsPIP) globalThis.focus();
 }
 
 // Each UpdateNowBar takes a token for its delayed metadata swap; a later update
@@ -1519,40 +1638,33 @@ function UpdateNowBar(force = false) {
 }
 
 
+// A layout can animate the swap: it gets the swap to run at the right moment and returns true,
+// or returns false to let it happen straight away. Set by CanvasImmersive.ts.
+type SideSwapTransition = (applySwap: () => void, to: "left" | "right") => boolean;
+let sideSwapTransition: SideSwapTransition | null = null;
+
+function SetSideSwapTransition(transition: SideSwapTransition | null) {
+  sideSwapTransition = transition;
+}
+
 function NowBar_SwapSides() {
-  const NowBar = PageContainer?.querySelector(".ContentBox .NowBar");
-  if (!NowBar) return;
+  const to = $nowBarSide.get() === "right" ? "left" : "right";
+  if (sideSwapTransition?.(ApplySideSwap, to)) return;
+  ApplySideSwap();
+}
 
-  const spicyLyricsPage = PageContainer;
-  if (!spicyLyricsPage) return;
+function ApplySideSwap() {
+  $nowBarSide.set($nowBarSide.get() === "right" ? "left" : "right");
+  Session_NowBar_SetSide();
+}
 
-  const CurrentSide = $nowBarSide.get();
-  if (CurrentSide === "left") {
-    $nowBarSide.set("right");
-    NowBar.classList.remove("LeftSide");
-    NowBar.classList.add("RightSide");
-    spicyLyricsPage.classList.remove("NowBarSide__Left");
-    spicyLyricsPage.classList.add("NowBarSide__Right");
-  } else if (CurrentSide === "right") {
-    $nowBarSide.set("left");
-    NowBar.classList.remove("RightSide");
-    NowBar.classList.add("LeftSide");
-    spicyLyricsPage.classList.remove("NowBarSide__Right");
-    spicyLyricsPage.classList.add("NowBarSide__Left");
-  } else {
-    $nowBarSide.set("right");
-    NowBar.classList.remove("LeftSide");
-    NowBar.classList.add("RightSide");
-    spicyLyricsPage.classList.remove("NowBarSide__Left");
-    spicyLyricsPage.classList.add("NowBarSide__Right");
-  }
-
-  setTimeout(() => {
-    // console.log("Resizing Lyrics Container");
-    GetCurrentLyricsContainerInstance()?.Resize();
-    // console.log("Forcing Scroll");
-    QueueForceScroll();
-  }, 10);
+// The side the page shows: the stored one, except that compact mode and the centred
+// no-lyrics layout always lay out on the left. The stored side is left alone, so it
+// comes back once they end.
+function ResolveNowBarSide(page: HTMLElement): "left" | "right" {
+  if (page.classList.contains("CompactMode")) return "left";
+  if (page.querySelector(".ContentBox")?.classList.contains("LyricsHidden")) return "left";
+  return $nowBarSide.get() === "right" ? "right" : "left";
 }
 
 function Session_NowBar_SetSide() {
@@ -1563,29 +1675,28 @@ function Session_NowBar_SetSide() {
   if (!spicyLyricsPage) return;
 
   const CurrentSide = $nowBarSide.get();
-  if (CurrentSide === "left") {
-    NowBar.classList.remove("RightSide");
-    NowBar.classList.add("LeftSide");
-    spicyLyricsPage.classList.remove("NowBarSide__Right");
-    spicyLyricsPage.classList.add("NowBarSide__Left");
-  } else if (CurrentSide === "right") {
-    NowBar.classList.remove("LeftSide");
-    NowBar.classList.add("RightSide");
-    spicyLyricsPage.classList.remove("NowBarSide__Left");
-    spicyLyricsPage.classList.add("NowBarSide__Right");
-  } else {
-    $nowBarSide.set("left");
-    NowBar.classList.remove("RightSide");
-    NowBar.classList.add("LeftSide");
-    spicyLyricsPage.classList.remove("NowBarSide__Right");
-    spicyLyricsPage.classList.add("NowBarSide__Left");
-  }
+  if (CurrentSide !== "left" && CurrentSide !== "right") $nowBarSide.set("left");
+
+  const right = ResolveNowBarSide(spicyLyricsPage) === "right";
+  NowBar.classList.toggle("RightSide", right);
+  NowBar.classList.toggle("LeftSide", !right);
+  spicyLyricsPage.classList.toggle("NowBarSide__Right", right);
+  spicyLyricsPage.classList.toggle("NowBarSide__Left", !right);
   setTimeout(() => {
     // console.log("Resizing Lyrics Container");
     GetCurrentLyricsContainerInstance()?.Resize();
     // console.log("Forcing Scroll");
     QueueForceScroll();
   }, 10);
+}
+
+// For callers that flip .LyricsHidden: re-lays the side out only if that changed it.
+function SyncNowBarSide() {
+  const page = PageContainer;
+  if (!page) return;
+  const right = ResolveNowBarSide(page) === "right";
+  if (page.classList.contains(right ? "NowBarSide__Right" : "NowBarSide__Left")) return;
+  Session_NowBar_SetSide();
 }
 
 function DeregisterNowBarBtn() {
@@ -1611,21 +1722,26 @@ Global.Event.listen("playback:playpause", (e: { data: { isPaused: boolean } }) =
         PlayPauseButton.classList.remove("Playing");
         PlayPauseButton.classList.add("Paused");
         const SVG = PlayPauseButton.querySelector("svg");
-        if (SVG) {
-          SVG.innerHTML = Icons.Play;
-        }
+        if (SVG) ReplaceIcon(SVG, Icons.Play);
       } else {
         // console.log("Playing");
         PlayPauseButton.classList.remove("Paused");
         PlayPauseButton.classList.add("Playing");
         const SVG = PlayPauseButton.querySelector("svg");
-        if (SVG) {
-          SVG.innerHTML = Icons.Pause;
-        }
+        if (SVG) ReplaceIcon(SVG, Icons.Pause);
       }
     }
   }
 });
+
+// The icons are whole <svg> elements. Writing one into the current svg's innerHTML nested it, so
+// the button's svg rules (size, the shuffle/repeat glow) applied twice.
+function ReplaceIcon(svg: Element, markup: string) {
+  const template = document.createElement("template");
+  template.innerHTML = markup.trim();
+  const icon = template.content.firstElementChild;
+  if (icon) svg.replaceWith(icon);
+}
 
 Global.Event.listen("playback:loop", (e: string) => {
   if (Fullscreen.IsOpen) {
@@ -1637,11 +1753,7 @@ Global.Event.listen("playback:loop", (e: string) => {
       const SVG = LoopButton.querySelector("svg");
       if (!SVG) return;
 
-      if (e === "track") {
-        SVG.innerHTML = Icons.LoopTrack;
-      } else {
-        SVG.innerHTML = Icons.Loop;
-      }
+      ReplaceIcon(SVG, e === "track" ? Icons.LoopTrack : Icons.Loop);
 
       if (e !== "none") {
         LoopButton.classList.add("Enabled");
@@ -1742,7 +1854,9 @@ export {
   UpdateNowBar,
   Session_OpenNowBar,
   NowBar_SwapSides,
+  SetSideSwapTransition,
   Session_NowBar_SetSide,
+  SyncNowBarSide,
   DeregisterNowBarBtn,
   CleanUpActiveComponents as CleanUpNowBarComponents,
 };

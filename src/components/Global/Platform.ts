@@ -5,6 +5,8 @@ import {
   type SessionTokenState,
 } from "./SpotifyTokenProvider.ts";
 
+import { getRemoteConfig } from "../../utils/remoteConfig.ts";
+
 // Spotify Types
 /**
  * Shape of the modern authorization state exposed by
@@ -97,8 +99,19 @@ const TokenProvider = createSpotifyTokenProvider({
   },
 });
 
-// Get Spotify Access Token Function
-const GetSpotifyAccessToken = (): Promise<string> => TokenProvider.getToken();
+// Get Spotify Access Token Function. Bounded as a whole, as upstream: every
+// source is a native or Cosmos call that can stop answering, and every caller
+// shares this promise.
+const GetSpotifyAccessToken = (): Promise<string> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error("Timed out obtaining a Spotify access token")),
+      getRemoteConfig().token.resolveTimeoutMs
+    );
+  });
+  return Promise.race([TokenProvider.getToken(), timeout]).finally(() => clearTimeout(timer));
+};
 
 // Drop the cached token and any in-flight refresh. Returns nothing and never
 // exposes token text; the next call performs a fresh source read.

@@ -14,6 +14,7 @@ test("syllable rendering cleans before letter timing split", () => {
     "utf8"
   );
   assert.match(source, /const renderText = StripZeroWidth\(pickBaseText\(syllable\)\);/u);
-  assert.match(source, /Emphasize\(renderText\.split\(""\), word, syllable, isBackground\);/u);
+  assert.match(source, /const letters = totalDuration >= MinLetterCapableDuration\(\) \? SplitLetters\(renderText\) : \[\];/u);
+  assert.match(source, /Emphasize\(letters, word, syllable, isBackground\);/u);
   assert.doesNotMatch(source, /Emphasize\(syllable\.Text\.split\(""\)/u);
 });

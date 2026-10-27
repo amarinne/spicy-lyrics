@@ -1,20 +1,35 @@
 import { $simpleLyricsMode } from "../../../../utils/stores.ts";
+import { isExperimentEnabled } from "../../../experiments.ts";
+
+// The shortest word that can be split, per mode.
+const MinDuration = 1000;
+const SimpleLyricsModeMinDuration = 1050;
 
 const Simple = (letterLength: number, totalDuration: number) => {
-  const minDuration = 1000;
-
-  return totalDuration >= minDuration;
+  return totalDuration >= MinDuration;
 };
 
+// Refreshed Simple Lyrics: only words held a second or more with
+// two to seven letters are split. A longer held word ("starfucker,") fills like
+// any other word.
+export const RefreshedMaxLetters = 7;
+const RefreshedMinLetters = 2;
+
 const SimpleLyricsModeCapable = (letterLength: number, totalDuration: number) => {
+  if (isExperimentEnabled("refreshedSimpleLyrics")) {
+    return (
+      letterLength >= RefreshedMinLetters &&
+      letterLength <= RefreshedMaxLetters &&
+      totalDuration >= MinDuration
+    );
+  }
   if (letterLength > 12) {
     return false;
   }
 
-  const minDuration = 1050;
   //const maxDuration = 8550;
 
-  return totalDuration >= minDuration; // && totalDuration <= maxDuration;
+  return totalDuration >= SimpleLyricsModeMinDuration; // && totalDuration <= maxDuration;
 };
 
 const _Complex = (letterLength: number, totalDuration: number) => {
@@ -29,6 +44,15 @@ const _Complex = (letterLength: number, totalDuration: number) => {
   // Return whether the letter length and duration meet the criteria
   return totalDuration >= minDuration;
 };
+
+/**
+ * Below this duration IsLetterCapable is false whatever the letter count, so a caller can
+ * skip splitting the word just to count its letters.
+ */
+export function MinLetterCapableDuration(): number {
+  if (!$simpleLyricsMode.get()) return MinDuration;
+  return isExperimentEnabled("refreshedSimpleLyrics") ? MinDuration : SimpleLyricsModeMinDuration;
+}
 
 export function IsLetterCapable(letterLength: number, totalDuration: number) {
   return $simpleLyricsMode.get()
