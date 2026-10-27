@@ -48,6 +48,30 @@ const isClosingPunctuation = (char: string): boolean =>
 const isOpeningPunctuation = (char: string): boolean =>
   /[\p{Ps}\p{Pi}〈《「『【〔〖〘〚]/u.test(char);
 const isJoinPunctuation = (char: string): boolean => /['’\-‐‑]/u.test(char);
+// Scripts whose orthography separates words with spaces. CJK pairs never need
+// this — they attach via the script fallback — but Latin/Cyrillic/Greek/Hangul
+// pairs with no provider evidence at all would otherwise glue whole lines.
+const isSpacedScriptChar = (char: string): boolean =>
+  /[\p{Script=Latin}\p{Script=Cyrillic}\p{Script=Greek}\p{Script=Hangul}\p{Number}]/u.test(char);
+
+/**
+ * A unit edge that ends/starts a word: a spaced-script letter/digit, or the
+ * word punctuation left over after the script fallback claimed every attached
+ * pair (a trailing comma/close or a leading opener). Join punctuation never
+ * reaches here — it attaches in scriptRelation.
+ */
+function isWordEdgeChar(char: string, isPrev: boolean): boolean {
+  if (!char) return false;
+  if (isSpacedScriptChar(char)) return true;
+  return isPrev ? isClosingPunctuation(char) : isOpeningPunctuation(char);
+}
+
+function isSpacedScriptPair(previous: string, next: string): boolean {
+  return (
+    isWordEdgeChar(lastChar(previous), true) &&
+    isWordEdgeChar(firstChar(next), false)
+  );
+}
 
 function attached(confidence: number, provenance: string): ResolvedJoin {
   return { relation: "attached", kind: "inferred", confidence, provenance };
@@ -124,6 +148,13 @@ function resolveJoin(current: SpanState, next: SpanState, providerSeparator: str
       : boundary("inferred", 0.7, "providerFlagAfterSpan");
   }
   if (providerSeparator != null) return attached(0.5, "completeProviderLineCompact");
+  // No provider evidence at all (no edge whitespace, no complete line, no
+  // flags): fragment pairs ("Camou"+"fla") and word pairs ("I"+"don't") look
+  // identical here. Default spaced-script pairs to a word boundary so word
+  // lists render with gaps instead of gluing the whole line.
+  if (isSpacedScriptPair(current.core, next.core)) {
+    return boundary("inferred", 0.4, "spacedScriptFallback");
+  }
   return { relation: "unknown", kind: "inferred", confidence: 0, provenance: "unresolved" };
 }
 

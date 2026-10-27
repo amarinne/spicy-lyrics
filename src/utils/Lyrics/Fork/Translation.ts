@@ -522,16 +522,17 @@ export async function batchTranslate(
  * Translate all lines in the lyrics object and store as TranslatedText.
  * Called after romanization is complete.
  */
-export async function translateLyrics(lyrics: any): Promise<void> {
-  const { translationEnabled, translationTargetLang } = await import("../lyrics.ts");
-  if (!translationEnabled || !translationTargetLang) return;
+export type TranslatableLineRef = { obj: any; field: string };
 
-  const sourceLang = lyrics.Language || "und";
-  const targetLang = translationTargetLang;
-
-  // Collect all line texts
+/**
+ * Collect every line that can carry a translation, with its display text.
+ * A Syllable group with no `Type` is a vocal group — the same convention the
+ * romanization pipeline uses. Requiring the literal "Vocal" here silently
+ * dropped translation for providers that omit the field.
+ */
+export function collectTranslatableLines(lyrics: any): { lineTexts: string[]; lineRefs: TranslatableLineRef[] } {
   const lineTexts: string[] = [];
-  const lineRefs: Array<{ obj: any; field: string }> = [];
+  const lineRefs: TranslatableLineRef[] = [];
 
   if (lyrics.Type === "Static") {
     for (const line of lyrics.Lines) {
@@ -547,7 +548,7 @@ export async function translateLyrics(lyrics: any): Promise<void> {
     }
   } else if (lyrics.Type === "Syllable") {
     for (const vocalGroup of lyrics.Content) {
-      if (vocalGroup.Type === "Vocal") {
+      if (vocalGroup.Type === undefined || vocalGroup.Type === "Vocal") {
         // Build full line text from syllables
         const lineText = joinSyllableText(vocalGroup.Lead.Syllables);
         lineTexts.push(lineText);
@@ -564,6 +565,24 @@ export async function translateLyrics(lyrics: any): Promise<void> {
       }
     }
   }
+  return { lineTexts, lineRefs };
+}
+
+export async function translateLyrics(lyrics: any): Promise<void> {
+  const { translationEnabled, translationTargetLang } = await import("../lyrics.ts");
+
+  // Collect all line texts first so a disabled toggle still clears stale
+  // translations a cached document may carry.
+  const { lineTexts, lineRefs } = collectTranslatableLines(lyrics);
+
+  if (!translationEnabled || !translationTargetLang) {
+    for (const ref of lineRefs) delete ref.obj[ref.field];
+    lyrics.IncludesTranslation = false;
+    return;
+  }
+
+  const sourceLang = lyrics.Language || "und";
+  const targetLang = translationTargetLang;
 
   if (lineTexts.length === 0) return;
 

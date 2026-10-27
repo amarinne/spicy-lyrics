@@ -424,6 +424,12 @@ interface SyllableBuildInput {
   transliterations: TransliterationSpan[] | null | undefined;
   stripParentheses: boolean;
   scanner: AdjacencyScanner;
+  /**
+   * Word-timed documents time whole words: every vocal span is one word, so
+   * adjacency must not mark spans as word continuations. Only syllable-timed
+   * (or inferred) documents split words across spans.
+   */
+  wordTimed: boolean;
 }
 
 function buildSyllables({
@@ -431,6 +437,7 @@ function buildSyllables({
   transliterations,
   stripParentheses,
   scanner,
+  wordTimed,
 }: SyllableBuildInput): ParsedSyllable[] {
   const syllables: ParsedSyllable[] = [];
   // Fork adaptation: lead syllable text keeps its authored whitespace — a
@@ -456,8 +463,9 @@ function buildSyllables({
     let isPartOfWord = false;
     const nextNode = siblings[index + 1];
     // Only a following *vocal* span can continue a word; a trailing x-bg or
-    // x-translation sibling means this syllable ends the word.
-    if (closingTagIsAdjacent && isVocalSpan(nextNode)) {
+    // x-translation sibling means this syllable ends the word. Word-timed
+    // documents never continue: each span already is a whole word.
+    if (!wordTimed && closingTagIsAdjacent && isVocalSpan(nextNode)) {
       const nextText = readText(nextNode["#text"]);
       const endsWithComma = rawText.trim().endsWith(",");
       const endsWithWhitespace = /\s$/.test(rawText);
@@ -702,6 +710,9 @@ function convertTTML(ttmlInput: string): ParsedTTMLLyrics | null {
       const scanner = createAdjacencyScanner(ttmlInput);
       const firstDiv = divs[0];
       let skippedEmptyLines = 0;
+      // itunes:timing="Word" is handled here too: each span times a whole
+      // word, so spans must not be treated as fragments of one word.
+      const wordTimed = timing === "Word";
 
       const syllableLyrics: ParsedSyllableLyrics = {
         ...base,
@@ -740,6 +751,7 @@ function convertTTML(ttmlInput: string): ParsedTTMLLyrics | null {
             transliterations: lineTranslit,
             stripParentheses: false,
             scanner,
+            wordTimed,
           });
 
           const leadRoles = getInlineRoleTexts(p);
@@ -806,6 +818,7 @@ function convertTTML(ttmlInput: string): ParsedTTMLLyrics | null {
                   transliterations: bgLineTranslit,
                   stripParentheses: true,
                   scanner,
+                  wordTimed,
                 }),
                 StartTime: undefined,
                 EndTime: undefined,

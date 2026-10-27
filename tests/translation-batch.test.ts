@@ -4,6 +4,7 @@ import {
   batchTranslate,
   buildBatchChunks,
   buildBatchQuery,
+  collectTranslatableLines,
   extractGoogleRomanization,
   looksLikeRomanizationEcho,
   parseBatchTranslation,
@@ -65,6 +66,34 @@ test("translation guard rejects Korean romanization echoes", () => {
 test("English target translates short Latin lyric-looking lines", () => {
   assert.equal(shouldTranslateLine("Apna bana le piya", "eng", "en"), true);
   assert.equal(shouldTranslateLine("yeah", "eng", "en"), false);
+});
+
+test("translatable lines include Syllable groups that omit Type", () => {
+  const lyrics = {
+    Type: "Syllable",
+    Content: [
+      {
+        Lead: { Syllables: [{ Text: "愛" }, { Text: "してる" }] },
+        Background: [{ Syllables: [{ Text: "oh" }] }],
+      },
+      { Type: "Vocal", Lead: { Syllables: [{ Text: "hello" }] } },
+      { Type: "Instrumental", Lead: { Syllables: [{ Text: "♪" }] } },
+    ],
+  };
+  const { lineTexts, lineRefs } = collectTranslatableLines(lyrics);
+  assert.equal(lineTexts.length, 3);
+  assert.equal(lineRefs.length, 3);
+  assert.equal(lineRefs[0].obj, lyrics.Content[0].Lead);
+  assert.equal(lineRefs[1].obj, lyrics.Content[0].Background[0]);
+  assert.equal(lineRefs[2].obj, lyrics.Content[1].Lead);
+  assert.ok(lineTexts[0].includes("愛"));
+});
+
+test("translatable lines cover Static and Line documents", () => {
+  const staticDoc = { Type: "Static", Lines: [{ Text: "one" }, { Text: "two" }] };
+  assert.deepEqual(collectTranslatableLines(staticDoc).lineTexts, ["one", "two"]);
+  const lineDoc = { Type: "Line", Content: [{ Text: "a" }, { Text: "" }, { Text: "b" }] };
+  assert.deepEqual(collectTranslatableLines(lineDoc).lineTexts, ["a", "b"]);
 });
 
 test("batch translation retries romanization echoes once individually", async () => {

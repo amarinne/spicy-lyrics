@@ -24,6 +24,36 @@ test("syllable TTML preserves authored span whitespace and boundaries", () => {
   assert.deepEqual(parsed.Content[0].Lead.Syllables.map((span) => [span.Text, span.StartTime, span.EndTime]), [["Watch ", 1, 2], ["this", 2, 3]]);
 });
 
+test("word-timed TTML keeps whole-word spans separate without authored spaces", () => {
+  const parsed = parseTTML(
+    tt(
+      "Word",
+      '<p begin="1s" end="5s"><span begin="1s" end="2s">I</span><span begin="2s" end="3s">don\'t</span><span begin="3s" end="4s">go</span><span begin="4s" end="5s">out,</span></p>'
+    )
+  );
+  assert.equal(parsed?.Type, "Syllable");
+  if (parsed?.Type !== "Syllable") return;
+  assert.deepEqual(
+    parsed.Content[0].Lead.Syllables.map((span) => [span.Text, span.IsPartOfWord]),
+    [["I", false], ["don't", false], ["go", false], ["out,", false]]
+  );
+});
+
+test("syllable-timed TTML still joins adjacent fragments without spaces", () => {
+  const parsed = parseTTML(
+    tt(
+      "Syllable",
+      '<p begin="1s" end="3s"><span begin="1s" end="2s">Camou</span><span begin="2s" end="2.5s">fla</span><span begin="2.5s" end="3s">ge</span></p>'
+    )
+  );
+  assert.equal(parsed?.Type, "Syllable");
+  if (parsed?.Type !== "Syllable") return;
+  assert.deepEqual(
+    parsed.Content[0].Lead.Syllables.map((span) => [span.Text, span.IsPartOfWord]),
+    [["Camou", true], ["fla", true], ["ge", false]]
+  );
+});
+
 test("background vocals and duet alignment remain structured", () => {
   const input = `<tt xmlns:itunes="http://itunes.apple.com/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" itunes:timing="Word"><head><metadata><ttm:agent xml:id="v1" type="person"/><ttm:agent xml:id="v2" type="person"/></metadata></head><body><div><p ttm:agent="v2" begin="1s" end="3s"><span begin="1s" end="2s">Lead</span><span ttm:role="x-bg"><span begin="1.5s" end="2.5s">Back</span></span></p></div></body></tt>`;
   const parsed = parseTTML(input);

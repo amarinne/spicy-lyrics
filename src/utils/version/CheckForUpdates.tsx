@@ -1,12 +1,10 @@
 import React from "react";
 import { flushSync } from "react-dom";
-import { isDev } from "../../components/Global/Defaults.ts";
 import Session from "../../components/Global/Session.ts";
 import ReactDOM from "react-dom/client";
 import { PopupModal } from "../../components/Modal.ts";
 import { toast } from "sonner";
 
-let ShownUpdateNotice = false;
 let WarningInFlight = false;
 
 function startUpdate() {
@@ -134,14 +132,12 @@ function showUpdateModal(currentVersion: any, latestVersion: any) {
 }
 
 export async function CheckForUpdates(force: boolean = false) {
-  if (isDev) return;
-  if (!force && ShownUpdateNotice) return;
-  const latestVersion = await Session.SpicyLyrics.GetLatestVersion();
-  const currentVersion = Session.SpicyLyrics.GetCurrentVersion();
-  if (!Session.SpicyLyrics.IsBehind(currentVersion, latestVersion)) return;
-
-  presentUpdateAvailable(currentVersion, latestVersion);
-  ShownUpdateNotice = true;
+  // Fork: this build is versioned and released independently of upstream, so
+  // the upstream "is available" notice must never fire. The scheduled poll in
+  // app.tsx therefore no-ops here. The dev-only triggerFakeUpdate below keeps
+  // the notice UI exercisable.
+  void force;
+  return;
 }
 
 // ---- dev stuff ------

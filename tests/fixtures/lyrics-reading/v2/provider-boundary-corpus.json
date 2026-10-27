@@ -147,6 +147,48 @@
       }
     },
     {
+      "id": "english-word-packed-null-flags",
+      "origin": "word-timed provider payload with no flags or display text",
+      "displayText": "",
+      "spans": [["I", null, 0, 100], ["don't", null, 100, 200], ["go", null, 200, 300]],
+      "expected": {
+        "canonicalText": "I don't go",
+        "completeLineAccepted": false,
+        "boundaries": [[1, "inferred", "spacedScriptFallback"], [7, "inferred", "spacedScriptFallback"]],
+        "spanMappings": [[0, 1], [2, 7], [8, 10]],
+        "joins": [["boundary", "spacedScriptFallback"], ["boundary", "spacedScriptFallback"]],
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "english-word-punctuation-packed-null-flags",
+      "origin": "trailing comma still ends a word without provider flags",
+      "displayText": "",
+      "spans": [["out,", null, 0, 100], ["but", null, 100, 200]],
+      "expected": {
+        "canonicalText": "out, but",
+        "completeLineAccepted": false,
+        "boundaries": [[4, "inferred", "spacedScriptFallback"]],
+        "spanMappings": [[0, 4], [5, 8]],
+        "joins": [["boundary", "spacedScriptFallback"]],
+        "diagnostics": []
+      }
+    },
+    {
+      "id": "cyrillic-word-packed-null-flags",
+      "origin": "Cyrillic word list with no flags or display text",
+      "displayText": "",
+      "spans": [["Я", null, 0, 100], ["помнил", null, 100, 200]],
+      "expected": {
+        "canonicalText": "Я помнил",
+        "completeLineAccepted": false,
+        "boundaries": [[1, "inferred", "spacedScriptFallback"]],
+        "spanMappings": [[0, 1], [2, 8]],
+        "joins": [["boundary", "spacedScriptFallback"]],
+        "diagnostics": []
+      }
+    },
+    {
       "id": "invalid-complete-line",
       "origin": "invalid provider alias rejection fixture",
       "displayText": "wrong",

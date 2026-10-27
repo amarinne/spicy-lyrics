@@ -15,6 +15,7 @@ import {
   $koreanDisplayMode,
   $meaningVisible,
   $showChineseTranslitButton,
+  $translationEnabled,
   $translationTargetLang,
 } from "../../utils/uiState.ts";
 import "../../css/Loaders/DotLoader.css";
@@ -1230,6 +1231,10 @@ $chineseTones.listen(queueProcessingSettingsRefresh);
 $joinMandarinWords.listen(queueProcessingSettingsRefresh);
 $chineseReadingPlacement.listen(queueProcessingSettingsRefresh);
 $koreanDisplayMode.listen(queueProcessingSettingsRefresh);
+$translationEnabled.listen(() => {
+  queueProcessingSettingsRefresh();
+});
+
 $translationTargetLang.listen(() => {
   aiRefinementCoordinator.notifyConfigChanged();
   queueProcessingSettingsRefresh();
