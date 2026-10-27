@@ -198,6 +198,71 @@ export function resolveProviderBoundaries(line: ParsedLine): ProviderBoundaryRes
   };
 }
 
+type MutableSyllable = { Text?: string; IsPartOfWord?: boolean; BoundaryAfter?: boolean; BoundaryProvenance?: string; CanonicalStartCp?: number; CanonicalEndCp?: number };
+
+/**
+ * Normalize one syllable group and stamp every syllable with its canonical
+ * range and word boundary. Returns the canonical line text. This is the only
+ * boundary writer: the syllable renderer spaces words from `BoundaryAfter`,
+ * so every document must pass through here even when no romanization or
+ * translation work is pending.
+ */
+export function resolveSyllableGroupBoundaries(
+  syllables: MutableSyllable[],
+  displayText: string,
+  lineId: string
+): string {
+  for (const syllable of syllables) {
+    if (typeof syllable?.Text === "string") {
+      syllable.Text = cleanInvisiblesPreserveEdges(syllable.Text.normalize("NFKC"));
+    }
+  }
+  const cleanDisplay = typeof displayText === "string"
+    ? cleanInvisiblesPreserveEdges(displayText.normalize("NFKC")) : "";
+  const resolution = canonicalTextFromSyllables(syllables, cleanDisplay, lineId);
+  const joins = new Map(resolution.canonical.joins.map((join) => [join.afterSpanId, join]));
+  resolution.canonical.spanMappings.forEach((mapping, index) => {
+    const syllable = syllables[index];
+    if (!syllable) return;
+    const join = joins.get(mapping.spanId);
+    syllable.CanonicalStartCp = mapping.canonicalRange.startCp;
+    syllable.CanonicalEndCp = mapping.canonicalRange.endCp;
+    syllable.BoundaryAfter = join?.relation === "boundary";
+    syllable.BoundaryProvenance = join?.provenance || "lineEnd";
+  });
+  return resolution.canonical.text;
+}
+
+/** Stamp boundaries on every vocal group of a Syllable document, in place. */
+export function applySyllableBoundaries(lyrics: {
+  Type?: string;
+  Content?: Array<{ Type?: string; Text?: string; Lead?: { Syllables?: MutableSyllable[]; StartTime?: number; EndTime?: number }; Background?: Array<{ Syllables?: MutableSyllable[]; StartTime?: number; EndTime?: number }> }>;
+}): void {
+  if (lyrics?.Type !== "Syllable") return;
+  for (const vocalGroup of lyrics.Content || []) {
+    if (vocalGroup.Type !== undefined && vocalGroup.Type !== "Vocal") continue;
+    const lead = vocalGroup.Lead;
+    if (Array.isArray(lead?.Syllables) && lead.Syllables.length > 0) {
+      const text = resolveSyllableGroupBoundaries(
+        lead.Syllables,
+        vocalGroup.Text || "",
+        `lead-${lead.StartTime ?? 0}-${lead.EndTime ?? 0}`
+      );
+      (lead as { Text?: string }).Text = text;
+    }
+    for (const bg of vocalGroup.Background || []) {
+      if (Array.isArray(bg?.Syllables) && bg.Syllables.length > 0) {
+        const text = resolveSyllableGroupBoundaries(
+          bg.Syllables,
+          "",
+          `background-${bg.StartTime ?? 0}-${bg.EndTime ?? 0}`
+        );
+        (bg as { Text?: string }).Text = text;
+      }
+    }
+  }
+}
+
 export function canonicalTextFromSyllables(
   syllables: readonly { Text?: string; IsPartOfWord?: boolean }[],
   displayText = "",

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { resolveProviderBoundaries } from "../src/utils/Lyrics/Processing/ProviderBoundary.ts";
+import { applySyllableBoundaries, resolveProviderBoundaries } from "../src/utils/Lyrics/Processing/ProviderBoundary.ts";
 import type { ParsedLine } from "../src/utils/Lyrics/Processing/Model.ts";
 
 const path = fileURLToPath(new URL(
@@ -58,4 +58,43 @@ test("provider boundary corpus matches mobile contract", () => {
       `${raw.id} joins`
     );
   }
+});
+
+test("documents without romanization work still get word boundaries", () => {
+  // Word-level syllables with no display text: the no-work cache path relies
+  // on this stamp for visible word spacing.
+  const lyrics = {
+    Type: "Syllable",
+    Content: [
+      {
+        Type: "Vocal",
+        Lead: {
+          StartTime: 0,
+          EndTime: 1000,
+          Syllables: ["Never", "thought", "that", "I'd", "find"].map((Text) => ({ Text, IsPartOfWord: false })),
+        },
+      },
+      {
+        Lead: {
+          StartTime: 1000,
+          EndTime: 2000,
+          Syllables: [
+            { Text: "un", IsPartOfWord: true },
+            { Text: "der", IsPartOfWord: true },
+            { Text: "stands", IsPartOfWord: false },
+          ],
+        },
+        Background: [{ StartTime: 0, EndTime: 1, Syllables: [{ Text: "oh", IsPartOfWord: false }] }],
+      },
+      { Type: "Instrumental", Lead: { Syllables: [{ Text: "x", IsPartOfWord: false }] } },
+    ],
+  };
+  applySyllableBoundaries(lyrics as any);
+  const first = (lyrics.Content[0] as any).Lead;
+  assert.deepEqual(first.Syllables.map((s: any) => s.BoundaryAfter), [true, true, true, true, false]);
+  assert.equal(first.Text, "Never thought that I'd find");
+  const second = (lyrics.Content[1] as any).Lead;
+  assert.deepEqual(second.Syllables.map((s: any) => s.BoundaryAfter), [false, false, false]);
+  assert.equal((lyrics.Content[1] as any).Background[0].Syllables[0].BoundaryAfter, false);
+  assert.equal((lyrics.Content[2] as any).Lead.Syllables[0].BoundaryAfter, undefined);
 });

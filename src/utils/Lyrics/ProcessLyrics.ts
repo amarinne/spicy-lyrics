@@ -46,12 +46,12 @@ import { japaneseDictionariesReady, processJapanesePackageLine, processJapaneseP
 import { buildLineAttachedPlan, buildLineFallbackPlan, buildTimedGenericPlan } from "./Processing/GenericReadingProcessor.ts";
 import { romanizeChineseDominantCjkText } from "./Processing/CjkLanguageRouting.ts";
 import type { ParsedLine } from "./Processing/Model.ts";
-import { canonicalTextFromSyllables } from "./Processing/ProviderBoundary.ts";
+import { resolveSyllableGroupBoundaries } from "./Processing/ProviderBoundary.ts";
 import { StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 37;
+export const LYRICS_PROCESSING_VERSION = 38;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -140,23 +140,10 @@ const normalizeSyllableText = (target: any): string => {
 
 const resolveSyllableGroupText = (group: any, lineId: string, fallbackDisplayText = ""): string => {
   const syllables = Array.isArray(group?.Syllables) ? group.Syllables : [];
-  for (const syllable of syllables) normalizeSyllableText(syllable);
   const rawDisplayText = typeof group?.Text === "string" ? group.Text : fallbackDisplayText;
-  const displayText = typeof rawDisplayText === "string"
-    ? cleanInvisiblesPreserveEdges(rawDisplayText.normalize("NFKC")) : "";
-  const resolution = canonicalTextFromSyllables(syllables, displayText, lineId);
-  const joins = new Map(resolution.canonical.joins.map((join) => [join.afterSpanId, join]));
-  resolution.canonical.spanMappings.forEach((mapping, index) => {
-    const syllable = syllables[index];
-    if (!syllable) return;
-    const join = joins.get(mapping.spanId);
-    syllable.CanonicalStartCp = mapping.canonicalRange.startCp;
-    syllable.CanonicalEndCp = mapping.canonicalRange.endCp;
-    syllable.BoundaryAfter = join?.relation === "boundary";
-    syllable.BoundaryProvenance = join?.provenance || "lineEnd";
-  });
-  group.Text = resolution.canonical.text;
-  return resolution.canonical.text;
+  const text = resolveSyllableGroupBoundaries(syllables, rawDisplayText, lineId);
+  group.Text = text;
+  return text;
 };
 
 const gatherText = (

@@ -5,6 +5,7 @@ import { $currentLyricsData, $currentLyricsType, $currentlyFetching, $meaningBac
 import { SpotifyPlayer } from "../../components/Global/SpotifyPlayer.ts";
 import PageView, { PageContainer } from "../../components/Pages/PageView.ts";
 import { LYRICS_PROCESSING_VERSION, ProcessLyrics, READING_PLAN_SCHEMA_VERSION } from "./ProcessLyrics.ts";
+import { applySyllableBoundaries } from "./Processing/ProviderBoundary.ts";
 import {
   chineseTones,
   chineseTranslitMode,
@@ -214,6 +215,9 @@ function hasTranslationWorkQuick(lyrics: any): boolean {
 }
 
 function markProcessedWithoutBackground(lyrics: any): void {
+  // Word boundaries are not romanization work: the syllable renderer spaces
+  // words from them, so stamp them even when nothing else needs processing.
+  applySyllableBoundaries(lyrics);
   lyrics.ProcessingVersion = LYRICS_PROCESSING_VERSION;
   lyrics.ReadingPlanSchemaVersion = READING_PLAN_SCHEMA_VERSION;
   lyrics.ProcessingPending = false;
