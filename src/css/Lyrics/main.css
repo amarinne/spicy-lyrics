@@ -341,17 +341,15 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   text-shadow: inherit;
 }
 
-#SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below,
 #SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .translated-below {
-  color: transparent;
-  -webkit-text-fill-color: transparent;
-  background-image: linear-gradient(
-    var(--gradient-degrees, 180deg),
-    rgba(255, 255, 255, var(--gradient-alpha, 0.85)) var(--gradient-position, -40%),
-    rgba(255, 255, 255, var(--gradient-alpha-end, 0.35)) calc(var(--gradient-position, -40%) + 40%)
-  );
-  background-clip: text;
-  -webkit-background-clip: text;
+  /* Translations are supporting text: do not follow the timed lyric fill or
+     inherit its active-line glow when the owning line finishes. */
+  color: rgba(255, 255, 255, 0.45);
+  -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
+  background: none;
+  background-image: none;
+  -webkit-background-clip: border-box;
+  background-clip: border-box;
 }
 
 #SpicyLyricsPage .SpicyLyricsScrollContainer[data-lyrics-type="Line"] .line .romanized-below.romanization-static {
@@ -370,7 +368,7 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   color: rgba(255, 255, 255, 0.45);
   -webkit-text-fill-color: rgba(255, 255, 255, 0.45);
   font-style: italic;
-  text-shadow: inherit;
+  text-shadow: none !important;
   --TranslatedSidecarBlurAmount: var(--DerivedTextBlurAmount, 0px);
   filter: blur(var(--TranslatedSidecarBlurAmount));
   background: none;

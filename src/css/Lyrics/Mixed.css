@@ -388,7 +388,8 @@
 }
 
 #SpicyLyricsPage.SpicyRenderer .LyricsContainer .LyricsContent .line.Sung {
-  opacity: var(--Vocal-Sung-opacity);
+  /* Completed lyrics stay at full brightness after their timing ends. */
+  opacity: 1;
   --gradient-position: 100% !important;
 }
 
