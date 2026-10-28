@@ -177,6 +177,12 @@ body:has(.Root:not(.global-nav)) #SpicyLyricsPage .LyricsContainer .LyricsConten
   text-align: end;
 }
 
+/* The Adaptive Sectioning reading-plan row is a flex container, so it does
+   not follow the line's text-align above; align it with its duet side. */
+#SpicyLyricsPage .LyricsContainer .LyricsContent .line.HasOppositeAlignedExtras .reading-plan-row {
+  justify-content: flex-end;
+}
+
 #SpicyLyricsPage .LyricsContainer .LyricsContent .has-furigana {
   --furigana-rt-size: var(--japanese-ruby-ratio);
   --furigana-rt-gap: var(--japanese-ruby-gap);
