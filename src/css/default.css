@@ -234,6 +234,20 @@ body.player-floating:has(.glassify-bg) #SpicyLyricsPage:not(.Fullscreen) .ViewCo
   fill: none !important;
 }
 
+#SpicyLyricsPage .ViewControls .ViewControl .SpicyLyricsSpinner {
+  animation: SpicyLyricsSpinnerRotate 0.9s linear infinite;
+}
+
+@keyframes SpicyLyricsSpinnerRotate {
+  to { rotate: 360deg; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #SpicyLyricsPage .ViewControls .ViewControl .SpicyLyricsSpinner {
+    animation-duration: 2.4s;
+  }
+}
+
 /* Icon parts (Icons.ts) follow page state, so the icon always shows the layout the page has. */
 #SpicyLyricsPage .ViewControls .SL_IconPart {
   transform-box: fill-box;

@@ -75,7 +75,11 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(stores, /_settings\.aiSteeringInstructions/);
   assert.match(stores, /_settings\.soundSteeringInstructions/);
   const page = read("src/components/Pages/PageView.ts");
+  const icons = read("src/components/Styling/Icons.ts");
+  const defaultCss = read("src/css/default.css");
   const app = read("src/app.tsx");
+  assert.match(icons, /Spinner:[\s\S]*?\{SIZE\}/);
+  assert.match(defaultCss, /SpicyLyricsSpinnerRotate/);
   assert.match(page, /contextmenu/);
   assert.match(page, /openAIRefinementComposer/);
   assert.match(page, /openAIOutputReviewPanel/);
@@ -142,7 +146,6 @@ test("credential UI edits in plaintext, confirms with a partial mask, and keeps 
   assert.match(composer, /isLarge: true/);
   assert.match(composer, /modalId: "ai-refinement"/);
   assert.match(composer, /PopupModal\.transition/);
-  const defaultCss = read("src/css/default.css");
   assert.match(defaultCss, /ViewControl\.AIRefined/);
   assert.match(defaultCss, /#1ed760/);
   const settingsCss = read("src/css/settings-panel.css");
