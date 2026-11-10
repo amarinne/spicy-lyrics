@@ -12,7 +12,7 @@
  * - /y/ family renders as yu (no ü output): ju->zyu, jue->zyue,
  *   juan->zyuen, jun->zyun; nü->nyu, lü->lyu; yu/yue/yuen/yun.
  * - apical i after z/c/s/zh/ch/sh/r -> ư
- * - e -> ơ, en -> ân, eng -> âng, ian -> ien
+ * - e -> ưa, en -> ân, eng -> âng, ian -> ien
  * - ei -> êi; ui -> uei -> uêi (tone anchors to ê)
  * - un/uen -> uân, ueng/weng -> uâng, iu -> iou
  * - bo/po/mo/fo -> buo/puo/muo/fuo
@@ -170,7 +170,7 @@ export function convertMandarinSyllableToVnAid(numSyllable: string, tonesEnabled
   // ê marks the closer /e/-like component in the ei/uei family; ie/ian keep
   // the opener e.
   if (final !== "wuân" && final !== "wuâng") {
-    if (final === "e") final = "ơ";
+    if (final === "e") final = "ưa";
     else if (final === "en") final = "ân";
     else if (final === "eng") final = "âng";
     else if (final === "ei") final = "êi";

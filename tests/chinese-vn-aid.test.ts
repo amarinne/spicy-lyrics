@@ -29,8 +29,8 @@ test("Mandarin eza式 stop series uses p/th/kh without aspiration apostrophes", 
   assert.equal(convertMandarinSyllableToVnAid("ta4"), "thà");
   assert.equal(convertMandarinSyllableToVnAid("tai4"), "thài");
   assert.equal(convertMandarinSyllableToVnAid("ting1"), "thing");
-  assert.equal(convertMandarinSyllableToVnAid("ge1"), "kơ");
-  assert.equal(convertMandarinSyllableToVnAid("ke1"), "khơ");
+  assert.equal(convertMandarinSyllableToVnAid("ge1"), "kưa");
+  assert.equal(convertMandarinSyllableToVnAid("ke1"), "khưa");
   assert.equal(convertMandarinSyllableToVnAid("kan4"), "khàn");
   for (const [unaspirated, aspirated, plain, marked] of [
     ["ba4", "pa4", "ba", "pa"],
@@ -107,8 +107,33 @@ test("Mandarin VN-aid ê marks the closer vowel in ei/uei only", () => {
   assert.equal(convertMandarinSyllableToVnAid("yuan2"), "yuén");
 });
 
+test("Mandarin VN-aid open e row renders ưa with existing onsets and tone anchors", () => {
+  const eRow = [
+    ["e", "ưa"], ["me", "mưa"], ["de", "tưa"], ["te", "thưa"],
+    ["ne", "nưa"], ["le", "lưa"], ["ge", "kưa"], ["ke", "khưa"],
+    ["he", "hưa"], ["ze", "zưa"], ["ce", "tsưa"], ["se", "sưa"],
+    ["zhe", "zhưa"], ["che", "chưa"], ["she", "shưa"], ["re", "rưa"],
+  ] as const;
+  for (const [pinyin, expected] of eRow) {
+    assert.equal(convertMandarinSyllableToVnAid(`${pinyin}1`), expected);
+  }
+  assert.equal(convertMandarinSyllableToVnAid("de2"), "tứa");
+  assert.equal(convertMandarinSyllableToVnAid("de3"), "tửa");
+  assert.equal(convertMandarinSyllableToVnAid("de4"), "từa");
+  assert.equal(convertMandarinSyllableToVnAid("de0"), "tựa");
+  assert.equal(convertMandarinSyllableToVnAid("de3", false), "tưa");
+});
+
+test("Mandarin VN-aid open e row does not rewrite neighboring finals", () => {
+  assert.equal(convertMandarinSyllableToVnAid("men1"), "mân");
+  assert.equal(convertMandarinSyllableToVnAid("meng1"), "mâng");
+  assert.equal(convertMandarinSyllableToVnAid("mei1"), "mêi");
+  assert.equal(convertMandarinSyllableToVnAid("mie1"), "mie");
+  assert.equal(convertMandarinSyllableToVnAid("yue1"), "yue");
+  assert.equal(convertMandarinSyllableToVnAid("nüe1"), "nyue");
+});
+
 test("Mandarin VN-aid remaining final rewrites", () => {
-  assert.equal(convertMandarinSyllableToVnAid("de2"), "tớ");
   assert.equal(convertMandarinSyllableToVnAid("men2"), "mấn");
   assert.equal(convertMandarinSyllableToVnAid("sheng1"), "shâng");
   assert.equal(convertMandarinSyllableToVnAid("nian2"), "nién");
@@ -178,7 +203,7 @@ test("Mandarin VN-aid has no collisions across the covered syllable inventory", 
 test("Mandarin VN-aid lyric acceptance corpus", () => {
   assert.equal(romanizeMandarinVn("你好", true), "nỉ hảo");
   assert.equal(romanizeMandarinVn("你好", false), "ni hao");
-  assert.equal(romanizeMandarinVn("唱 mp3 歌", true), "chàng mp3 kơ");
+  assert.equal(romanizeMandarinVn("唱 mp3 歌", true), "chàng mp3 kưa");
   assert.equal(romanizeMandarinVn("BTS4 你好", true), "BTS4 nỉ hảo");
   assert.equal(romanizeMandarinVn("你好 ma3", true), "nỉ hảo ma3");
   assert.equal(romanizeMandarinVn("don't 太怕看", true), "don't thài pà khàn");
@@ -197,7 +222,7 @@ test("Mandarin VN-aid lyric acceptance corpus", () => {
   );
   assert.equal(
     romanizeMandarinVn("看著窗外的小星星", true),
-    "khàn zhù chuang wài tợ shiảo shing shing"
+    "khàn zhù chuang wài tựa shiảo shing shing"
   );
   assert.equal(
     romanizeMandarinVn("我想要唱給你聽", true),
