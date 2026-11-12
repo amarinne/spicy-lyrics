@@ -14,6 +14,7 @@
  */
 
 import { pinyin } from "pinyin-pro";
+import { mandarinAnalysisText } from "../Fork/MandarinEzaLine.ts";
 import {
   buildMandarinWordLayout,
   walkCantoneseReadings,
@@ -39,7 +40,7 @@ function rangedMandarinReadings(
   // Deliberately the same call `romanizeMandarin` makes, so the reading a character gets does not
   // depend on where it is placed. The VN-aid variant uses tone-numbered output from the same
   // segmentation, keeping a 1:1 token alignment with the plain path.
-  const readings = pinyin(text, {
+  const readings = pinyin(mandarinAnalysisText(text), {
     type: "array",
     toneType: vnAid ? "num" : tones ? "symbol" : "none",
     toneSandhi: false,

@@ -16,7 +16,7 @@ import { getJyutpingList } from "to-jyutping";
 import { G2p } from "korean-pronunciation";
 import { OutputFormat, pinyin, segment } from "pinyin-pro";
 import { convertMandarinSyllableToVnAid } from "./MandarinVnAid.ts";
-import { mandarinEzaReadings } from "./MandarinEzaLine.ts";
+import { mandarinAnalysisText, mandarinEzaReadings } from "./MandarinEzaLine.ts";
 import { convertJyutpingSyllableToVnAid } from "./CantoneseVnAid.ts";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
@@ -234,7 +234,7 @@ export function pinyinOptionsForToneMode(pinyin: any, tones: boolean): Record<st
 }
 
 export function romanizeMandarin(text: string, tones = true): string {
-  const readings = pinyin(text, {
+  const readings = pinyin(mandarinAnalysisText(text), {
     type: "array",
     toneType: tones ? "symbol" : "none",
     toneSandhi: false,
@@ -312,7 +312,9 @@ export type MandarinWordLayout = {
 };
 
 export function buildMandarinWordLayout(text: string): MandarinWordLayout {
-  const groups = segment(text, {
+  const analysis = mandarinAnalysisText(text);
+  const points = Array.from(text);
+  const groups = segment(analysis, {
     format: OutputFormat.ZhArray,
     nonZh: "consecutive",
     toneSandhi: false,
@@ -340,7 +342,7 @@ export function buildMandarinWordLayout(text: string): MandarinWordLayout {
       tokens.push({
         startCp,
         endCp: cursorCp,
-        text: part,
+        text: points.slice(startCp, cursorCp).join(""),
         isHan: Array.from(part).every((character) => isChineseHanChar(character)),
       });
       tokenCount += 1;
@@ -350,7 +352,7 @@ export function buildMandarinWordLayout(text: string): MandarinWordLayout {
   return {
     tokenCount,
     continuationTokenIndices,
-    tokens: reconstructed === text ? tokens : [],
+    tokens: reconstructed === analysis ? tokens : [],
   };
 }
 

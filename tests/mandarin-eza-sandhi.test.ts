@@ -263,3 +263,37 @@ test("end to end with jieba: particles, plural and the lyric examples", async ()
     setMandarinNeutralWords(undefined);
   }
 });
+
+// Owner findings from two checked songs (2026-11-13; cjk-labs a6c337b).
+test("the owner weak word 快乐 has a neutral last syllable, wherever it ends a token", () => {
+  assert.deepEqual(say(["快乐", "kuai4", "le4"]), ["khuai lờ"], "快 is flat by the 4+4 rule; 乐 is a neutral that falls");
+  assert.deepEqual(say(["快樂", "kuai4", "le4"]), ["khuai lờ"]);
+  assert.deepEqual(say(["生日快乐", "sheng1", "ri4", "kuai4", "le4"]), ["shâng rư khuai lờ"], "positions count from the word's start");
+  assert.deepEqual(say(["快", "kuai4"], ["乐", "le4"]), ["khuài", "lừa"], "separate tokens are not the word");
+  assert.equal(digits({}, mono("乐", "le4")), "4");
+});
+
+test("a three-character token with 不 in the middle is neutral, except a conjunction or adverb", () => {
+  assert.deepEqual(say(["看不懂", "kan4", "bu4", "dong3"]), ["khan bù tỏng"]);
+  assert.deepEqual(say(["差不多", "cha4", "bu4", "duo1"]), ["cha bù tuo"]);
+  assert.deepEqual(say(["对不起", "dui4", "bu4", "qi3"]), ["tuêi bù chỉ"]);
+  // 只不过 is tagged as an adverb or conjunction, so only its last two characters take the 不 rule: bú guò.
+  assert.deepEqual(sayWith({ 只不过: { pos: "c" } }, ["只不过", "zhi1", "bu4", "guo4"]), ["zhư bú kuò"]);
+  assert.deepEqual(sayWith({ 只不过: { pos: "d" } }, ["只不过", "zhi1", "bu4", "guo4"]), ["zhư bú kuò"]);
+  assert.deepEqual(sayWith({ 只不过: { pos: "n" } }, ["只不过", "zhi1", "bu4", "guo4"]), ["zhư bù kuò"], "any other tag keeps the neutral 不");
+});
+
+test("妳 reads as 你 in Standard Pinyin and in eza式, and the source surface is kept", async () => {
+  const { ensureMandarinSegmenter, mandarinEzaReadings } = await import("../src/utils/Lyrics/Fork/MandarinEzaLine.ts");
+  const { romanizeMandarin, romanizeMandarinVn, buildMandarinWordLayout } = await import("../src/utils/Lyrics/Fork/Romanization.ts");
+  const { buildChineseAttachedReadings } = await import("../src/utils/Lyrics/Processing/ChineseReadingSegments.ts");
+  assert.equal(await ensureMandarinSegmenter(), true);
+  assert.equal(romanizeMandarin("妳好"), "nǐ hǎo");
+  assert.equal(romanizeMandarin("妳的美"), "nǐ de měi");
+  assert.equal(romanizeMandarinVn("妳眼帶笑意"), "ní yiẻn tài shiao yì");
+  assert.deepEqual(mandarinEzaReadings("妳好").map((item) => item.origin), ["妳", "好"], "the source surface is kept");
+  assert.deepEqual(buildMandarinWordLayout("妳好").tokens.map((token) => token.text), ["妳", "好"]);
+  const spans = [0, 1].map((i) => ({ spanId: String(i), canonicalRange: { startCp: i, endCp: i + 1 } }));
+  assert.deepEqual(buildChineseAttachedReadings("妳好", "pinyin", true, spans).map((r) => r.reading), ["nǐ", "hǎo"]);
+  assert.deepEqual(buildChineseAttachedReadings("妳好", "pinyin-vn", true, spans).map((r) => r.reading), ["ní", "hảo"]);
+});

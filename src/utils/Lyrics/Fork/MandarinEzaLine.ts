@@ -58,6 +58,13 @@ export function setMandarinNeutralWords(words: MandarinNeutralWords | undefined)
   neutralWords = words;
 }
 
+/**
+ * The text the readers analyse. 妳 is the feminine form of 你 and reads nǐ, but pinyin-pro reads it nǎi, so every
+ * Mandarin reading path (Standard Pinyin and eza式) analyses it as 你. The replacement has the same length, so
+ * code-point offsets still index the source line, and callers keep the source surface.
+ */
+export const mandarinAnalysisText = (text: string): string => text.replaceAll("妳", "你");
+
 const HAN = /^\p{Script=Han}+$/u;
 const toneless = (syllable: string) => syllable.replace(/[0-9]$/u, "");
 
@@ -137,7 +144,9 @@ export type MandarinEzaReading = {
  * One reading per pinyin-pro item of the line: the same call and item order as the plain
  * Mandarin path, with the eza式 surface syllable beside the citation syllable.
  */
-export function mandarinEzaReadings(text: string): MandarinEzaReading[] {
+export function mandarinEzaReadings(source: string): MandarinEzaReading[] {
+  const text = mandarinAnalysisText(source);
+  const points = Array.from(source);
   const items = pinyin(text, { type: "all", toneType: "num", toneSandhi: false, nonZh: "consecutive" });
   const citation: (string | undefined)[] = [];
   for (const item of items) {
@@ -152,7 +161,7 @@ export function mandarinEzaReadings(text: string): MandarinEzaReading[] {
   let startCp = 0;
   return items.map((item) => {
     const reading = {
-      origin: item.origin,
+      origin: points.slice(startCp, startCp + Array.from(item.origin).length).join(""),
       isZh: item.isZh,
       startCp,
       citation: item.isZh ? item.pinyin : "",

@@ -9,11 +9,12 @@
  *   1. A domain is a run of adjacent Han tokens with one known syllable per character. Anything
  *      else (a gap, punctuation, whitespace, Latin text, a digit, a missing reading) ends it.
  *   2. A single character repeated three or more times keeps its citation tones (raw repeat).
- *   3. Neutral flags: dictionary positions on the token, and a verb of one character repeated once.
+ *   3. Neutral flags: dictionary positions on the token, owner weak words (快乐), and a verb of one character repeated once.
  *   3b. Function morphemes: a single-character token tagged as a particle (的 得 地 着 了 过, modal particles) and a
  *      plural 们 are neutral, with the particle's reading (letters change too).
  *   4. An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are, and wins
- *      over the 不-before-tone-4 rule, except around a particle (得不得了) or in a repeated word (不是不是). Otherwise 不 and 一 take their lexical tone from the next token.
+ *      over the 不-before-tone-4 rule, except around a particle (得不得了) or in a repeated word (不是不是).
+ *      A three-character token with 不 in the middle (看不懂, 差不多) is neutral, except a conjunction or adverb (只不过). Otherwise 不 and 一 take their lexical tone from the next token.
  *      A tone 4 before a tone 4 inside one token is spoken flat, as tone 1 (代价 dài jià is written dai jià).
  *   5. Third tones lower by feet: a token is a foot and is never split; a three-syllable token uses
  *      its subwords; single-character tokens follow the run formula (pairs from the left, an odd run
@@ -95,6 +96,9 @@ function isNumeralSeries(characters: readonly string[]): boolean {
   const others = characters.filter((c) => c !== YI);
   return others.length > 0 && others.every(isNumeral);
 }
+
+/** Words the owner hears with a weak last syllable although the dictionary marks a full tone (by ear, 2026-11-13). Positions count from the word's start. */
+const OWNER_WEAK_WORDS: ReadonlyMap<string, readonly number[]> = new Map([["快乐", [1]], ["快樂", [1]]]);
 
 /** Particle readings by jieba tag, for a single-character token: the structural, aspect and modal particles (M1b item 4). */
 const FUNCTION_MORPHEMES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -235,10 +239,15 @@ function surfaceDomain(run: readonly Entry[]): string[] {
     start = stop;
   }
 
-  // Neutral flags: dictionary positions and a verb repeated once (试试).
+  // Neutral flags: dictionary positions, owner weak words (快乐), and a verb repeated once (试试).
   let offset = 0;
   for (const entry of run) {
     const size = entry.syllables.length;
+    for (const [word, positions] of OWNER_WEAK_WORDS) {
+      if (!entry.token.surface.endsWith(word)) continue;
+      const shift = Array.from(entry.token.surface).length - Array.from(word).length;
+      for (const position of positions) if (!raw.has(offset + shift + position)) tones[offset + shift + position] = NEUTRAL;
+    }
     for (const position of entry.token.dictionaryNeutral ?? []) {
       if (position < size && !raw.has(offset + position)) tones[offset + position] = NEUTRAL;
     }
@@ -283,9 +292,12 @@ function surfaceDomain(run: readonly Entry[]): string[] {
     const first = unit[0].offset - base;
     const count = unit.reduce((sum, entry) => sum + entry.syllables.length, 0);
     if (count < 2 || Array.from({ length: count }, (_, index) => first + index).some((index) => raw.has(index))) continue;
-    const surface = unit.map((entry) => entry.token.surface).join("");
-    buYiSandhi(surface, tones.slice(first, first + count)).forEach((tone, index) => {
-      tones[first + index] = tone;
+    const surface = Array.from(unit.map((entry) => entry.token.surface).join(""));
+    // A three-character token with 不 in the middle is neutral (看不懂, 差不多), except a conjunction or adverb
+    // (只不过, 不过): bú guò. The rule then runs on the last two characters only.
+    const skip = unit.length === 1 && count === 3 && surface[1] === BU && /^[cd]/u.test(unit[0].token.pos ?? "") ? 1 : 0;
+    buYiSandhi(surface.slice(skip).join(""), tones.slice(first + skip, first + count)).forEach((tone, index) => {
+      tones[first + skip + index] = tone;
     });
   }
 
