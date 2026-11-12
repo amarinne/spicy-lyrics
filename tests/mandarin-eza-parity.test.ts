@@ -39,7 +39,7 @@ after(() => setMandarinNeutralWords(undefined));
 test("the Mandarin eza式 revision 2 parity corpus matches the reference without a dictionary", () => {
   assert.equal(fixture.schema, "cjk-labs.eza-rev2-parity.v1");
   assert.equal(fixture.policy, MANDARIN_EZA_REVISION);
-  assert.equal(fixture.cases.length, 67);
+  assert.equal(fixture.cases.length, 81);
   const diverged = fixture.cases.flatMap((item) => {
     const eza = layout(item.source, (_, surface) => convertMandarinSyllableToVnAid(surface));
     return eza === item.eza ? [] : [`${JSON.stringify(item.source)}: ${eza} != ${item.eza}`];

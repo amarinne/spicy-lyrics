@@ -240,7 +240,7 @@ test("Mandarin VN-aid lyric acceptance corpus", () => {
   assert.equal(romanizeMandarinVn("唱 mp3 歌", true), "chàng mp3 kưa");
   assert.equal(romanizeMandarinVn("BTS4 你好", true), "BTS4 ní hảo");
   assert.equal(romanizeMandarinVn("你好 ma3", true), "ní hảo ma3");
-  assert.equal(romanizeMandarinVn("don't 太怕看", true), "don't thài pà khàn");
+  assert.equal(romanizeMandarinVn("don't 太怕看", true), "don't thái pà khàn", "太怕 is one token, so its first tone 4 is tone 2");
   assert.equal(romanizeMandarinVn("你好BTS4你好", true), "ní hảo BTS4 ní hảo");
   assert.equal(romanizeMandarinVn("你好！😀ma3你好", true), "ní hảo ！😀ma3 ní hảo");
   assert.equal(romanizeMandarinVn("BTS4你好mp3", false), "BTS4 ni hao mp3");
@@ -252,11 +252,13 @@ test("Mandarin VN-aid lyric acceptance corpus", () => {
   );
   assert.equal(
     romanizeMandarinVn("算不算愛我不太確定", true),
-    "suan bù suàn ài wỏ bú thài chyuè tìng"
+    "suan bù suàn ài wỏ bú thài chyué tìng"
   );
+  // pinyin-pro reads 著 as zhù4 (the neutral particle zhe is an open particle decision), so the one-token 看著
+  // is 4 4 and its first tone becomes tone 2 by the tone 4 before tone 4 rule.
   assert.equal(
     romanizeMandarinVn("看著窗外的小星星", true),
-    "khàn zhù chuang wai tờ shiảo shing shing"
+    "khán zhù chuang wai tờ shiảo shing shing"
   );
   assert.equal(
     romanizeMandarinVn("我想要唱給你聽", true),

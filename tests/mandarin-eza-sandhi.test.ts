@@ -173,10 +173,36 @@ test("a character repeated three or more times keeps its citation tones; once is
 test("verb reduplication and dictionary flags set the neutral tone before sandhi", () => {
   assert.equal(digits({ 试试: { pos: "v" } }, ["试试", "shi4", "shi4"]), "1 6", "试试: tone 4, then a neutral that falls");
   assert.equal(digits({ 试试: { pos: "vn" } }, ["试试", "shi4", "shi4"]), "1 6", "a tag starting with v is a verb");
-  assert.equal(digits({}, ["试试", "shi4", "shi4"]), "4 4", "no verb tag, no neutral");
+  assert.equal(digits({}, ["试试", "shi4", "shi4"]), "2 4", "no verb tag, no neutral; a tone 4 before a tone 4 in one token is tone 2");
   assert.equal(digits({ 人人: { pos: "n" } }, ["人人", "ren2", "ren2"]), "2 2", "other reduplication is not neutral");
   assert.equal(digits({ 朋友: { neutral: [1] } }, ["朋友", "peng2", "you3"]), "2 0", "the dictionary's neutral after tone 2 stays level");
   assert.equal(digits({ 哥哥: { neutral: [1] } }, ["哥哥", "ge1", "ge1"]), "1 6");
   // The neutral flag breaks a third-tone run.
   assert.equal(digits({ 老鼠们: { neutral: [2] } }, ["老鼠们", "lao3", "shu3", "men2"]), "2 3 0");
+});
+
+test("an infix 不 between two identical characters is neutral whatever the tokens are, and wins over 不 before tone 4", () => {
+  // The segmenter may return one token (对不对) or split it (对 / 不对); the result is the same.
+  assert.deepEqual(say(["对不对", "dui4", "bu4", "dui4"]), ["tuêi bù tuềi"]);
+  assert.deepEqual(say(["对", "dui4"], ["不对", "bu4", "dui4"]), ["tuêi", "bù tuềi"]);
+  assert.deepEqual(say(["要", "yao4"], ["不要", "bu4", "yao4"]), ["yao", "bù yào"]);
+  assert.deepEqual(say(["能", "neng2"], ["不能", "bu4", "neng2"]), ["nấng", "bu nấng"]);
+  assert.deepEqual(say(["好不好", "hao3", "bu4", "hao3"]), ["hảo bu hảo"]);
+  // Different characters keep the 不-before-tone-4 rule.
+  assert.deepEqual(say(["我", "wo3"], ["不", "bu4"], ["是", "shi4"]), ["wỏ", "bú", "shừ"]);
+  // A raw repeat is untouched.
+  assert.equal(digits({}, mono("对", "dui4"), mono("不", "bu4"), mono("对", "dui4"), mono("对", "dui4"), mono("对", "dui4")), "4 4 4 4 4");
+});
+
+test("a tone 4 before a tone 4 inside one token is tone 2; feet and single-character tokens do not affect each other", () => {
+  assert.deepEqual(say(["代价", "dai4", "jia4"]), ["tái zià"]);
+  assert.deepEqual(say(["再见", "zai4", "jian4"]), ["zái zièn"]);
+  assert.deepEqual(say(["爱过", "ai4", "guo4"]), ["ái kuò"]);
+  assert.equal(digits({}, ["再见面", "zai4", "jian4", "mian4"]), "2 2 4", "4 4 4 in one token is 2 2 4");
+  assert.equal(digits({}, mono("这", "zhe4"), mono("样", "yang4")), "4 4", "single-character tokens stay 4 4");
+  assert.equal(digits({}, ["现在", "xian4", "zai4"], ["是", "shi4"]), "2 4 4", "a foot does not affect the next foot");
+  assert.equal(digits({}, mono("再", "zai4"), ["见面", "jian4", "mian4"]), "4 2 4");
+  // A raw repeat is untouched; a neutral between two 4s is not a 4.
+  assert.equal(digits({}, mono("去", "qu4"), mono("去", "qu4"), mono("去", "qu4")), "4 4 4");
+  assert.equal(digits({}, ["再来", "zai4", "lai0"]), "1 6");
 });

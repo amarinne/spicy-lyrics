@@ -10,7 +10,9 @@
  *      else (a gap, punctuation, whitespace, Latin text, a digit, a missing reading) ends it.
  *   2. A single character repeated three or more times keeps its citation tones (raw repeat).
  *   3. Neutral flags: dictionary positions on the token, and a verb of one character repeated once.
- *   4. 不 and 一 take their lexical tone from the next token.
+ *   4. An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are, and wins
+ *      over the 不-before-tone-4 rule. Otherwise 不 and 一 take their lexical tone from the next token.
+ *      A tone 4 before a tone 4 inside one token is tone 2 (代价 dài jià is spoken dái jià).
  *   5. Third tones lower by feet: a token is a foot and is never split; a three-syllable token uses
  *      its subwords; single-character tokens follow the run formula (pairs from the left, an odd run
  *      ends 1+2); a stray attaches to the foot beside it; two feet never merge.
@@ -229,6 +231,13 @@ function surfaceDomain(run: readonly Entry[]): string[] {
     offset += size;
   }
 
+  // An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are.
+  const infix: number[] = [];
+  for (let index = 1; index + 1 < chars.length; index++) {
+    if (chars[index] === BU && chars[index - 1] === chars[index + 1] && ![index - 1, index, index + 1].some((at) => raw.has(at))) infix.push(index);
+  }
+  for (const index of infix) tones[index] = NEUTRAL;
+
   // 不 and 一 take their lexical tone from the next token.
   const base = run[0]?.offset ?? 0;
   for (const unit of mergeBuAndYi(run)) {
@@ -239,6 +248,14 @@ function surfaceDomain(run: readonly Entry[]): string[] {
     buYiSandhi(surface, tones.slice(first, first + count)).forEach((tone, index) => {
       tones[first + index] = tone;
     });
+  }
+
+  for (const index of infix) tones[index] = NEUTRAL;
+
+  // A tone 4 before a tone 4 inside one token is spoken as tone 2. Feet and single-character tokens do not affect each other.
+  const fourths = tones.slice();
+  for (let index = 0; index + 1 < tones.length; index++) {
+    if (fourths[index] === 4 && fourths[index + 1] === 4 && tokenOf[index] === tokenOf[index + 1] && !raw.has(index) && !raw.has(index + 1)) tones[index] = 2;
   }
 
   // Third-tone feet over each maximal run of third tones.

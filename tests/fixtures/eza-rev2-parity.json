@@ -1,9 +1,9 @@
 {
   "schema": "cjk-labs.eza-rev2-parity.v1",
   "policy": "eza-2026-11-12.2",
-  "generatedFrom": "cjk-labs main 8f31ea6 default Mandarin provider (jieba-wasm 2.4.0, pinyin-pro 3.29.4)",
+  "generatedFrom": "cjk-labs main default Mandarin provider (jieba-wasm 2.4.0, pinyin-pro 3.29.4), after the 2026-11-13 rules for tone 4 before tone 4 and infix 不",
   "provenance": [
-    "Copied 2026-11-12 from cjk-labs tests/fixtures/eza-rev2-parity.json at commit c4c52a0 (private repository).",
+    "Copied 2026-11-13 from cjk-labs tests/fixtures/eza-rev2-parity.json at commit fc169b5 (private repository), 81 cases after the tone 4 before tone 4 and infix 不 rules.",
     "The `ezaWithCcCedict` reference column is omitted: this repository does not track CC-CEDICT-derived data.",
     "`eza` is the expected Mandarin eza式 output with no dictionary overlay; `pinyin` is the unchanged Standard Pinyin.",
     "Line breaks in `source` are hard sandhi boundaries; `eza` keeps them. Asserted by tests/mandarin-eza-parity.test.ts."
@@ -343,6 +343,76 @@
       "source": "你好，你好吗？\n我很好。",
       "pinyin": "nǐ hǎo，nǐ hǎo ma？\nwǒ hěn hǎo。",
       "eza": "ní hảo，ní hảo ma？\nwỏ hấn hảo。"
+    },
+    {
+      "source": "代价",
+      "pinyin": "dài jià",
+      "eza": "tái zià"
+    },
+    {
+      "source": "再见",
+      "pinyin": "zài jiàn",
+      "eza": "zái zièn"
+    },
+    {
+      "source": "爱过",
+      "pinyin": "ài guò",
+      "eza": "ái kuò"
+    },
+    {
+      "source": "现在是",
+      "pinyin": "xiàn zài shì",
+      "eza": "shién zài shừ"
+    },
+    {
+      "source": "对不对",
+      "pinyin": "duì bù duì",
+      "eza": "tuêi bù tuềi"
+    },
+    {
+      "source": "要不要",
+      "pinyin": "yào bù yào",
+      "eza": "yao bù yào"
+    },
+    {
+      "source": "能不能",
+      "pinyin": "néng bù néng",
+      "eza": "nấng bu nấng"
+    },
+    {
+      "source": "走不走",
+      "pinyin": "zǒu bù zǒu",
+      "eza": "zỏu bu zỏu"
+    },
+    {
+      "source": "吃不吃",
+      "pinyin": "chī bù chī",
+      "eza": "chư bù chư"
+    },
+    {
+      "source": "是不是",
+      "pinyin": "shì bù shì",
+      "eza": "shư bù shừ"
+    },
+    {
+      "source": "好不好",
+      "pinyin": "hǎo bù hǎo",
+      "eza": "hảo bu hảo"
+    },
+    {
+      "source": "我不是",
+      "pinyin": "wǒ bù shì",
+      "eza": "wỏ bú shừ"
+    },
+    {
+      "source": "一万种解答",
+      "pinyin": "yī wàn zhǒng jiě dá",
+      "eza": "yí wàn zhỏng ziẻ tá"
+    },
+    {
+      "source": "不再",
+      "pinyin": "bù zài",
+      "eza": "bú zài"
     }
   ]
 }
