@@ -10,8 +10,10 @@
  *      else (a gap, punctuation, whitespace, Latin text, a digit, a missing reading) ends it.
  *   2. A single character repeated three or more times keeps its citation tones (raw repeat).
  *   3. Neutral flags: dictionary positions on the token, and a verb of one character repeated once.
+ *   3b. Function morphemes: a single-character token tagged as a particle (的 得 地 着 了 过, modal particles) and a
+ *      plural 们 are neutral, with the particle's reading (letters change too).
  *   4. An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are, and wins
- *      over the 不-before-tone-4 rule. Otherwise 不 and 一 take their lexical tone from the next token.
+ *      over the 不-before-tone-4 rule, except around a particle (得不得了) or in a repeated word (不是不是). Otherwise 不 and 一 take their lexical tone from the next token.
  *      A tone 4 before a tone 4 inside one token is spoken flat, as tone 1 (代价 dài jià is written dai jià).
  *   5. Third tones lower by feet: a token is a foot and is never split; a three-syllable token uses
  *      its subwords; single-character tokens follow the run formula (pairs from the left, an odd run
@@ -84,10 +86,22 @@ const YI = "一";
 /** The reference keeps a citation 一 when the next character is punctuation. */
 const PUNCTUATION = "、：，；。？！“”‘’':,;.?!";
 
+/** Han numerals: 一二三, 十, 百, 千, 万, 亿 and 零. Digit characters count too. */
+export const HAN_NUMERALS = "〇零一二三四五六七八九十百千万萬亿億两兩";
+const isNumeral = (character: string) => /\p{Nd}/u.test(character) || HAN_NUMERALS.includes(character);
+
+/** A numeral series such as 一零零, 二一零 or 一二三四 keeps every citation tone. */
 function isNumeralSeries(characters: readonly string[]): boolean {
   const others = characters.filter((c) => c !== YI);
-  return others.length > 0 && others.every((c) => /\p{Nd}/u.test(c));
+  return others.length > 0 && others.every(isNumeral);
 }
+
+/** Particle readings by jieba tag, for a single-character token: the structural, aspect and modal particles (M1b item 4). */
+const FUNCTION_MORPHEMES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  uj: { 的: "de" }, ud: { 得: "de", 的: "de" }, uv: { 地: "de", 的: "de" }, uz: { 着: "zhe", 著: "zhe" }, ul: { 了: "le" }, ug: { 过: "guo", 過: "guo" },
+  y: { 吗: "ma", 嗎: "ma", 吧: "ba", 呢: "ne", 啦: "la", 哇: "wa", 呀: "ya", 嘛: "ma" },
+};
+const PARTICLE_CHARACTERS = "得的地了着著过過吗嗎吧呢啦哇呀嘛";
 
 /** The lexical tones of one unit after the 不 and 一 rules. Tones are 1-5; 5 is neutral. */
 export function buYiSandhi(source: string, tones: readonly number[]): number[] {
@@ -116,6 +130,8 @@ export function buYiSandhi(source: string, tones: readonly number[]): number[] {
     }
     for (let i = 0; i + 1 < characters.length; i++) {
       if (characters[i] !== YI) continue;
+      // 一 after a numeral is part of the number (十一, 二十一) and keeps tone 1.
+      if (i > 0 && isNumeral(characters[i - 1])) continue;
       const next = out[i + 1];
       if (next === 4 || next === NEUTRAL) out[i] = 2;
       else if (!PUNCTUATION.includes(characters[i + 1])) out[i] = 4;
@@ -231,10 +247,33 @@ function surfaceDomain(run: readonly Entry[]): string[] {
     offset += size;
   }
 
-  // An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are.
+  // Function morphemes: a particle token (的地得 着 了 过, modal particles) and a plural 们 are neutral, with the particle's reading.
+  const letters = new Map<number, string>();
+  offset = 0;
+  for (const entry of run) {
+    const size = entry.syllables.length;
+    const own = Array.from(entry.token.surface);
+    for (let at = 0; at < size; at++) {
+      const index = offset + at;
+      const particle = size === 1 ? FUNCTION_MORPHEMES[entry.token.pos ?? ""]?.[own[at]] : undefined;
+      const plural = (own[at] === "们" || own[at] === "們") && index > 0 ? "men" : undefined;
+      const wanted = particle ?? plural;
+      if (wanted && !raw.has(index)) {
+        letters.set(index, wanted);
+        tones[index] = NEUTRAL;
+      }
+    }
+    offset += size;
+  }
+
+  // An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are. A particle between
+  // them (得不得了) and a repeated word (不是不是) are not that pattern. 一 after a numeral (十一) keeps tone 1.
   const infix: number[] = [];
+  const numeralYi: number[] = [];
   for (let index = 1; index + 1 < chars.length; index++) {
-    if (chars[index] === BU && chars[index - 1] === chars[index + 1] && ![index - 1, index, index + 1].some((at) => raw.has(at))) infix.push(index);
+    if (chars[index] === BU && chars[index - 1] === chars[index + 1] && chars[index - 2] !== BU && !PARTICLE_CHARACTERS.includes(chars[index - 1])
+      && ![index - 1, index, index + 1].some((at) => raw.has(at))) infix.push(index);
+    if (chars[index] === YI && HAN_NUMERALS.includes(chars[index - 1]) && !raw.has(index)) numeralYi.push(index);
   }
   for (const index of infix) tones[index] = NEUTRAL;
 
@@ -251,6 +290,7 @@ function surfaceDomain(run: readonly Entry[]): string[] {
   }
 
   for (const index of infix) tones[index] = NEUTRAL;
+  for (const index of numeralYi) tones[index] = 1;
 
   // A tone 4 before a tone 4 inside one token is spoken flat, as tone 1. Feet and single-character tokens do not affect each other.
   const fourths = tones.slice();
@@ -271,7 +311,7 @@ function surfaceDomain(run: readonly Entry[]): string[] {
   }
 
   const realized = realizeNeutralTones(tones);
-  return flat.map((syllable, index) => (raw.has(index) ? syllable : withTone(syllable, realized[index])));
+  return flat.map((syllable, index) => (raw.has(index) ? syllable : withTone(letters.has(index) ? `${letters.get(index)}0` : syllable, realized[index])));
 }
 
 /**

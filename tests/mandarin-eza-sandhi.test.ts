@@ -206,3 +206,60 @@ test("a tone 4 before a tone 4 inside one token is flat tone 1; feet and single-
   assert.equal(digits({}, mono("去", "qu4"), mono("去", "qu4"), mono("去", "qu4")), "4 4 4");
   assert.equal(digits({}, ["再来", "zai4", "lai0"]), "1 6");
 });
+
+// Ported from cjk-labs tests/eza-sandhi.test.ts (cb41f37): function morphemes, infix 不 limits and Han numerals.
+function sayWith(extras: Readonly<Record<string, Extra>>, ...specs: Spec[]): string[] {
+  const { syllables, tokens, han } = build(extras, specs);
+  const out = mandarinEzaSurfaceSyllables(syllables, tokens);
+  return han.map(({ start, size }) => out.slice(start, start + size).map((syllable) => convertMandarinSyllableToVnAid(syllable!)).join(" "));
+}
+
+test("particles tagged by jieba and the plural 们 are neutral with the particle's reading", () => {
+  // 地 and 得 read as de, not dì or dé: 慢慢地走, 走得太快.
+  assert.deepEqual(sayWith({ 地: { pos: "uv" } }, ["慢慢", "man4", "man4"], ["地", "di4"], ["走", "zou3"]), ["man man", "tờ", "zỏu"]);
+  assert.deepEqual(sayWith({ 得: { pos: "ud" } }, ["走", "zou3"], ["得", "de2"], ["太快", "tai4", "kuai4"]), ["zỏu", "tơ", "thai khuài"]);
+  // 着 reads zhe, so 看着 no longer reads zhù: 4 then a falling neutral.
+  assert.deepEqual(sayWith({ 着: { pos: "uz" } }, ["看", "kan4"], ["着", "zhu4"]), ["khan", "zhờ"]);
+  assert.deepEqual(sayWith({ 了: { pos: "ul" }, 吧: { pos: "y" } }, ["走", "zou3"], ["了", "liao3"], ["吧", "ba5"]), ["zỏu", "lơ", "ba"]);
+  assert.deepEqual(sayWith({ 过: { pos: "ug" } }, ["去", "qu4"], ["过", "guo4"]), ["chyu", "kuò"]);
+  // The tag must match: an untagged 地 keeps the provider's reading, and a tag on a longer token does not apply.
+  assert.deepEqual(say(["地", "di4"]), ["tì"]);
+  assert.deepEqual(sayWith({ 地方: { pos: "uv" } }, ["地方", "di4", "fang1"]), ["tì fang"]);
+  // 们 after a Han character is neutral men; at the start of a domain it keeps the provider's reading.
+  assert.deepEqual(say(["朋友", "peng2", "you3"], ["们", "men2"]), ["pấng yỏu", "mân"]);
+  assert.deepEqual(say(["们", "men2"]), ["mấn"]);
+});
+
+test("an infix 不 skips particles and repeated words; 一 after a numeral keeps tone 1", () => {
+  // 得不得了 keeps 不; 不是不是 is a repeated word, so each 不 takes 不 + tone 4.
+  assert.equal(digits({ 得: { pos: "ud" } }, mono("开", "kai1"), mono("得", "de2"), ["不得了", "bu4", "de2", "liao3"]), "1 6 4 2 3");
+  assert.equal(digits({}, ["不是", "bu4", "shi4"], ["不是", "bu4", "shi4"]), "2 4 2 4");
+  // Han numerals: 十一月, 二十一 and 一二三四 keep 一 at tone 1.
+  assert.equal(digits({}, mono("十", "shi2"), mono("一", "yi1"), mono("月", "yue4")), "2 1 4");
+  assert.equal(digits({}, ["一二三四", "yi1", "er4", "san1", "si4"]), "1 4 1 4");
+  assert.equal(digits({}, mono("二", "er4"), mono("十", "shi2"), mono("一", "yi1")), "4 2 1");
+  assert.deepEqual(buYiSandhi("十一月", [2, 1, 4]), [2, 1, 4]);
+  assert.deepEqual(buYiSandhi("一九一", [1, 3, 1]), [1, 3, 1]);
+});
+
+test("end to end with jieba: particles, plural and the lyric examples", async () => {
+  const { ensureMandarinSegmenter, setMandarinNeutralWords } = await import("../src/utils/Lyrics/Fork/MandarinEzaLine.ts");
+  const { romanizeMandarinVn } = await import("../src/utils/Lyrics/Fork/Romanization.ts");
+  assert.equal(await ensureMandarinSegmenter(), true);
+  setMandarinNeutralWords(undefined);
+  assert.equal(romanizeMandarinVn("慢慢地走"), "man man tờ zỏu");
+  assert.equal(romanizeMandarinVn("开心得不得了"), "khai shin tờ bù tứa liảo");
+  assert.equal(romanizeMandarinVn("说着话"), "shuo zhờ huà");
+  assert.equal(romanizeMandarinVn("你说呢"), "nỉ shuo nờ");
+  assert.equal(romanizeMandarinVn("走吧"), "zỏu ba");
+  assert.equal(romanizeMandarinVn("十一月"), "shứ yi yuè");
+  assert.equal(romanizeMandarinVn("二十一"), "èr shứ yi");
+  assert.equal(romanizeMandarinVn("一二三四"), "yi èr san sừ");
+  assert.equal(romanizeMandarinVn("不是不是"), "bú shừ bú shừ");
+  setMandarinNeutralWords(new Map([["朋友|peng you", [1]]]));
+  try {
+    assert.equal(romanizeMandarinVn("朋友们"), "pấng you mân");
+  } finally {
+    setMandarinNeutralWords(undefined);
+  }
+});

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { after, before, test } from "node:test";
 import {
   ensureMandarinSegmenter,
@@ -17,7 +17,7 @@ import { convert } from "pinyin-pro";
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/eza-rev2-parity.json", import.meta.url), "utf8")) as {
   schema: string;
   policy: string;
-  cases: { source: string; pinyin: string; eza: string }[];
+  cases: { source: string; pinyin: string; eza: string; ezaWithCcCedict?: string }[];
 };
 
 function layout(text: string, spell: (citation: string, surface: string) => string): string {
@@ -39,7 +39,7 @@ after(() => setMandarinNeutralWords(undefined));
 test("the Mandarin eza式 revision 2 parity corpus matches the reference without a dictionary", () => {
   assert.equal(fixture.schema, "cjk-labs.eza-rev2-parity.v1");
   assert.equal(fixture.policy, MANDARIN_EZA_REVISION);
-  assert.equal(fixture.cases.length, 81);
+  assert.equal(fixture.cases.length, 104);
   const diverged = fixture.cases.flatMap((item) => {
     const eza = layout(item.source, (_, surface) => convertMandarinSyllableToVnAid(surface));
     return eza === item.eza ? [] : [`${JSON.stringify(item.source)}: ${eza} != ${item.eza}`];
@@ -90,4 +90,21 @@ test("dictionary neutral flags change the eza式 layer only", () => {
     setMandarinNeutralWords(undefined);
   }
   assert.equal(romanizeMandarinVn("朋友"), "pấng yỏu", "without the overlay the provider's tones stand");
+});
+
+// Internal reference data (owner 2026-11-13): the `ezaWithCcCedict` column needs the locally generated neutral-word list
+// (`node tools/generate-mandarin-neutral-words.mjs <cedict>`, gitignored). Without it the test skips.
+const neutralWordsPath = new URL("../tools/.cache/mandarin-neutral-words.json", import.meta.url);
+test("with the local CC-CEDICT neutral words, the parity corpus matches the reference dictionary column", { skip: existsSync(neutralWordsPath) ? false : "no local neutral-word data" }, () => {
+  setMandarinNeutralWords(new Map(Object.entries(JSON.parse(readFileSync(neutralWordsPath, "utf8")) as Record<string, number[]>)));
+  try {
+    const diverged = fixture.cases.flatMap((item) => {
+      const eza = layout(item.source, (_, surface) => convertMandarinSyllableToVnAid(surface));
+      const want = item.ezaWithCcCedict ?? item.eza;
+      return eza === want ? [] : [`${JSON.stringify(item.source)}: ${eza} != ${want}`];
+    });
+    assert.deepEqual(diverged, []);
+  } finally {
+    setMandarinNeutralWords(undefined);
+  }
 });
