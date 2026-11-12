@@ -129,6 +129,7 @@ function alignChineseTimedUnits(
   display: string,
   sourceTexts: string[],
   options: TimedGenericPlanOptions,
+  wordContinuations: ReadonlySet<number> = new Set(),
 ): string[] {
   const tokens = contextualDisplayTokens(display, sourceTexts);
   const wordLayout = options.mandarinWordLayout;
@@ -154,7 +155,9 @@ function alignChineseTimedUnits(
     return withTimedBoundaries(contextualChunks, sourceTexts, suppressSpaceBeforeChunks);
   }
 
-  return align(chunks, display) ?? chunks;
+  // A chunk the line display does not contain cannot be carved out of it. Keep the units but take their
+  // boundaries from the source, as the generic branch does, instead of gluing every syllable together.
+  return align(chunks, display) ?? withTimedBoundaries(chunks, sourceTexts, wordContinuations);
 }
 
 export function buildTimedGenericPlan(
@@ -174,7 +177,7 @@ export function buildTimedGenericPlan(
   const rawChunks = syllables.map((s: any) => (s.RomanizedText || s.TransliteratedText || s.Text || "").trim());
   const sourceTexts = syllables.map((s: any) => s.Text || "");
   const chunks = processor === "Chinese"
-    ? alignChineseTimedUnits(rawChunks, display, sourceTexts, options)
+    ? alignChineseTimedUnits(rawChunks, display, sourceTexts, options, wordContinuationIndices(syllables))
     // A chunk the romanized line doesn't contain (an item the per-syllable pass
     // skipped, or a provider transliteration in another convention) can't be
     // carved out of it. Keep the units, but take their boundaries from the

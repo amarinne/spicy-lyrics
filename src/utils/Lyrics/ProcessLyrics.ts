@@ -38,6 +38,7 @@ import {
 } from "./Fork/Romanization.ts";
 import { acceptRomanization } from "./Fork/RomanizationAcceptance.ts";
 import { ensureMandarinSegmenter } from "./Fork/MandarinEzaLine.ts";
+import { mandarinTimedChunks } from "./Processing/ChineseTimedChunks.ts";
 import { buildJapaneseLineTextMap } from "./Reading/JapaneseReading.ts";
 import { translateLyrics, clearTranslationCache, googleTransliterateLines } from "./Fork/Translation.ts";
 import { DefaultCanonicalLineBuilder } from "./Processing/Canonical.ts";
@@ -52,7 +53,7 @@ import { StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 38;
+export const LYRICS_PROCESSING_VERSION = 39;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -357,8 +358,16 @@ const postProcessSyllableRomanization = async (
       group.RomanizedText = fullRomaji;
 
       {
+        // Mandarin: each timed syllable takes the line-level reading, so its chunk matches the line display.
+        const lineChunks = isChineseLine
+          ? mandarinTimedChunks(effectiveLineText, syllables.map((s: any) => s.Text || ""), chineseTranslitMode, chineseTones)
+          : undefined;
         for (let index = 0; index < syllables.length; index += 1) {
           const syllable = syllables[index];
+          if (lineChunks?.[index]) {
+            syllable.RomanizedText = lineChunks[index];
+            syllable.TransliteratedText = lineChunks[index];
+          }
           if (syllable.TransliteratedText && !syllable.RomanizedText) {
             syllable.RomanizedText = syllable.TransliteratedText;
           }
