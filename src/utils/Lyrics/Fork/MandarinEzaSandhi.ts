@@ -9,7 +9,7 @@
  *   1. A domain is a run of adjacent Han tokens with one known syllable per character. Anything
  *      else (a gap, punctuation, whitespace, Latin text, a digit, a missing reading) ends it.
  *   2. A single character repeated three or more times keeps its citation tones (raw repeat).
- *   3. Neutral flags: dictionary positions on the token, owner weak words (快乐), and a verb of one character repeated once.
+ *   3. Neutral flags: dictionary positions on the token, and a verb of one character repeated once.
  *   3b. Function morphemes: a single-character token tagged as a particle (的 得 地 着 了 过, modal particles) and a
  *      plural 们 are neutral, with the particle's reading (letters change too).
  *   4. An infix 不 between two identical characters (对不对, 要不要) is neutral, whatever the tokens are, and wins
@@ -96,9 +96,6 @@ function isNumeralSeries(characters: readonly string[]): boolean {
   const others = characters.filter((c) => c !== YI);
   return others.length > 0 && others.every(isNumeral);
 }
-
-/** Words the owner hears with a weak last syllable although the dictionary marks a full tone (by ear, 2026-11-13). Positions count from the word's start. */
-const OWNER_WEAK_WORDS: ReadonlyMap<string, readonly number[]> = new Map([["快乐", [1]], ["快樂", [1]]]);
 
 /** Particle readings by jieba tag, for a single-character token: the structural, aspect and modal particles (M1b item 4). */
 const FUNCTION_MORPHEMES: Readonly<Record<string, Readonly<Record<string, string>>>> = {
@@ -239,15 +236,10 @@ function surfaceDomain(run: readonly Entry[]): string[] {
     start = stop;
   }
 
-  // Neutral flags: dictionary positions, owner weak words (快乐), and a verb repeated once (试试).
+  // Neutral flags: dictionary positions and a verb repeated once (试试).
   let offset = 0;
   for (const entry of run) {
     const size = entry.syllables.length;
-    for (const [word, positions] of OWNER_WEAK_WORDS) {
-      if (!entry.token.surface.endsWith(word)) continue;
-      const shift = Array.from(entry.token.surface).length - Array.from(word).length;
-      for (const position of positions) if (!raw.has(offset + shift + position)) tones[offset + shift + position] = NEUTRAL;
-    }
     for (const position of entry.token.dictionaryNeutral ?? []) {
       if (position < size && !raw.has(offset + position)) tones[offset + position] = NEUTRAL;
     }

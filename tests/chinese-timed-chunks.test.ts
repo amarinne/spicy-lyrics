@@ -53,7 +53,7 @@ test("a timed line with sandhi, a neutral and a tone 4 pair gives per-syllable c
   // The listed examples, spelled out.
   assert.deepEqual(mandarinTimedChunks("你好吗", ["你", "好", "吗"], "pinyin-vn", true), ["ní", "hảo", "ma"]);
   assert.deepEqual(mandarinTimedChunks("代价", ["代", "价"], "pinyin-vn", true), ["tai", "zià"]);
-  assert.deepEqual(mandarinTimedChunks("快乐", ["快", "乐"], "pinyin-vn", true), ["khuai", "lờ"]);
+  assert.deepEqual(mandarinTimedChunks("快乐", ["快", "乐"], "pinyin-vn", true), ["khuai", "lừa"]);
   assert.deepEqual(mandarinTimedChunks("从前那个少年", ["从前", "那个", "少年"], "pinyin-vn", true), ["tsóng chién", "na kừa", "shào nién"]);
 });
 

@@ -3,7 +3,7 @@
   "policy": "eza-2026-11-12.2",
   "generatedFrom": "cjk-labs main default Mandarin provider (jieba-wasm 2.4.0, pinyin-pro 3.29.4), after the 2026-11-13 rules, owner weak words, tagged 不 tokens, and the 妳 reading",
   "provenance": [
-    "Copied 2026-11-13 from cjk-labs tests/fixtures/eza-rev2-parity.json at its latest commit (a6c337b, private repository), 112 cases.",
+    "Copied 2026-11-13 from cjk-labs tests/fixtures/eza-rev2-parity.json at commit 56f8621 (private repository), 112 cases.",
     "Internal test data (owner 2026-11-13): the `ezaWithCcCedict` column is CC-CEDICT-derived reference data used only by a local test that skips when tools/.cache/mandarin-neutral-words.json is absent. Do not publish it.",
     "`eza` is the expected Mandarin eza式 output with no dictionary overlay; `pinyin` is the unchanged Standard Pinyin.",
     "Line breaks in `source` are hard sandhi boundaries; `eza` keeps them. Asserted by tests/mandarin-eza-parity.test.ts."
@@ -541,12 +541,12 @@
     {
       "source": "快乐",
       "pinyin": "kuài lè",
-      "eza": "khuai lờ"
+      "eza": "khuai lừa"
     },
     {
       "source": "生日快乐",
       "pinyin": "shēng rì kuài lè",
-      "eza": "shâng rư khuai lờ"
+      "eza": "shâng rư khuai lừa"
     },
     {
       "source": "只不过",
@@ -576,7 +576,7 @@
     {
       "source": "换种生活 让自己变得快乐",
       "pinyin": "huàn zhǒng shēng huó ràng zì jǐ biàn de kuài lè",
-      "eza": "huàn zhỏng shâng huó ràng zừ zỉ bien tờ khuai lờ"
+      "eza": "huàn zhỏng shâng huó ràng zừ zỉ bien tờ khuai lừa"
     }
   ]
 }

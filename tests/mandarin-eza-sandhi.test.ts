@@ -264,13 +264,12 @@ test("end to end with jieba: particles, plural and the lyric examples", async ()
   }
 });
 
-// Owner findings from two checked songs (2026-11-13; cjk-labs a6c337b).
-test("the owner weak word 快乐 has a neutral last syllable, wherever it ends a token", () => {
-  assert.deepEqual(say(["快乐", "kuai4", "le4"]), ["khuai lờ"], "快 is flat by the 4+4 rule; 乐 is a neutral that falls");
-  assert.deepEqual(say(["快樂", "kuai4", "le4"]), ["khuai lờ"]);
-  assert.deepEqual(say(["生日快乐", "sheng1", "ri4", "kuai4", "le4"]), ["shâng rư khuai lờ"], "positions count from the word's start");
-  assert.deepEqual(say(["快", "kuai4"], ["乐", "le4"]), ["khuài", "lừa"], "separate tokens are not the word");
-  assert.equal(digits({}, mono("乐", "le4")), "4");
+// Owner findings from two checked songs (2026-11-13; cjk-labs a6c337b, 56f8621).
+test("快乐 keeps its dictionary tone: no word list overrides it", () => {
+  assert.equal(digits({}, ["快乐", "kuai4", "le4"]), "1 4", "快 is flat by the 4+4 rule; 乐 keeps its full tone");
+  assert.deepEqual(say(["快乐", "kuai4", "le4"]), ["khuai lừa"]);
+  assert.deepEqual(say(["快樂", "kuai4", "le4"]), ["khuai lừa"]);
+  assert.deepEqual(say(["生日快乐", "sheng1", "ri4", "kuai4", "le4"]), ["shâng rư khuai lừa"]);
 });
 
 test("a three-character token with 不 in the middle is neutral, except a conjunction or adverb", () => {
