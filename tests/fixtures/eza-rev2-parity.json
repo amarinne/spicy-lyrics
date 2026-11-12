@@ -1,9 +1,9 @@
 {
   "schema": "cjk-labs.eza-rev2-parity.v1",
   "policy": "eza-2026-11-12.2",
-  "generatedFrom": "cjk-labs main default Mandarin provider (jieba-wasm 2.4.0, pinyin-pro 3.29.4), after the 2026-11-13 rules for tone 4 before tone 4 and infix 不",
+  "generatedFrom": "cjk-labs main default Mandarin provider (jieba-wasm 2.4.0, pinyin-pro 3.29.4), after the 2026-11-13 rules: tone 4 before tone 4 is flat (tone 1) inside a token, and an infix 不 between identical characters is neutral",
   "provenance": [
-    "Copied 2026-11-13 from cjk-labs tests/fixtures/eza-rev2-parity.json at commit fc169b5 (private repository), 81 cases after the tone 4 before tone 4 and infix 不 rules.",
+    "Copied 2026-11-13 from cjk-labs tests/fixtures/eza-rev2-parity.json at commit b1f205b (private repository), 81 cases after the tone 4 before tone 4 (flat tone 1) and infix 不 rules.",
     "The `ezaWithCcCedict` reference column is omitted: this repository does not track CC-CEDICT-derived data.",
     "`eza` is the expected Mandarin eza式 output with no dictionary overlay; `pinyin` is the unchanged Standard Pinyin.",
     "Line breaks in `source` are hard sandhi boundaries; `eza` keeps them. Asserted by tests/mandarin-eza-parity.test.ts."
@@ -347,22 +347,22 @@
     {
       "source": "代价",
       "pinyin": "dài jià",
-      "eza": "tái zià"
+      "eza": "tai zià"
     },
     {
       "source": "再见",
       "pinyin": "zài jiàn",
-      "eza": "zái zièn"
+      "eza": "zai zièn"
     },
     {
       "source": "爱过",
       "pinyin": "ài guò",
-      "eza": "ái kuò"
+      "eza": "ai kuò"
     },
     {
       "source": "现在是",
       "pinyin": "xiàn zài shì",
-      "eza": "shién zài shừ"
+      "eza": "shien zài shừ"
     },
     {
       "source": "对不对",
