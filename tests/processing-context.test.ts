@@ -29,6 +29,7 @@ test("processing context key is stable for same inputs", () => {
 test("Mandarin eza式 rejects cached output from before the spelling revision", () => {
   const current = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: "pinyin-vn" });
   const legacy = JSON.parse(current);
+  assert.equal(legacy.mandarinEzaRevision, "eza-2026-11-12.2");
   delete legacy.mandarinEzaRevision;
   assert.notEqual(current, JSON.stringify(legacy));
   for (const mode of ["pinyin", "jyutping", "jyutping-vn"] as const) {

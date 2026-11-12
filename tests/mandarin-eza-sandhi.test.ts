@@ -1,0 +1,182 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  buYiSandhi,
+  mandarinEzaSurfaceSyllables,
+  realizeNeutralTones,
+  runFormulaLowered,
+  type MandarinEzaToken,
+} from "../src/utils/Lyrics/Fork/MandarinEzaSandhi.ts";
+import { mandarinEzaReadings } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
+import { convertMandarinSyllableToVnAid } from "../src/utils/Lyrics/Fork/MandarinVnAid.ts";
+
+// Ported from cjk-labs tests/eza-sandhi.test.ts (policy eza-2026-11-12.2, decisions M1a, M1b, M4a).
+// The pure module is driven with hand-built tokens, so these tests do not depend on the segmenter.
+
+/** A token spec: the surface, then one citation syllable per character. `null` is a punctuation gap. */
+type Spec = readonly [surface: string, ...syllables: string[]] | null;
+type Extra = { searchPieces?: readonly string[]; pos?: string; neutral?: readonly number[] };
+
+function build(extras: Readonly<Record<string, Extra>>, specs: readonly Spec[]) {
+  const syllables: (string | undefined)[] = [];
+  const tokens: MandarinEzaToken[] = [];
+  const han: { start: number; size: number }[] = [];
+  for (const spec of specs) {
+    const start = syllables.length;
+    if (!spec) {
+      syllables.push(undefined);
+      continue;
+    }
+    const [surface, ...own] = spec;
+    const extra = extras[surface];
+    tokens.push({
+      surface,
+      start,
+      ...(extra?.searchPieces ? { searchPieces: extra.searchPieces } : {}),
+      ...(extra?.pos ? { pos: extra.pos } : {}),
+      ...(extra?.neutral ? { dictionaryNeutral: extra.neutral } : {}),
+    });
+    syllables.push(...own);
+    han.push({ start, size: own.length });
+  }
+  return { syllables, tokens, han };
+}
+
+/** The eza式 spelling of every Han token after sandhi. */
+function say(...specs: Spec[]): string[] {
+  const { syllables, tokens, han } = build({}, specs);
+  const out = mandarinEzaSurfaceSyllables(syllables, tokens);
+  return han.map(({ start, size }) => out.slice(start, start + size).map((syllable) => convertMandarinSyllableToVnAid(syllable!)).join(" "));
+}
+
+/** The surface tone digits of every Han syllable, in order. */
+function digits(extras: Readonly<Record<string, Extra>>, ...specs: Spec[]): string {
+  const { syllables, tokens } = build(extras, specs);
+  return mandarinEzaSurfaceSyllables(syllables, tokens).filter(Boolean).map((syllable) => syllable!.slice(-1)).join(" ");
+}
+
+const mono = (surface: string, syllable: string): Spec => [surface, syllable];
+
+test("third-tone sandhi inside one token: nǐ hǎo is ní hảo", () => {
+  assert.deepEqual(say(["你好", "ni3", "hao3"]), ["ní hảo"]);
+  const { syllables, tokens } = build({}, [["你好", "ni3", "hao3"]]);
+  assert.deepEqual(mandarinEzaSurfaceSyllables(syllables, tokens).map((syllable) => convertMandarinSyllableToVnAid(syllable!, false)), ["ni", "hao"]);
+});
+
+test("一 and 不 take their spoken tones, and the neutral tones the rules set", () => {
+  assert.deepEqual(say(["一定", "yi1", "ding4"]), ["yí tìng"]);
+  assert.deepEqual(say(["一起", "yi1", "qi3"]), ["yì chỉ"]);
+  assert.deepEqual(say(["不对", "bu4", "dui4"]), ["bú tuềi"]);
+  assert.deepEqual(say(["看一看", "kan4", "yi1", "kan4"]), ["khan yì khàn"]);
+  assert.deepEqual(say(["看不懂", "kan4", "bu4", "dong3"]), ["khan bù tỏng"]);
+  // Segmenters split 不对 and 一个, so a lone 不 or 一 joins the token after it; 一 between identical verbs joins both.
+  assert.deepEqual(say(["不", "bu4"], ["对", "dui4"]), ["bú", "tuềi"]);
+  assert.deepEqual(say(["一", "yi1"], ["个", "ge4"]), ["yí", "kừa"]);
+  assert.deepEqual(say(["看", "kan4"], ["一", "yi1"], ["看", "kan4"]), ["khan", "yì", "khàn"]);
+  assert.deepEqual(say(["不", "bu4"], ["好", "hao3"]), ["bù", "hảo"]);
+  // Ordinal and numeral series keep 一 high.
+  assert.deepEqual(buYiSandhi("第一", [4, 1]), [4, 1]);
+  assert.deepEqual(buYiSandhi("统一", [3, 1]), [3, 1]);
+});
+
+test("adjacent third-tone tokens are grouped by the tokens themselves", () => {
+  assert.deepEqual(say(["我", "wo3"], ["很好", "hen3", "hao3"]), ["wỏ", "hấn hảo"]);
+  assert.deepEqual(say(["我", "wo3"], ["很", "hen3"], ["好", "hao3"]), ["wỏ", "hấn", "hảo"]);
+  assert.deepEqual(say(["展览", "zhan3", "lan3"], ["馆", "guan3"]), ["zhán lán", "kuản"]);
+  assert.deepEqual(say(["你", "ni3"], ["好", "hao3"]), ["ní", "hảo"]);
+});
+
+test("a run of four or more third tones splits into pairs across tokens", () => {
+  assert.deepEqual(say(["老总", "lao3", "zong3"], ["很", "hen3"], ["好", "hao3"]), ["láo zỏng", "hấn", "hảo"]);
+  assert.deepEqual(say(["老总", "lao3", "zong3"], ["很好", "hen3", "hao3"]), ["láo zỏng", "hấn hảo"]);
+  assert.deepEqual(say(["请你", "qing3", "ni3"], ["指导", "zhi3", "dao3"]), ["chíng nỉ", "zhứ tảo"]);
+  assert.deepEqual(say(["你好", "ni3", "hao3"], ["很好", "hen3", "hao3"], ["老总", "lao3", "zong3"]), ["ní hảo", "hấn hảo", "láo zỏng"]);
+  assert.deepEqual(say(["请你", "qing3", "ni3"], ["指导", "zhi3", "dao3"], ["我", "wo3"]), ["chíng nỉ", "zhứ táo", "wỏ"]);
+  // A tone other than 3 ends the run, so the shorter runs keep their own rules.
+  assert.deepEqual(say(["很", "hen3"], ["好", "hao3"], ["吗", "ma0"], ["你好", "ni3", "hao3"]), ["hấn", "hảo", "ma", "ní hảo"]);
+  assert.deepEqual(say(["岂有此理", "qi3", "you3", "ci3", "li3"]), ["chí yỏu tsứ lỉ"]);
+});
+
+test("a domain ends at punctuation, a missing reading, or a line break", () => {
+  assert.deepEqual(say(["不", "bu4"], null, ["对", "dui4"]), ["bù", "tuềi"]);
+  const { syllables, tokens } = build({}, [["不", "bu4"], ["对", "dui4"]]);
+  syllables[1] = undefined;
+  assert.deepEqual(mandarinEzaSurfaceSyllables(syllables, tokens), ["bu4", undefined]);
+  // 我想你 / 你好: the line break keeps the two runs apart (3 2 3 and 2 3, not one run of five).
+  assert.equal(digits({}, mono("我", "wo3"), mono("想", "xiang3"), mono("你", "ni3"), null, ["你好", "ni3", "hao3"]), "3 2 3 2 3");
+  assert.equal(digits({}, mono("我", "wo3"), mono("想", "xiang3"), mono("你", "ni3"), ["你好", "ni3", "hao3"]), "2 3 3 2 3");
+  // A single three-syllable token with no subwords falls back to the run formula: 3 2 3.
+  assert.deepEqual(say(["纸老虎", "zhi3", "lao3", "hu3"]), ["zhử láo hủ"]);
+});
+
+test("the end-to-end line keeps line breaks and punctuation as domain boundaries (fallback segmenter)", () => {
+  const spell = (text: string) => mandarinEzaReadings(text).filter((item) => item.isZh).map((item) => convertMandarinSyllableToVnAid(item.surface)).join(" ");
+  assert.equal(spell("我想你\n你好"), "wỏ shiáng nỉ ní hảo");
+  assert.equal(spell("我想你，你好"), "wỏ shiáng nỉ ní hảo");
+  assert.equal(spell("他\n的"), "tha tơ");
+});
+
+test("a neutral tone takes its pitch from the syllable before it, across tokens too", () => {
+  assert.deepEqual(say(["他", "ta1"], ["的", "de0"]), ["tha", "tờ"]);
+  assert.deepEqual(say(["是", "shi4"], ["的", "de0"]), ["shư", "tờ"]);
+  assert.deepEqual(say(["我", "wo3"], ["的", "de0"]), ["wỏ", "tơ"]);
+  assert.equal(say(["谁", "shei2"], ["的", "de0"])[1], "tơ");
+  assert.deepEqual(say(["妹妹", "mei4", "mei0"]), ["mêi mềi"]);
+  assert.deepEqual(say(["他", "ta1"], null, ["的", "de0"]), ["tha", "tơ"]);
+  // Sandhi comes first: 你好 is ní hǎo, so the neutral after it follows the surface tone 3.
+  assert.deepEqual(say(["你好", "ni3", "hao3"], ["吗", "ma0"]), ["ní hảo", "ma"]);
+});
+
+test("realizeNeutralTones: only the first neutral of a run falls, and a tone 4 before it is written high", () => {
+  assert.deepEqual(realizeNeutralTones([1, 0]), [1, 6]);
+  assert.deepEqual(realizeNeutralTones([4, 5]), [1, 6]);
+  assert.deepEqual(realizeNeutralTones([2, 0]), [2, 0]);
+  assert.deepEqual(realizeNeutralTones([3, 0]), [3, 0]);
+  assert.deepEqual(realizeNeutralTones([4, 0, 0]), [1, 6, 0]);
+  assert.deepEqual(realizeNeutralTones([0]), [0]);
+});
+
+test("the run formula: pairs from the left, an odd run ends 1+2", () => {
+  assert.deepEqual([1, 2, 3, 4, 5, 6, 7].map(runFormulaLowered), [[], [0], [1], [0, 2], [0, 3], [0, 2, 4], [0, 2, 5]]);
+});
+
+test("runs of single-character third tones follow the owner's patterns", () => {
+  const run = (n: number) => digits({}, ...Array.from({ length: n }, (_, index) => mono("好我你他想也的"[index], "hao3")));
+  assert.deepEqual([2, 3, 4, 5, 6].map(run), ["2 3", "3 2 3", "2 3 2 3", "2 3 3 2 3", "2 3 2 3 2 3"]);
+});
+
+test("words are feet, strays attach to a foot, and two feet never merge", () => {
+  assert.equal(digits({}, ["我", "wo3"], ["也", "ye3"], ["想", "xiang3"], ["你好", "ni3", "hao3"]), "2 3 3 2 3");
+  assert.equal(digits({}, ["我也", "wo3", "ye3"], ["想", "xiang3"], ["你好", "ni3", "hao3"]), "2 3 3 2 3");
+  assert.equal(digits({}, ["老总", "lao3", "zong3"], ["好看", "hao3", "kan4"]), "2 3 3 4");
+  assert.equal(digits({}, ["老总", "lao3", "zong3"], mono("很", "hen3"), mono("好", "hao3")), "2 3 2 3");
+  assert.equal(digits({}, ["你好", "ni3", "hao3"], ["你好", "ni3", "hao3"], ["你好", "ni3", "hao3"]), "2 3 2 3 2 3");
+  assert.equal(digits({}, ["指导", "zhi3", "dao3"], mono("我", "wo3")), "2 2 3");
+  assert.equal(digits({}, mono("我", "wo3"), ["好看", "hao3", "kan4"]), "2 3 4");
+});
+
+test("a three-syllable word groups by its subwords, and falls back to the run formula", () => {
+  assert.equal(digits({ 展览馆: { searchPieces: ["展览"] } }, ["展览馆", "zhan3", "lan3", "guan3"]), "2 2 3");
+  assert.equal(digits({ 纸老虎: { searchPieces: ["老虎"] } }, ["纸老虎", "zhi3", "lao3", "hu3"]), "3 2 3");
+  assert.equal(digits({}, ["好想你", "hao3", "xiang3", "ni3"]), "3 2 3");
+});
+
+test("a character repeated three or more times keeps its citation tones; once is normal", () => {
+  assert.equal(digits({}, mono("好", "hao3"), mono("好", "hao3"), mono("好", "hao3")), "3 3 3");
+  assert.equal(digits({}, ["好好", "hao3", "hao3"]), "2 3");
+  assert.equal(digits({}, ["好好好", "hao3", "hao3", "hao3"]), "3 3 3");
+  assert.equal(digits({}, mono("哈", "ha1"), mono("哈", "ha1"), mono("哈", "ha1")), "1 1 1");
+  // A raw repeat ends a run, so its neighbours do not lower against it.
+  assert.equal(digits({}, mono("我", "wo3"), mono("好", "hao3"), mono("好", "hao3"), mono("好", "hao3")), "3 3 3 3");
+});
+
+test("verb reduplication and dictionary flags set the neutral tone before sandhi", () => {
+  assert.equal(digits({ 试试: { pos: "v" } }, ["试试", "shi4", "shi4"]), "1 6", "试试: tone 4, then a neutral that falls");
+  assert.equal(digits({ 试试: { pos: "vn" } }, ["试试", "shi4", "shi4"]), "1 6", "a tag starting with v is a verb");
+  assert.equal(digits({}, ["试试", "shi4", "shi4"]), "4 4", "no verb tag, no neutral");
+  assert.equal(digits({ 人人: { pos: "n" } }, ["人人", "ren2", "ren2"]), "2 2", "other reduplication is not neutral");
+  assert.equal(digits({ 朋友: { neutral: [1] } }, ["朋友", "peng2", "you3"]), "2 0", "the dictionary's neutral after tone 2 stays level");
+  assert.equal(digits({ 哥哥: { neutral: [1] } }, ["哥哥", "ge1", "ge1"]), "1 6");
+  // The neutral flag breaks a third-tone run.
+  assert.equal(digits({ 老鼠们: { neutral: [2] } }, ["老鼠们", "lao3", "shu3", "men2"]), "2 3 0");
+});

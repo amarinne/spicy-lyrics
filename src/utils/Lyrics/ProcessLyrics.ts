@@ -37,6 +37,7 @@ import {
   romanizeMandarinVn,
 } from "./Fork/Romanization.ts";
 import { acceptRomanization } from "./Fork/RomanizationAcceptance.ts";
+import { ensureMandarinSegmenter } from "./Fork/MandarinEzaLine.ts";
 import { buildJapaneseLineTextMap } from "./Reading/JapaneseReading.ts";
 import { translateLyrics, clearTranslationCache, googleTransliterateLines } from "./Fork/Translation.ts";
 import { DefaultCanonicalLineBuilder } from "./Processing/Canonical.ts";
@@ -108,6 +109,7 @@ const romanizeChineseText = async (
     return (await romanizeCantonese(text, primaryLanguage, true, chineseTones)) ?? text;
   }
   if (chineseTranslitMode === "pinyin-vn") {
+    await ensureMandarinSegmenter();
     return romanizeMandarinVn(text, chineseTones);
   }
   return romanizeMandarin(text, chineseTones);

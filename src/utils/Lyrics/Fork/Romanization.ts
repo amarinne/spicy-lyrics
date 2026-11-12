@@ -16,6 +16,7 @@ import { getJyutpingList } from "to-jyutping";
 import { G2p } from "korean-pronunciation";
 import { OutputFormat, pinyin, segment } from "pinyin-pro";
 import { convertMandarinSyllableToVnAid } from "./MandarinVnAid.ts";
+import { mandarinEzaReadings } from "./MandarinEzaLine.ts";
 import { convertJyutpingSyllableToVnAid } from "./CantoneseVnAid.ts";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
@@ -246,19 +247,13 @@ export function romanizeMandarin(text: string, tones = true): string {
  * Romanize Mandarin with the locked VN-aid spelling. Same segmentation and
  * token count as `romanizeMandarin` (one converted syllable per Han char),
  * so word-grouping and attached-reading alignment keep working unchanged.
+ * Each syllable is spelled with its surface tone (`MandarinEzaLine.ts`).
  */
 export function romanizeMandarinVn(text: string, tones = true): string {
-  const readings = pinyin(text, {
-    type: "all",
-    toneType: "num",
-    toneSandhi: false,
-    nonZh: "consecutive",
-  });
-
   // Use the package's source flag so Latin tokens such as mp3, BTS4, and
   // authored ma3 stay intact. Keep the plain Mandarin token separators.
-  return readings
-    .map((reading) => reading.isZh ? convertMandarinSyllableToVnAid(reading.pinyin, tones) : reading.origin)
+  return mandarinEzaReadings(text)
+    .map((reading) => reading.isZh ? convertMandarinSyllableToVnAid(reading.surface, tones) : reading.origin)
     .join(" ")
     .replace(/\s+/gu, " ")
     .trim();

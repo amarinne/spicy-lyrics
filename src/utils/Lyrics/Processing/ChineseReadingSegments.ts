@@ -19,6 +19,7 @@ import {
   walkCantoneseReadings,
 } from "../Fork/Romanization.ts";
 import { convertMandarinSyllableToVnAid } from "../Fork/MandarinVnAid.ts";
+import { mandarinEzaReadings } from "../Fork/MandarinEzaLine.ts";
 import { convertJyutpingSyllableToVnAid } from "../Fork/CantoneseVnAid.ts";
 import type { AttachedReadingSegment, CanonicalSpanMapping, TextRange } from "./Model.ts";
 
@@ -49,9 +50,14 @@ function rangedMandarinReadings(
   // the token walk disagree about the text, and a misaligned reading is worse than none.
   if (readings.length !== layout.tokenCount) return [];
 
+  // eza式 spells the surface tone, which depends on the whole line (sandhi and neutral pitch).
+  const surface = vnAid
+    ? new Map(mandarinEzaReadings(text).filter((item) => item.isZh).map((item) => [item.startCp, item.surface]))
+    : undefined;
+
   return layout.tokens.flatMap((token, index) => {
     const raw = (readings[index] ?? "").trim();
-    const reading = vnAid ? convertMandarinSyllableToVnAid(raw, tones) : raw;
+    const reading = vnAid ? convertMandarinSyllableToVnAid(surface?.get(token.startCp) ?? raw, tones) : raw;
     if (!token.isHan || !reading || reading === token.text) return [];
     return [{ canonicalRange: { startCp: token.startCp, endCp: token.endCp }, reading }];
   });

@@ -19,7 +19,7 @@ const assetCacheSource = read("src/utils/Lyrics/Processing/Japanese/AssetCache.t
 test("the build stubs the embedded dictionary modules out of the bundle", () => {
   assert.match(spiceConfig, /japanese-assets-stub/u);
   assert.match(spiceConfig, /\(unidic\|jmdict\)-assets\\\.generated/u);
-  assert.match(spiceConfig, /plugins:\s*\[stubEmbeddedJapaneseAssets\]/u);
+  assert.match(spiceConfig, /plugins:\s*\[stubEmbeddedJapaneseAssets[,\]]/u);
 });
 
 test("esbuild asset filter stays free of the unsupported unicode flag", () => {

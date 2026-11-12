@@ -3,7 +3,9 @@
  *
  * One-way display from Hanyu Pinyin (tone-numbered syllables, as produced by
  * `pinyin-pro` with `toneType: "num"`) into the locked Vietnamese-informed aid
- * spelling. No dictionary, no G2P: the input Pinyin is already the reading.
+ * spelling, policy eza-2026-11-12.2 (Mandarin revision 2). The input digit is
+ * the surface tone: `MandarinEzaSandhi.ts` rewrites a line's citation tones
+ * (third-tone sandhi, 不/一, neutral pitch) before this converter runs.
  *
  * Locked rules implemented here:
  * - stops: b/p, t/th, k/kh, matching Cantonese eza式.
@@ -12,12 +14,15 @@
  * - /y/ family renders as yu (no ü output): ju->zyu, jue->zyue,
  *   juan->zyuen, jun->zyun; nü->nyu, lü->lyu; yu/yue/yuen/yun.
  * - apical i after z/c/s/zh/ch/sh/r -> ư
- * - e -> ưa, en -> ân, eng -> âng, ian -> ien
+ * - open e -> ưa in a full tone; ơ in the neutral tone (0, 5 or 6), except
+ *   after g/k/h, where a neutral e keeps ưa. en -> ân, eng -> âng, ian -> ien
  * - ei -> êi; ui -> uei -> uêi (tone anchors to ê)
  * - un/uen -> uân, ueng/weng -> uâng, iu -> iou
  * - bo/po/mo/fo -> buo/puo/muo/fuo
  * - y/w zero-initials retained (you/wei/wo kept as-is)
- * - tones: T1 unmarked, T2 acute, T3 hook above, T4 grave, neutral dot below.
+ * - tones: T1 unmarked, T2 acute, T3 hook above, T4 grave. The neutral tone
+ *   has no mark of its own: digit 0 or 5 is level (no mark), digit 6 is a
+ *   neutral realized falling (grave). See `realizeNeutralTones`.
  *   The tone anchors to a quality-marked vowel (ă â ê ô ơ ư) when the rendered
  *   nucleus has one; otherwise the Pinyin tone-bearing-vowel order
  *   (a, then o, then e, then the last i/u) on the explicit final.
@@ -53,16 +58,19 @@ const APICAL_INITIALS = new Set(["z", "c", "s", "zh", "ch", "sh", "r"]);
 const JU_Q_X = new Set(["j", "q", "x"]);
 const LABIALS = new Set(["b", "p", "m", "f"]);
 
-/** Combining marks per Mandarin tone category: T2 acute U+0301, T3 hook U+0309, T4 grave U+0300, neutral dot below U+0323. T1 unmarked. */
+/**
+ * Combining marks per surface tone: T2 acute U+0301, T3 hook U+0309, T4 grave U+0300.
+ * T1 and a level neutral (0/5) are unmarked; a falling neutral (6) takes the grave.
+ */
 const TONE_MARKS: Record<number, string> = {
-  1: "",
   2: "\u0301",
   3: "\u0309",
   4: "\u0300",
-  0: "\u0323",
+  6: "\u0300",
 };
 
-const NUM_SYLLABLE_TEST = /^([a-zü]+)([0-4])$/u;
+const NUM_SYLLABLE_TEST = /^([a-zü]+)([0-6])$/u;
+const VELAR_INITIALS = new Set(["g", "k", "h"]);
 
 function markVowel(vowel: string, tone: number): string {
   const mark = TONE_MARKS[tone] ?? "";
@@ -100,7 +108,7 @@ function toneBearingIndex(final: string): number {
 }
 
 function applyTone(aidFinal: string, tone: number, tonesEnabled: boolean): string {
-  if (!tonesEnabled || tone === 1) return aidFinal;
+  if (!tonesEnabled || !TONE_MARKS[tone]) return aidFinal;
   const index = toneBearingIndex(aidFinal);
   if (index < 0) return aidFinal;
   const chars = Array.from(aidFinal);
@@ -170,7 +178,9 @@ export function convertMandarinSyllableToVnAid(numSyllable: string, tonesEnabled
   // ê marks the closer /e/-like component in the ei/uei family; ie/ian keep
   // the opener e.
   if (final !== "wuân" && final !== "wuâng") {
-    if (final === "e") final = "ưa";
+    // The open e is [ɤ] in a full tone (ưa) and a schwa in the neutral tone (ơ), except after a
+    // velar onset, where it keeps ưa (owner 2026-11-12, by ear).
+    if (final === "e") final = tone === 0 || tone === 5 || tone === 6 ? (VELAR_INITIALS.has(initial) ? "ưa" : "ơ") : "ưa";
     else if (final === "en") final = "ân";
     else if (final === "eng") final = "âng";
     else if (final === "ei") final = "êi";
