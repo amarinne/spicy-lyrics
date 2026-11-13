@@ -2,14 +2,14 @@
  * Per-syllable readings for a syllable-timed Mandarin line, taken from the line-level reading.
  *
  * The line display is romanized with the whole line, so Mandarin eza式 spells the surface tones
- * (sandhi, neutral pitch, tone 4 before tone 4) and pinyin-pro picks phrase readings. Romanizing each
+ * (sandhi, neutral pitch, tone 4 before tone 4) and the reader chooses contextual readings. Romanizing each
  * timed syllable alone gives citation tones and context-free readings, so its chunks no longer appear in
  * the line display and the plan could not be carved from it. Each timed syllable takes the line's own
  * syllables for its characters instead, so every unit shows the same spelling as the line display.
  */
 
-import { pinyin } from "pinyin-pro";
-import { mandarinAnalysisText, mandarinEzaReadings } from "../Fork/MandarinEzaLine.ts";
+import { mandarinEzaReadings } from "../Fork/MandarinEzaLine.ts";
+import { formatPinyin } from "../Fork/MandarinPinyinFormat.ts";
 import { convertMandarinSyllableToVnAid } from "../Fork/MandarinVnAid.ts";
 
 const HAN = /\p{Script=Han}/u;
@@ -24,16 +24,8 @@ function lineHanReadings(lineText: string, vnAid: boolean, tones: boolean): Map<
     }
     return out;
   }
-  let startCp = 0;
-  const items = pinyin(mandarinAnalysisText(lineText), {
-    type: "all",
-    toneType: tones ? "symbol" : "none",
-    toneSandhi: false,
-    nonZh: "consecutive",
-  });
-  for (const item of items) {
-    if (item.isZh) out.set(startCp, item.pinyin);
-    startCp += Array.from(item.origin).length;
+  for (const item of mandarinEzaReadings(lineText)) {
+    if (item.isZh) out.set(item.startCp, formatPinyin(item.citation, tones ? "diacritics" : "unmarked"));
   }
   return out;
 }
@@ -48,14 +40,27 @@ export function mandarinTimedChunks(
   syllableTexts: readonly string[],
   translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn",
   tones: boolean,
+  sourceRanges?: readonly { startCp: number; endCp: number }[],
 ): (string | undefined)[] | undefined {
   if (translitMode !== "pinyin" && translitMode !== "pinyin-vn") return undefined;
-  if (syllableTexts.join("") !== lineText || KANA.test(lineText)) return undefined;
+  if (KANA.test(lineText)) return undefined;
+  const linePoints = Array.from(lineText);
+  if (sourceRanges) {
+    let previousEnd = 0;
+    if (sourceRanges.length !== syllableTexts.length || sourceRanges.some((range, index) => {
+      const invalid = !Number.isInteger(range.startCp) || !Number.isInteger(range.endCp)
+        || range.startCp < previousEnd || range.endCp < range.startCp || range.endCp > linePoints.length
+        || linePoints.slice(range.startCp, range.endCp).join("") !== syllableTexts[index].trim();
+      previousEnd = range.endCp;
+      return invalid;
+    })) return undefined;
+  } else if (syllableTexts.join("") !== lineText) return undefined;
   const readings = lineHanReadings(lineText, translitMode === "pinyin-vn", tones);
   let offset = 0;
-  return syllableTexts.map((text) => {
-    const points = Array.from(text);
-    const start = offset;
+  return syllableTexts.map((text, index) => {
+    const range = sourceRanges?.[index];
+    const points = range ? linePoints.slice(range.startCp, range.endCp) : Array.from(text);
+    const start = range?.startCp ?? offset;
     offset += points.length;
     if (!HAN.test(text)) return undefined;
     // The same item layout as the line display: each Han character and each run of other text is one item.

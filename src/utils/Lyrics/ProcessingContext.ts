@@ -1,6 +1,7 @@
 import type { ChineseCharacterForm } from "./ChineseCharacterConversion.ts";
 import type { ChineseReadingPlacement } from "../uiState.ts";
 import type { MeaningBackend } from "../stores.ts";
+import { MANDARIN_READER_REVISION } from "./Fork/MandarinReaderIdentity.ts";
 import { MANDARIN_EZA_REVISION } from "./Fork/MandarinEzaSandhi.ts";
 
 export type ProcessingContext = {
@@ -22,6 +23,7 @@ export function buildProcessingContextKey(context: ProcessingContext): string {
   return JSON.stringify({
     translation: context.translationEnabled ? `${context.meaningBackend ?? "google"}:${context.translationTargetLang || ""}` : false,
     chineseTranslitMode: context.chineseTranslitMode,
+    mandarinReaderRevision: context.chineseTranslitMode.startsWith("pinyin") ? MANDARIN_READER_REVISION : undefined,
     mandarinEzaRevision: context.chineseTranslitMode === "pinyin-vn" ? MANDARIN_EZA_REVISION : undefined,
     chineseTones: context.chineseTones,
     joinMandarinWords: context.joinMandarinWords,

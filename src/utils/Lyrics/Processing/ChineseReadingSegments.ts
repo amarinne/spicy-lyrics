@@ -13,8 +13,7 @@
  *     arrive as genuine groups and cannot be split.
  */
 
-import { pinyin } from "pinyin-pro";
-import { mandarinAnalysisText } from "../Fork/MandarinEzaLine.ts";
+import { formatPinyin } from "../Fork/MandarinPinyinFormat.ts";
 import {
   buildMandarinWordLayout,
   walkCantoneseReadings,
@@ -37,15 +36,9 @@ function rangedMandarinReadings(
   const layout = buildMandarinWordLayout(text);
   if (!layout.tokens.length) return [];
 
-  // Deliberately the same call `romanizeMandarin` makes, so the reading a character gets does not
-  // depend on where it is placed. The VN-aid variant uses tone-numbered output from the same
-  // segmentation, keeping a 1:1 token alignment with the plain path.
-  const readings = pinyin(mandarinAnalysisText(text), {
-    type: "array",
-    toneType: vnAid ? "num" : tones ? "symbol" : "none",
-    toneSandhi: false,
-    nonZh: "consecutive",
-  }) as string[];
+  const lineReadings = mandarinEzaReadings(text);
+  const readings = lineReadings.filter((item) => item.origin.trim()).map((item) =>
+    item.isZh ? formatPinyin(item.citation, tones ? "diacritics" : "unmarked") : item.origin);
 
   // The same alignment `joinMandarinReadingWords` requires. A mismatch means the reading array and
   // the token walk disagree about the text, and a misaligned reading is worse than none.
@@ -53,7 +46,7 @@ function rangedMandarinReadings(
 
   // eza式 spells the surface tone, which depends on the whole line (sandhi and neutral pitch).
   const surface = vnAid
-    ? new Map(mandarinEzaReadings(text).filter((item) => item.isZh).map((item) => [item.startCp, item.surface]))
+    ? new Map(lineReadings.filter((item) => item.isZh).map((item) => [item.startCp, item.surface]))
     : undefined;
 
   return layout.tokens.flatMap((token, index) => {

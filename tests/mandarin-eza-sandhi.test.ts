@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import {
   buYiSandhi,
   mandarinEzaSurfaceSyllables,
@@ -7,8 +7,10 @@ import {
   runFormulaLowered,
   type MandarinEzaToken,
 } from "../src/utils/Lyrics/Fork/MandarinEzaSandhi.ts";
-import { mandarinEzaReadings } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
+import { ensureMandarinSegmenter, mandarinEzaReadings } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
 import { convertMandarinSyllableToVnAid } from "../src/utils/Lyrics/Fork/MandarinVnAid.ts";
+
+before(async () => { assert.equal(await ensureMandarinSegmenter(), true); });
 
 // Ported from cjk-labs tests/eza-sandhi.test.ts (policy eza-2026-11-12.2, decisions M1a, M1b, M4a).
 // The pure module is driven with hand-built tokens, so these tests do not depend on the segmenter.
@@ -109,7 +111,7 @@ test("a domain ends at punctuation, a missing reading, or a line break", () => {
   assert.deepEqual(say(["纸老虎", "zhi3", "lao3", "hu3"]), ["zhử láo hủ"]);
 });
 
-test("the end-to-end line keeps line breaks and punctuation as domain boundaries (fallback segmenter)", () => {
+test("the end-to-end line keeps line breaks and punctuation as domain boundaries", () => {
   const spell = (text: string) => mandarinEzaReadings(text).filter((item) => item.isZh).map((item) => convertMandarinSyllableToVnAid(item.surface)).join(" ");
   assert.equal(spell("我想你\n你好"), "wỏ shiáng nỉ ní hảo");
   assert.equal(spell("我想你，你好"), "wỏ shiáng nỉ ní hảo");
@@ -243,10 +245,9 @@ test("an infix 不 skips particles and repeated words; 一 after a numeral keeps
 });
 
 test("end to end with jieba: particles, plural and the lyric examples", async () => {
-  const { ensureMandarinSegmenter, setMandarinNeutralWords } = await import("../src/utils/Lyrics/Fork/MandarinEzaLine.ts");
+  const { ensureMandarinSegmenter } = await import("../src/utils/Lyrics/Fork/MandarinEzaLine.ts");
   const { romanizeMandarinVn } = await import("../src/utils/Lyrics/Fork/Romanization.ts");
   assert.equal(await ensureMandarinSegmenter(), true);
-  setMandarinNeutralWords(undefined);
   assert.equal(romanizeMandarinVn("慢慢地走"), "man man tờ zỏu");
   assert.equal(romanizeMandarinVn("开心得不得了"), "khai shin tờ bù tứa liảo");
   assert.equal(romanizeMandarinVn("说着话"), "shuo zhờ huà");
@@ -256,12 +257,7 @@ test("end to end with jieba: particles, plural and the lyric examples", async ()
   assert.equal(romanizeMandarinVn("二十一"), "èr shứ yi");
   assert.equal(romanizeMandarinVn("一二三四"), "yi èr san sừ");
   assert.equal(romanizeMandarinVn("不是不是"), "bú shừ bú shừ");
-  setMandarinNeutralWords(new Map([["朋友|peng you", [1]]]));
-  try {
-    assert.equal(romanizeMandarinVn("朋友们"), "pấng you mân");
-  } finally {
-    setMandarinNeutralWords(undefined);
-  }
+  assert.equal(romanizeMandarinVn("朋友们"), "pấng you mân");
 });
 
 // Owner findings from two checked songs (2026-11-13; cjk-labs a6c337b, 56f8621).
@@ -282,7 +278,7 @@ test("a three-character token with 不 in the middle is neutral, except a conjun
   assert.deepEqual(sayWith({ 只不过: { pos: "n" } }, ["只不过", "zhi1", "bu4", "guo4"]), ["zhư bù kuò"], "any other tag keeps the neutral 不");
 });
 
-test("妳 reads as 你 in Standard Pinyin and in eza式, and the source surface is kept", async () => {
+test("妳 reads from data in Standard Pinyin and eza式, and the source surface is kept", async () => {
   const { ensureMandarinSegmenter, mandarinEzaReadings } = await import("../src/utils/Lyrics/Fork/MandarinEzaLine.ts");
   const { romanizeMandarin, romanizeMandarinVn, buildMandarinWordLayout } = await import("../src/utils/Lyrics/Fork/Romanization.ts");
   const { buildChineseAttachedReadings } = await import("../src/utils/Lyrics/Processing/ChineseReadingSegments.ts");

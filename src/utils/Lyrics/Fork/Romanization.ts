@@ -14,9 +14,9 @@ import type Kuroshiro from "kuroshiro";
 import transliterPkg from "transliter";
 import { getJyutpingList } from "to-jyutping";
 import { G2p } from "korean-pronunciation";
-import { OutputFormat, pinyin, segment } from "pinyin-pro";
+import { formatPinyin } from "./MandarinPinyinFormat.ts";
 import { convertMandarinSyllableToVnAid } from "./MandarinVnAid.ts";
-import { mandarinAnalysisText, mandarinEzaReadings } from "./MandarinEzaLine.ts";
+import { mandarinEzaReadings, mandarinWordGroups } from "./MandarinEzaLine.ts";
 import { convertJyutpingSyllableToVnAid } from "./CantoneseVnAid.ts";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
@@ -234,13 +234,9 @@ export function pinyinOptionsForToneMode(pinyin: any, tones: boolean): Record<st
 }
 
 export function romanizeMandarin(text: string, tones = true): string {
-  const readings = pinyin(mandarinAnalysisText(text), {
-    type: "array",
-    toneType: tones ? "symbol" : "none",
-    toneSandhi: false,
-    nonZh: "consecutive",
-  });
-  return readings.join(" ").replace(/\s+/gu, " ").trim();
+  return mandarinEzaReadings(text)
+    .map((item) => item.isZh ? formatPinyin(item.citation, tones ? "diacritics" : "unmarked") : item.origin)
+    .join(" ").replace(/\s+/gu, " ").trim();
 }
 
 /**
@@ -312,48 +308,25 @@ export type MandarinWordLayout = {
 };
 
 export function buildMandarinWordLayout(text: string): MandarinWordLayout {
-  const analysis = mandarinAnalysisText(text);
-  const points = Array.from(text);
-  const groups = segment(analysis, {
-    format: OutputFormat.ZhArray,
-    nonZh: "consecutive",
-    toneSandhi: false,
-  });
   const continuationTokenIndices = new Set<number>();
-  const tokens: MandarinToken[] = [];
-  let tokenCount = 0;
-  let cursorCp = 0;
-  let reconstructed = "";
-
-  for (const group of groups) {
-    const isHanWord = group.length > 1 && group.every((part) => {
-      const characters = Array.from(part);
-      return characters.length === 1 && isChineseHanChar(characters[0]);
-    });
-
-    for (let index = 0; index < group.length; index += 1) {
-      const part = group[index];
-      const startCp = cursorCp;
-      // Blank parts still consume source text, so the cursor advances even when they are skipped.
-      cursorCp += Array.from(part).length;
-      reconstructed += part;
-      if (!part.trim()) continue;
-      if (isHanWord && index > 0) continuationTokenIndices.add(tokenCount);
-      tokens.push({
-        startCp,
-        endCp: cursorCp,
-        text: points.slice(startCp, cursorCp).join(""),
-        isHan: Array.from(part).every((character) => isChineseHanChar(character)),
-      });
-      tokenCount += 1;
-    }
+  const ranges: { start: number; end: number }[] = [];
+  let offset = 0;
+  for (const surface of mandarinWordGroups(text)) {
+    const start = offset;
+    offset += Array.from(surface).length;
+    if (/^\p{Script=Han}+$/u.test(surface)) ranges.push({ start, end: offset });
   }
-
-  return {
-    tokenCount,
-    continuationTokenIndices,
-    tokens: reconstructed === analysis ? tokens : [],
-  };
+  const tokens: MandarinToken[] = [];
+  for (const item of mandarinEzaReadings(text)) {
+    if (!item.origin.trim()) continue;
+    const isHan = /^\p{Script=Han}+$/u.test(item.origin);
+    if (isHan && ranges.some((range) => range.start < item.startCp && item.startCp < range.end)) {
+      continuationTokenIndices.add(tokens.length);
+    }
+    tokens.push({ startCp: item.startCp, endCp: item.startCp + Array.from(item.origin).length,
+      text: item.origin, isHan });
+  }
+  return { tokenCount: tokens.length, continuationTokenIndices, tokens };
 }
 
 export function joinMandarinReadingWords(text: string, reading: string): string {

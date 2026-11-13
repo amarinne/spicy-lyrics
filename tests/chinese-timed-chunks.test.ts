@@ -4,6 +4,7 @@ import { before, test } from "node:test";
 import { ensureMandarinSegmenter } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
 import { romanizeMandarin, romanizeMandarinVn } from "../src/utils/Lyrics/Fork/Romanization.ts";
 import { buildTimedGenericPlan } from "../src/utils/Lyrics/Processing/GenericReadingProcessor.ts";
+import { resolveSyllableGroupBoundaries } from "../src/utils/Lyrics/Processing/ProviderBoundary.ts";
 import { mandarinTimedChunks } from "../src/utils/Lyrics/Processing/ChineseTimedChunks.ts";
 
 // A syllable-timed Chinese line: every timed syllable shows the line-level reading, and the line is never glued.
@@ -101,4 +102,25 @@ test("the timed-line pass takes its Mandarin chunks from the line-level reading"
   assert.match(source, /syllable\.RomanizedText = lineChunks\[index\]/u);
   const processor = readFileSync(new URL("../src/utils/Lyrics/Processing/GenericReadingProcessor.ts", import.meta.url), "utf8");
   assert.match(processor, /align\(chunks, display\) \?\? withTimedBoundaries\(chunks, sourceTexts, wordContinuations\)/u);
+});
+
+
+test("canonical ranges retain contextual readings across provider word boundaries", () => {
+  const syllables = ["今", "天", "爸爸", "高", "興", "去往", "學校", "門口"].map((Text, index) => ({
+    Text, IsPartOfWord: index !== 4 && index !== 7, StartTime: index, EndTime: index + 1,
+    CanonicalStartCp: 0, CanonicalEndCp: 0,
+  }));
+  const line = resolveSyllableGroupBoundaries(syllables, "", "captured-boundary-shape");
+  const texts = syllables.map((s) => s.Text);
+  assert.notEqual(texts.join(""), line, "provider word boundaries add canonical spaces");
+  const ranges = syllables.map((s) => ({ startCp: s.CanonicalStartCp, endCp: s.CanonicalEndCp }));
+  for (const mode of ["pinyin", "pinyin-vn"] as const) {
+    const chunks = mandarinTimedChunks(line, texts, mode, true, ranges);
+    assert.ok(chunks);
+    assert.ok(chunks.every((chunk) => chunk && !/\p{Script=Han}/u.test(chunk)));
+    assert.equal(buildTimedGenericPlan(timed(texts, chunks), display(line, mode), "Chinese", {})?.joinedDisplayText,
+      display(line, mode));
+  }
+  assert.equal(mandarinTimedChunks(line, texts, "pinyin", true,
+    ranges.map((r, i) => i === 1 ? { ...r, startCp: 0 } : r)), undefined, "reject overlapping ranges");
 });

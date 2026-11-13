@@ -199,3 +199,6 @@ tools/.cache/
 
 skills-lock.json
 docs/SPICETIFY_2440_REGRESSION.md
+
+# Generated private Mandarin prototype data. Rebuild from pinned sources.
+/src/utils/Lyrics/Fork/MandarinG2pm/assets.generated.ts
