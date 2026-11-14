@@ -1,3 +1,4 @@
+import { pinyin } from "pinyin-pro";
 import assert from "node:assert/strict";
 import { before, test } from "node:test";
 import { ensureMandarinSegmenter, mandarinEzaReadings } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
@@ -27,11 +28,13 @@ test("the model reader preserves source code points and syllable boundaries", ()
   }
 });
 
-test("neutral selection reaches Standard Pinyin instead of the full citation alternative", () => {
-  for (const [source, expected] of [["变得", "biàn de"], ["哥哥", "gē ge"], ["我的哥哥", "wǒ de gē ge"], ["说说", "shuō shuo"]]) {
-    assert.equal(romanizeMandarin(source), expected);
-    assert.ok(readMandarinLine(source).syllables.some((item) => item.status === "reading" && item.neutral));
+test("Standard Pinyin displays plain package output independently of model readings", () => {
+  for (const source of [...probes, "变得", "哥哥", "我的哥哥", "妳好"]) {
+    for (const tones of [true, false]) assert.equal(romanizeMandarin(source, tones), pinyin(source, {
+      type: "array", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive",
+    }).join(" ").replace(/\s+/gu, " ").trim());
   }
+  assert.notEqual(romanizeMandarin("说说"), readMandarinLine("说说").syllables.map((item) => item.status === "reading" ? item.display : item.char).join(" "));
   assert.equal(formatPinyin("de5"), "de");
   assert.equal(formatPinyin("lü4"), "lǜ");
 });
@@ -52,8 +55,7 @@ test("plain, attached and timed Pinyin use the same whole-line reading", () => {
     const points = Array.from(source);
     const spans = points.map((_, i) => ({ spanId: String(i), canonicalRange: { startCp: i, endCp: i + 1 } }));
     const attached = buildChineseAttachedReadings(source, "pinyin", true, spans);
-    const expected = new Map(readMandarinLine(source).syllables.filter((item) => item.status === "reading")
-      .map((item) => [item.index, formatPinyin(item.raw)]));
+    const expected = new Map(pinyin(source, {type: "all", toneSandhi: false}).map((item, index) => [index, item] as const).filter(([, item]) => item.isZh).map(([index, item]) => [index, item.result]));
     for (const entry of attached) assert.equal(entry.reading, expected.get(entry.canonicalRange.startCp));
     const timed = mandarinTimedChunks(source, points, "pinyin", true)!;
     for (const [index, reading] of expected) assert.equal(timed[index], reading);

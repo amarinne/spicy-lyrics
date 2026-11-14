@@ -4,7 +4,7 @@ import { before, test } from "node:test";
 import { ensureMandarinSegmenter, mandarinEzaReadings } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
 import { MANDARIN_EZA_REVISION } from "../src/utils/Lyrics/Fork/MandarinEzaSandhi.ts";
 import { convertMandarinSyllableToVnAid } from "../src/utils/Lyrics/Fork/MandarinVnAid.ts";
-import { formatPinyin } from "../src/utils/Lyrics/Fork/MandarinPinyinFormat.ts";
+import { pinyin as packagePinyin } from "pinyin-pro";
 import { romanizeMandarinVn } from "../src/utils/Lyrics/Fork/Romanization.ts";
 
 // Historical reading outputs stay unchanged as the comparison baseline. CPP labels and the
@@ -22,12 +22,15 @@ test("all 112 historical parity lines retain their source and readable Han cover
     const items = mandarinEzaReadings(row.source);
     assert.equal(items.map((item) => item.origin).join(""), row.source);
     assert.equal(items.filter((item) => item.isZh).length, Array.from(row.source).filter((point) => /\p{Script=Han}/u.test(point)).length);
+    const packageItems = packagePinyin(row.source, { type: "all", toneSandhi: false });
+    let packageOffset = 0;
+    const packageByPosition = new Map(packageItems.map((item) => { const at = packageOffset; packageOffset += Array.from(item.origin).length; return [at, item.result]; }));
     let pinyin = "", eza = "", previousHan = false;
     for (const item of items) {
       if (item.isZh) {
         assert.match(item.citation, /^[a-züê]+[1-5]$/u);
         assert.match(item.surface, /^[a-züê]+[0-6]$/u);
-        pinyin += (previousHan ? " " : "") + formatPinyin(item.citation);
+        pinyin += (previousHan ? " " : "") + packageByPosition.get(item.startCp);
         eza += (previousHan ? " " : "") + convertMandarinSyllableToVnAid(item.surface);
       } else { pinyin += item.origin; eza += item.origin; }
       previousHan = item.isZh;

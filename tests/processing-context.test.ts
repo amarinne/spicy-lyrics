@@ -94,13 +94,13 @@ test("Korean display mode is part of processing context key", () => {
 });
 
 
-test("both Mandarin modes invalidate older reader cache identities", () => {
-  for (const mode of ["pinyin", "pinyin-vn"] as const) {
+test("only Mandarin eza invalidates model reader cache identities", () => {
+  for (const mode of ["pinyin-vn"] as const) {
     const key = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode });
     const old = JSON.parse(key);
     assert.ok(old.mandarinReaderRevision.startsWith("g2pm-"));
     delete old.mandarinReaderRevision;
     assert.notEqual(JSON.stringify(old), key);
   }
-  assert.equal(JSON.parse(buildProcessingContextKey({ ...baseContext, chineseTranslitMode: "jyutping" })).mandarinReaderRevision, undefined);
+  for (const mode of ["pinyin", "jyutping"] as const) assert.equal(JSON.parse(buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode })).mandarinReaderRevision, undefined);
 });

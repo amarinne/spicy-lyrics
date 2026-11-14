@@ -53,7 +53,7 @@ import { StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 41;
+export const LYRICS_PROCESSING_VERSION = 42;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -109,8 +109,8 @@ const romanizeChineseText = async (
     }
     return (await romanizeCantonese(text, primaryLanguage, true, chineseTones)) ?? text;
   }
-  await ensureMandarinSegmenter();
   if (chineseTranslitMode === "pinyin-vn") {
+    await ensureMandarinSegmenter();
     return romanizeMandarinVn(text, chineseTones);
   }
   return romanizeMandarin(text, chineseTones);
@@ -383,7 +383,7 @@ const postProcessSyllableRomanization = async (
         }
         const mandarinWordLayout =
           cjkLineRoute === "Chinese" && !isJyutpingTranslitMode(chineseTranslitMode) && joinMandarinWords
-            ? buildMandarinWordLayout(effectiveLineText)
+            ? buildMandarinWordLayout(effectiveLineText, chineseTranslitMode === "pinyin-vn")
             : undefined;
         const plan = buildTimedGenericPlan(
           group,
@@ -623,7 +623,7 @@ export const ProcessLyrics = async (
         if (!display) return;
         const cjkLineRoute = resolveCjkLineRoute(entry.lineText || entry.target.Text || "", docContext);
         if (joinMandarinWords && !isJyutpingTranslitMode(chineseTranslitMode) && cjkLineRoute === "Chinese") {
-          display = joinMandarinReadingWords(entry.target.Text || "", display);
+          display = joinMandarinReadingWords(entry.target.Text || "", display, chineseTranslitMode === "pinyin-vn");
         }
         const attachedPlan = chineseReadingPlacement !== "lineBelow" && cjkLineRoute === "Chinese"
           ? buildLineAttachedPlan(entry.target.Text || "", display, `line-${index}`, chineseTranslitMode, chineseTones)

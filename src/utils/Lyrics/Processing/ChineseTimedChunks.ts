@@ -9,7 +9,7 @@
  */
 
 import { mandarinEzaReadings } from "../Fork/MandarinEzaLine.ts";
-import { formatPinyin } from "../Fork/MandarinPinyinFormat.ts";
+import { pinyin } from "pinyin-pro";
 import { convertMandarinSyllableToVnAid } from "../Fork/MandarinVnAid.ts";
 
 const HAN = /\p{Script=Han}/u;
@@ -24,8 +24,10 @@ function lineHanReadings(lineText: string, vnAid: boolean, tones: boolean): Map<
     }
     return out;
   }
-  for (const item of mandarinEzaReadings(lineText)) {
-    if (item.isZh) out.set(item.startCp, formatPinyin(item.citation, tones ? "diacritics" : "unmarked"));
+  let offset = 0;
+  for (const item of pinyin(lineText, { type: "all", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" })) {
+    if (item.isZh) out.set(offset, item.result);
+    offset += Array.from(item.origin).length;
   }
   return out;
 }

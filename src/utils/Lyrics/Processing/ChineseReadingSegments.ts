@@ -13,6 +13,7 @@
  *     arrive as genuine groups and cannot be split.
  */
 
+import { pinyin } from "pinyin-pro";
 import { formatPinyin } from "../Fork/MandarinPinyinFormat.ts";
 import {
   buildMandarinWordLayout,
@@ -33,7 +34,15 @@ function rangedMandarinReadings(
   tones: boolean,
   vnAid: boolean
 ): RangedReading[] {
-  const layout = buildMandarinWordLayout(text);
+  if (!vnAid) {
+    let startCp = 0;
+    return pinyin(text, { type: "all", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" }).flatMap((item) => {
+      const range = { startCp, endCp: startCp + Array.from(item.origin).length };
+      startCp = range.endCp;
+      return item.isZh ? [{ canonicalRange: range, reading: item.result }] : [];
+    });
+  }
+  const layout = buildMandarinWordLayout(text, true);
   if (!layout.tokens.length) return [];
 
   const lineReadings = mandarinEzaReadings(text);
