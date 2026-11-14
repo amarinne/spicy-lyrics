@@ -10,7 +10,7 @@ type Jieba = {
 let jieba: Jieba | undefined;
 let loading: Promise<boolean> | undefined;
 
-/** Load the local model, dictionaries and segmenter once, before either Mandarin display path. */
+/** Load the local model, dictionaries and segmenter once, before the Mandarin eza式 display path. */
 export function ensureMandarinSegmenter(): Promise<boolean> {
   loading ??= (async () => {
     const [, segmented] = await Promise.all([ensureMandarinReader(), (async () => {
