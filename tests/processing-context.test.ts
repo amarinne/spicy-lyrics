@@ -29,7 +29,7 @@ test("processing context key is stable for same inputs", () => {
 test("Mandarin eza式 rejects cached output from before the spelling revision", () => {
   const current = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: "pinyin-vn" });
   const legacy = JSON.parse(current);
-  assert.equal(legacy.mandarinEzaRevision, "eza-2026-11-12.2");
+  assert.equal(legacy.mandarinEzaRevision, "eza-2026-11-15.3");
   delete legacy.mandarinEzaRevision;
   assert.notEqual(current, JSON.stringify(legacy));
   for (const mode of ["pinyin", "jyutping", "jyutping-vn"] as const) {
@@ -98,7 +98,7 @@ test("only Mandarin eza invalidates model reader cache identities", () => {
   for (const mode of ["pinyin-vn"] as const) {
     const key = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode });
     const old = JSON.parse(key);
-    assert.ok(old.mandarinReaderRevision.startsWith("g2pm-"));
+    assert.ok(old.mandarinReaderRevision.startsWith("mandarin-g2pm-reader-"), "the reader identity matches cjk-labs");
     delete old.mandarinReaderRevision;
     assert.notEqual(JSON.stringify(old), key);
   }

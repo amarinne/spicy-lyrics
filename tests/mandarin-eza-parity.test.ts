@@ -1,58 +1,41 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { before, test } from "node:test";
-import { ensureMandarinSegmenter, mandarinEzaReadings } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
-import { MANDARIN_EZA_REVISION } from "../src/utils/Lyrics/Fork/MandarinEzaSandhi.ts";
-import { convertMandarinSyllableToVnAid } from "../src/utils/Lyrics/Fork/MandarinVnAid.ts";
-import { pinyin as packagePinyin } from "pinyin-pro";
+import { ensureMandarinSegmenter } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
+import { segmentMandarinLine } from "../src/utils/Lyrics/Fork/MandarinReader.ts";
 import { romanizeMandarinVn } from "../src/utils/Lyrics/Fork/Romanization.ts";
 
-// Historical reading outputs stay unchanged as the comparison baseline. CPP labels and the
-// private song comparison measure the replacement reader; the old engine is not its oracle.
-const fixture = JSON.parse(readFileSync(new URL("./fixtures/eza-rev2-parity.json", import.meta.url), "utf8"));
 before(async () => { assert.equal(await ensureMandarinSegmenter(), true); });
 
-test("all 112 historical parity lines retain their source and readable Han coverage", (t) => {
-  assert.equal(fixture.schema, "cjk-labs.eza-rev2-parity.v1");
-  assert.equal(fixture.policy, MANDARIN_EZA_REVISION);
-  assert.equal(fixture.cases.length, 112);
-  let pinyinChanged = 0;
-  let ezaChanged = 0;
-  for (const row of fixture.cases) {
-    const items = mandarinEzaReadings(row.source);
-    assert.equal(items.map((item) => item.origin).join(""), row.source);
-    assert.equal(items.filter((item) => item.isZh).length, Array.from(row.source).filter((point) => /\p{Script=Han}/u.test(point)).length);
-    const packageItems = packagePinyin(row.source, { type: "all", toneSandhi: false });
-    let packageOffset = 0;
-    const packageByPosition = new Map(packageItems.map((item) => { const at = packageOffset; packageOffset += Array.from(item.origin).length; return [at, item.result]; }));
-    let pinyin = "", eza = "", previousHan = false;
-    for (const item of items) {
-      if (item.isZh) {
-        assert.match(item.citation, /^[a-züê]+[1-5]$/u);
-        assert.match(item.surface, /^[a-züê]+[0-6]$/u);
-        pinyin += (previousHan ? " " : "") + packageByPosition.get(item.startCp);
-        eza += (previousHan ? " " : "") + convertMandarinSyllableToVnAid(item.surface);
-      } else { pinyin += item.origin; eza += item.origin; }
-      previousHan = item.isZh;
-    }
-    pinyinChanged += Number(pinyin !== row.pinyin);
-    ezaChanged += Number(eza !== row.eza);
-  }
-  t.diagnostic(JSON.stringify({ compared: 112, pinyinChanged, ezaChanged }));
-});
+// Integration checks for Mandarin eza式 revision 3. The parity corpus asserts the exact eza strings;
+// these keep the segmenter contract and the public romanization route honest.
 
-test("jieba feet still reach frozen sandhi and phrase neutrals reach verb repeats", () => {
+test("the public romanization route spells revision-3 surface tones", () => {
   assert.equal(romanizeMandarinVn("展览馆"), "zhán lán kuản");
   assert.equal(romanizeMandarinVn("纸老虎"), "zhử láo hủ");
   assert.equal(romanizeMandarinVn("看看"), "khan khàn");
   assert.equal(romanizeMandarinVn("说说"), "shuo shuò");
-  assert.equal(romanizeMandarinVn("老总好看"), "láo zỏng hảo khàn");
+  assert.equal(romanizeMandarinVn("老总好看"), "láo zóng hảo khàn");
+  // Layer 3 flattens tone 4 before tone 4 across word boundaries.
+  assert.equal(romanizeMandarinVn("去看"), "chyu khàn");
+  assert.equal(romanizeMandarinVn("在这"), "zai zhừa");
+  assert.equal(romanizeMandarinVn("是的"), "shư tờ");
+  // A neutral after tone 1 falls; after a full-vowel tone 2 it takes the hook.
+  assert.equal(romanizeMandarinVn("妈妈"), "ma mà");
+  assert.equal(romanizeMandarinVn("爷爷"), "yé yẻ");
+  assert.equal(romanizeMandarinVn("朋友"), "pấng yỏu");
 });
 
-test("the bundle inlines the jieba wasm instead of fetching it", () => {
-  const config = readFileSync(new URL("../spice.config.ts", import.meta.url), "utf8");
-  const line = readFileSync(new URL("../src/utils/Lyrics/Fork/MandarinEzaLine.ts", import.meta.url), "utf8");
-  assert.match(config, /jieba-wasm\/pkg\/web\/jieba_rs_wasm_bg\.wasm/u);
-  assert.match(config, /loader: \{ "\.wasm": "binary" \}/u);
-  assert.match(line, /module_or_path: bytes/u);
+test("the shared portable segmenter preserves feet, tags and code-point ranges", () => {
+  for (const source of ["展览馆", "暈開了結局", "他说的确实在理", "妳好 😀 BTS4!", "𠀀你\n好"]) {
+    const tokens = segmentMandarinLine(source);
+    assert.equal(tokens.map((token) => token.text).join(""), source);
+    const points = Array.from(source);
+    for (const token of tokens) {
+      assert.equal(points.slice(token.range.start, token.range.end).join(""), token.text);
+      for (const piece of token.subwords) assert.ok(token.text.includes(piece));
+    }
+  }
+  const particles = segmentMandarinLine("他说的确实在理");
+  assert.equal(particles.find((token) => token.text === "的")?.tag, "uj");
+  assert.deepEqual(segmentMandarinLine("暈開了結局").map((token) => token.text), ["暈開", "了", "結局"]);
 });

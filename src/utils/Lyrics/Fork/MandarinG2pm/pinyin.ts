@@ -85,14 +85,14 @@ export function markedFromNumbered(raw: string): string {
 /**
  * Full-citation alternative for a selected reading. It is evidence for a later display decision,
  * never the selected Standard Pinyin. Non-neutral readings return themselves. A neutral reading
- * prefers a same-letters full tone, then the first full-tone candidate in source order.
+ * prefers a same-letters full tone, otherwise the selected neutral reading remains unchanged.
  */
 export function citationFromCandidates(raw: string, candidates: readonly string[]): string {
   if (!isNeutral(raw)) return raw;
   const letters = numberedLetters(raw);
   const sameLetters = candidates.find((candidate) => numberedTone(candidate) !== 5 && numberedLetters(candidate) === letters);
   if (sameLetters) return sameLetters;
-  return candidates.find((candidate) => numberedTone(candidate) !== 5) ?? raw;
+  return raw;
 }
 
 /** Deduplicate while preserving source order. */

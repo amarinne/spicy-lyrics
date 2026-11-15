@@ -53,7 +53,7 @@ import { StripEmptyLyricsLines } from "./EmptyLines.ts";
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 42;
+export const LYRICS_PROCESSING_VERSION = 43;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants

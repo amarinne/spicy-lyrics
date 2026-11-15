@@ -5,7 +5,9 @@ import { gzipSync } from 'node:zlib';
 import { resolve } from 'node:path';
 const input = process.argv[2];
 if (!input) throw new Error('Usage: node tools/build-mandarin-g2pm-assets.mjs <verified-engine-export>');
-const filenames = ['manifest.json', 'model.f32', 'model-vocab.json', 'classes.txt', 'digest.json', 'characters.tsv', 'phrases.tsv', 't2s.tsv'];
+const sourceManifest = JSON.parse(await readFile(resolve(input, 'manifest.json'), 'utf8'));
+const filenames = ['manifest.json', ...Object.keys(sourceManifest.files).sort()];
+if (filenames.some((name) => name.includes('/') || name.includes('\\') || name === '..')) throw new Error('Pack filenames must be local basenames');
 const files = {};
 const receipts = {};
 for (const name of filenames) {

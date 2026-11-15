@@ -14,3 +14,8 @@ opencc-data (Apache-2.0); both licence texts are included. Only `TSCharacters` r
 single-code-point source and target are extracted.
 
 This pack is private evaluation data. It is not committed or redistributed.
+
+The portable segmenter uses jieba dictionary and HMM data from
+`fengkx/jieba-rs@7f3b27375b638bc22a2efe2fd889ea60130d265c` (MIT).
+The source attribution is jieba-rs; the corresponding source MIT licence is included as
+`jieba-rs-LICENSE`. The shared pack manifest records the input and generated-file hashes.

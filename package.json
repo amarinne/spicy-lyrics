@@ -31,7 +31,6 @@
     "franc-all": "^7.2.0",
     "idb": "^8.0.3",
     "japanese-lyrics-processor": "file:../japanese-lyrics-processor",
-    "jieba-wasm": "2.4.0",
     "korean-pronunciation": "^1.0.1",
     "kuroshiro": "^1.2.0",
     "langs": "^2.0.0",

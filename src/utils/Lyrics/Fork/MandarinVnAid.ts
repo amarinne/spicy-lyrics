@@ -3,9 +3,9 @@
  *
  * One-way display from Hanyu Pinyin (tone-numbered syllables, as produced by
  * `pinyin-pro` with `toneType: "num"`) into the locked Vietnamese-informed aid
- * spelling, policy eza-2026-11-12.2 (Mandarin revision 2). The input digit is
- * the surface tone: `MandarinEzaSandhi.ts` rewrites a line's citation tones
- * (third-tone sandhi, 不/一, neutral pitch) before this converter runs.
+ * spelling, policy eza-2026-11-15.3 (Mandarin revision 3). The input digit is
+ * the surface tone: `MandarinEzaSandhi.ts` applies 一/不 and third-tone sandhi,
+ * then `MandarinEzaTones.ts` rewrites the written tone 4 and the neutral marks.
  *
  * Locked rules implemented here:
  * - stops: b/p, t/th, k/kh, matching Cantonese eza式.
@@ -14,7 +14,7 @@
  * - /y/ family renders as yu (no ü output): ju->zyu, jue->zyue,
  *   juan->zyuen, jun->zyun; nü->nyu, lü->lyu; yu/yue/yuen/yun.
  * - apical i after z/c/s/zh/ch/sh/r -> ư
- * - open e -> ưa in a full tone; ơ in the neutral tone (0, 5 or 6), except
+ * - open e -> ưa in a full tone; ơ in the neutral tone (0, 5, 6 or 7), except
  *   after g/k/h, where a neutral e keeps ưa. en -> ân, eng -> âng, ian -> ien
  * - ei -> êi; ui -> uei -> uêi (tone anchors to ê)
  * - un/uen -> uân, ueng/weng -> uâng, iu -> iou
@@ -22,7 +22,8 @@
  * - y/w zero-initials retained (you/wei/wo kept as-is)
  * - tones: T1 unmarked, T2 acute, T3 hook above, T4 grave. The neutral tone
  *   has no mark of its own: digit 0 or 5 is level (no mark), digit 6 is a
- *   neutral realized falling (grave). See `realizeNeutralTones`.
+ *   neutral realized falling (grave) and digit 7 a neutral hooked after a full-vowel
+ *   tone 2 (hook). See `realizeNeutralTones` and `realizeSurfaceTones`.
  *   The tone anchors to a quality-marked vowel (ă â ê ô ơ ư) when the rendered
  *   nucleus has one; otherwise the Pinyin tone-bearing-vowel order
  *   (a, then o, then e, then the last i/u) on the explicit final.
@@ -67,9 +68,10 @@ const TONE_MARKS: Record<number, string> = {
   3: "\u0309",
   4: "\u0300",
   6: "\u0300",
+  7: "\u0309",
 };
 
-const NUM_SYLLABLE_TEST = /^([a-zü]+)([0-6])$/u;
+const NUM_SYLLABLE_TEST = /^([a-zü]+)([0-7])$/u;
 const VELAR_INITIALS = new Set(["g", "k", "h"]);
 
 function markVowel(vowel: string, tone: number): string {
@@ -179,8 +181,9 @@ export function convertMandarinSyllableToVnAid(numSyllable: string, tonesEnabled
   // the opener e.
   if (final !== "wuân" && final !== "wuâng") {
     // The open e is [ɤ] in a full tone (ưa) and a schwa in the neutral tone (ơ), except after a
-    // velar onset, where it keeps ưa (owner 2026-11-12, by ear).
-    if (final === "e") final = tone === 0 || tone === 5 || tone === 6 ? (VELAR_INITIALS.has(initial) ? "ưa" : "ơ") : "ưa";
+    // velar onset, where it keeps ưa (owner 2026-11-15). Digits 0, 5 and 6 are neutral; 7 is a
+    // neutral that takes the hook, so it keeps the schwa as well.
+    if (final === "e") final = tone === 0 || tone === 5 || tone === 6 || tone === 7 ? (VELAR_INITIALS.has(initial) ? "ưa" : "ơ") : "ưa";
     else if (final === "en") final = "ân";
     else if (final === "eng") final = "âng";
     else if (final === "ei") final = "êi";

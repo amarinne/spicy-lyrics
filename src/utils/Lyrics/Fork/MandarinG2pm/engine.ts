@@ -167,9 +167,9 @@ export function createMandarinEngine(assets: MandarinEngineAssets, options: Read
       // Preserve the source code point in model context when the pinned vocabulary knows it;
       // traditional-only characters fall back to the documented 1:1 simplified shadow.
       const modelChar = han && words.tokenToIndex.has(char) ? char : normalizedChar;
-      const originalDigest = han ? digest.get(char) ?? [] : [];
-      const shadowDigest = han && normalizedChar !== char ? digest.get(normalizedChar) ?? [] : [];
-      const digestReadings = [...new Set([...originalDigest, ...shadowDigest])];
+      // The official digest defines source-character target coverage. Normalization can supply
+      // context tokens and dictionary lookup, but cannot invent model coverage for another glyph.
+      const digestReadings = han ? digest.get(char) ?? [] : [];
       return {
         char,
         normalizedChar,
