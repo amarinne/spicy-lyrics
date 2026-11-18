@@ -20,6 +20,7 @@ export {
   KoreanTextTest,
   ChineseTextTest,
   JapaneseTextTest,
+  ZhuyinTextTest,
   CyrillicTextTest,
   GreekTextTest,
   DevanagariTextTest,

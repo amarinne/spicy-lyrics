@@ -9,6 +9,7 @@ import { chineseReadingPlacement, chineseTones, chineseTranslitMode, cyrillicKee
 import {
   ChineseTextTest,
   JapaneseTextTest,
+  ZhuyinTextTest,
   KoreanTextTest,
   CyrillicTextTest,
   GreekTextTest,
@@ -35,10 +36,11 @@ import {
   romanizeKoreanForDisplay,
   romanizeMandarin,
   romanizeMandarinVn,
+  romanizeZhuyinText,
 } from "./Fork/Romanization.ts";
 import { acceptRomanization } from "./Fork/RomanizationAcceptance.ts";
 import { ensureMandarinSegmenter } from "./Fork/MandarinEzaLine.ts";
-import { mandarinTimedChunks } from "./Processing/ChineseTimedChunks.ts";
+import { mandarinTimedChunkPlan } from "./Processing/ChineseTimedChunks.ts";
 import { buildJapaneseLineTextMap } from "./Reading/JapaneseReading.ts";
 import { translateLyrics, clearTranslationCache, googleTransliterateLines } from "./Fork/Translation.ts";
 import { DefaultCanonicalLineBuilder } from "./Processing/Canonical.ts";
@@ -60,7 +62,7 @@ type ScriptBranchDocContext = BaseScriptBranchDocContext & { chineseMode: Chines
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 43;
+export const LYRICS_PROCESSING_VERSION = 44;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -72,7 +74,7 @@ const getLyricsPageContainer = (): HTMLElement | null =>
 // Per-item (1-char) presence tests. Once a script is confirmed present in the
 // whole song, a single matching character in an item is enough to romanize it.
 const ItemJapaneseTest = /[぀-ヿ一-鿿]/;
-const ItemChineseTest = /[一-鿿]/;
+const ItemChineseTest = /[一-鿿\u3100-\u312f\u31a0-\u31bf]/;
 const ItemKoreanTest = KoreanTextTest;
 const ItemCyrillicTest = /[Ѐ-ӿԀ-ԯⷠ-ⷿꙀ-ꚟ]/;
 const ItemGreekTest = GreekTextTest;
@@ -269,7 +271,7 @@ const detectPresentScripts = (
   const present = new Set<RomanizationBranch>();
 
   if (JapaneseTextTest.test(scriptText)) present.add("Japanese");
-  if (ChineseTextTest.test(scriptText)) present.add(cjkDominantBranch || "Chinese");
+  if (ChineseTextTest.test(scriptText) || ZhuyinTextTest.test(scriptText)) present.add(cjkDominantBranch || "Chinese");
   if (KoreanTextTest.test(scriptText)) present.add("Korean");
   if (CyrillicTextTest.test(scriptText)) present.add("Cyrillic");
   if (GreekTextTest.test(scriptText)) present.add("Greek");
@@ -419,15 +421,22 @@ const postProcessSyllableRomanization = async (
 
       {
         // Mandarin: each timed syllable takes the line-level reading, so its chunk matches the line display.
-        const lineChunks = isChineseLine
-          ? mandarinTimedChunks(effectiveLineText, syllables.map((s: any) => s.Text || ""), chineseTranslitMode, chineseTones,
+        const timedPlan = isChineseLine
+          ? mandarinTimedChunkPlan(effectiveLineText, syllables.map((s: any) => s.Text || ""), docContext.chineseMode, chineseTones,
             syllables.map((s: any) => ({ startCp: s.CanonicalStartCp, endCp: s.CanonicalEndCp })))
           : undefined;
+        const lineChunks = timedPlan?.chunks;
         for (let index = 0; index < syllables.length; index += 1) {
           const syllable = syllables[index];
-          if (lineChunks?.[index]) {
-            syllable.RomanizedText = lineChunks[index];
-            syllable.TransliteratedText = lineChunks[index];
+          const chunk = lineChunks?.[index];
+          if (chunk === null) {
+            // A provider chunk is only the tail of an authored syllable; the owning chunk carries
+            // the whole reading, so this one has no display text of its own.
+            syllable.RomanizedText = "";
+            syllable.TransliteratedText = "";
+          } else if (chunk) {
+            syllable.RomanizedText = chunk;
+            syllable.TransliteratedText = chunk;
           }
           if (syllable.TransliteratedText && !syllable.RomanizedText) {
             syllable.RomanizedText = syllable.TransliteratedText;
@@ -440,6 +449,13 @@ const postProcessSyllableRomanization = async (
           cjkLineRoute === "Chinese" && !isJyutpingTranslitMode(docContext.chineseMode) && joinMandarinWords
             ? buildMandarinWordLayout(effectiveLineText, docContext.chineseMode === "pinyin-vn")
             : undefined;
+        const hasContinuation = lineChunks?.some((chunk) => chunk === null) === true;
+        const finalizedChunks = hasContinuation && timedPlan
+          ? {
+            chunks: timedPlan.chunks.map((chunk, index) => chunk === null ? "" : (chunk ?? syllables[index]?.Text ?? "")),
+            logicalGroupIds: timedPlan.logicalGroupIds,
+          }
+          : undefined;
         const plan = buildTimedGenericPlan(
           group,
           fullRomaji,
@@ -447,6 +463,7 @@ const postProcessSyllableRomanization = async (
           {
             mandarinWordLayout,
             sourceText: sourceLineText,
+            ...(finalizedChunks ? { finalizedChunks } : {}),
             ...(isChineseLine && chineseReadingPlacement !== "lineBelow"
               ? { attachedReadings: { translitMode: docContext.chineseMode, tones: chineseTones } }
               : {}),
@@ -527,6 +544,7 @@ const romanizeEntry = async (
   } else if (chineseDominantCjk) {
     text = await romanizeChineseDominantCjkText(text, {
       romanizeHan: (run, runSource) => romanizeChineseText(run, primaryLanguage, docContext.chineseMode, runSource),
+      romanizeZhuyin: (run) => romanizeZhuyinText(run, docContext.chineseMode === "pinyin-vn" || docContext.chineseMode === "jyutping-vn" ? "pinyin-vn" : "pinyin", chineseTones),
       romanizeKana: async (run) => {
         const target = { Text: run };
         return processJapanesePackageTextTarget(target);

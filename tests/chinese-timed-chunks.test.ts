@@ -98,8 +98,8 @@ test("lines the helper cannot map keep their own readings", () => {
 test("the timed-line pass takes its Mandarin chunks from the line-level reading", () => {
   // ProcessLyrics needs the Spotify runtime, so this guards the wiring at the source level.
   const source = readFileSync(new URL("../src/utils/Lyrics/ProcessLyrics.ts", import.meta.url), "utf8");
-  assert.match(source, /mandarinTimedChunks\(effectiveLineText, syllables\.map\(/u);
-  assert.match(source, /syllable\.RomanizedText = lineChunks\[index\]/u);
+  assert.match(source, /mandarinTimedChunkPlan\(effectiveLineText, syllables\.map\(/u);
+  assert.match(source, /syllable\.RomanizedText = chunk/u);
   const processor = readFileSync(new URL("../src/utils/Lyrics/Processing/GenericReadingProcessor.ts", import.meta.url), "utf8");
   assert.match(processor, /align\(chunks, display\) \?\? withTimedBoundaries\(chunks, sourceTexts, wordContinuations\)/u);
 });

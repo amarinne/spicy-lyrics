@@ -67,6 +67,14 @@ type TimedGenericPlanOptions = {
     tokenCount: number;
     continuationTokenIndices: ReadonlySet<number>;
   };
+  /**
+   * Already-line-resolved chunk text, one per provider span. An empty string is a real continuation
+   * chunk for a split authored syllable; it must not fall back to the raw source text.
+   */
+  finalizedChunks?: {
+    chunks: readonly string[];
+    logicalGroupIds?: readonly string[];
+  };
   /** Set when readings attach to spans instead of the line, so the plan carries their ranges. */
   attachedReadings?: {
     translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
@@ -178,13 +186,26 @@ export function buildTimedGenericPlan(
   const canonical = new DefaultCanonicalLineBuilder().build(parsed);
   const rawChunks = syllables.map((s: any) => (s.RomanizedText || s.TransliteratedText || s.Text || "").trim());
   const sourceTexts = syllables.map((s: any) => s.Text || "");
-  const chunks = processor === "Chinese"
-    ? alignChineseTimedUnits(rawChunks, display, sourceTexts, options, wordContinuationIndices(syllables))
-    // A chunk the romanized line doesn't contain (an item the per-syllable pass
-    // skipped, or a provider transliteration in another convention) can't be
-    // carved out of it. Keep the units, but take their boundaries from the
-    // source instead of gluing every word onto the next one.
-    : align(rawChunks, display) ?? withTimedBoundaries(rawChunks, sourceTexts, wordContinuationIndices(syllables));
+  const finalized = options.finalizedChunks?.chunks.length === syllables.length ? options.finalizedChunks : undefined;
+  let usedFinalized = false;
+  let chunks: string[];
+  if (finalized) {
+    const candidate = withTimedBoundaries(finalized.chunks.map((chunk) => chunk.trim()), sourceTexts, wordContinuationIndices(syllables));
+    if (candidate.join("") === display) {
+      chunks = candidate;
+      usedFinalized = true;
+    } else {
+      chunks = alignChineseTimedUnits(rawChunks, display, sourceTexts, options, wordContinuationIndices(syllables));
+    }
+  } else {
+    chunks = processor === "Chinese"
+      ? alignChineseTimedUnits(rawChunks, display, sourceTexts, options, wordContinuationIndices(syllables))
+      // A chunk the romanized line doesn't contain (an item the per-syllable pass
+      // skipped, or a provider transliteration in another convention) can't be
+      // carved out of it. Keep the units, but take their boundaries from the
+      // source instead of gluing every word onto the next one.
+      : align(rawChunks, display) ?? withTimedBoundaries(rawChunks, sourceTexts, wordContinuationIndices(syllables));
+  }
   const attached = options.attachedReadings
     ? buildChineseAttachedReadings(
       canonical.text,
@@ -197,7 +218,7 @@ export function buildTimedGenericPlan(
   const annotation: ReadingAnnotation = { processor, mode: "local", provenance: "local",
     units: canonical.spanMappings.map((mapping, index) => ({ canonicalRange: mapping.canonicalRange,
       text: chunks[index], kind: chunks[index].trim() === (syllables[index].Text || "").trim() ? "passthrough" : "transformed",
-      logicalGroupId: `generic-${index}`, timingRefs: [mapping.spanId] })),
+      logicalGroupId: (usedFinalized ? finalized?.logicalGroupIds?.[index] : undefined) ?? `generic-${index}`, timingRefs: [mapping.spanId] })),
     ...(attached.length ? { attachedReadings: attached } : {}) };
   const plan = new DefaultRenderPlanBuilder().build(parsed, canonical, [annotation]);
   return validateRenderPlan(plan).valid ? plan : undefined;

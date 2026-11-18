@@ -17,6 +17,8 @@ import { G2p } from "korean-pronunciation";
 import { pinyin, segment, OutputFormat } from "pinyin-pro";
 import { convertMandarinSyllableToVnAid } from "./MandarinVnAid.ts";
 import { mandarinEzaReadings, mandarinWordGroups } from "./MandarinEzaLine.ts";
+import { formatPinyin } from "./MandarinPinyinFormat.ts";
+import { scanZhuyinRuns } from "./MandarinZhuyin.ts";
 import { convertJyutpingSyllableToVnAid } from "./CantoneseVnAid.ts";
 import { cantoneseLookupForm } from "../ChineseCharacterConversion.ts";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
@@ -303,9 +305,47 @@ export function pinyinOptionsForToneMode(pinyin: any, tones: boolean): Record<st
   return options;
 }
 
+function packageMandarinParts(text: string, tones: boolean): string[] {
+  return pinyin(text, { type: "array", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" });
+}
+
+/** Spell authored Zhuyin with the same spelling renderer as every other Mandarin reading. */
+function authoredZhuyinParts(run: ReturnType<typeof scanZhuyinRuns>[number], mode: "pinyin" | "pinyin-vn", tones: boolean): string[] {
+  return run.syllables.map((syllable) => mode === "pinyin-vn"
+    ? convertMandarinSyllableToVnAid(syllable.pinyin, tones)
+    : formatPinyin(syllable.pinyin, tones ? "diacritics" : "unmarked"));
+}
+
+/** A mixed run for the CJK partitioner: authored Zhuyin is Mandarin, surrounding text is untouched. */
+export function romanizeZhuyinText(text: string, mode: "pinyin" | "pinyin-vn", tones = true): string | undefined {
+  const runs = scanZhuyinRuns(text);
+  if (!runs.length) return undefined;
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const run of runs) {
+    if (run.start > cursor) parts.push(text.slice(cursor, run.start));
+    if (run.valid) parts.push(...authoredZhuyinParts(run, mode, tones));
+    else parts.push(run.source);
+    cursor = run.end;
+  }
+  if (cursor < text.length) parts.push(text.slice(cursor));
+  return parts.join(" ").replace(/\s+/gu, " ").trim();
+}
+
 export function romanizeMandarin(text: string, tones = true): string {
-  return pinyin(text, { type: "array", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" })
-    .join(" ").replace(/\s+/gu, " ").trim();
+  const runs = scanZhuyinRuns(text);
+  // No authored phonetics: keep the package path byte-for-byte.
+  if (!runs.length) return packageMandarinParts(text, tones).join(" ").replace(/\s+/gu, " ").trim();
+  const parts: string[] = [];
+  let cursor = 0;
+  for (const run of runs) {
+    if (run.start > cursor) parts.push(...packageMandarinParts(text.slice(cursor, run.start), tones));
+    if (run.valid) parts.push(...authoredZhuyinParts(run, "pinyin", tones));
+    else parts.push(run.source);
+    cursor = run.end;
+  }
+  if (cursor < text.length) parts.push(...packageMandarinParts(text.slice(cursor), tones));
+  return parts.filter((part) => part !== "").join(" ").replace(/\s+/gu, " ").trim();
 }
 
 /**
@@ -364,6 +404,8 @@ export type MandarinToken = {
   readonly endCp: number;
   readonly text: string;
   readonly isHan: boolean;
+  /** Authored Bopomofo syllable: a reading exists, but it is not Han and never joins a word. */
+  readonly isAuthored?: boolean;
 };
 
 export type MandarinWordLayout = {
@@ -395,7 +437,7 @@ export function buildMandarinWordLayout(text: string, vnAid = false): MandarinWo
       continuationTokenIndices.add(tokens.length);
     }
     tokens.push({ startCp: item.startCp, endCp: item.startCp + Array.from(item.origin).length,
-      text: item.origin, isHan });
+      text: item.origin, isHan, ...(item.zhuyin ? { isAuthored: true } : {}) });
   }
   return { tokenCount: tokens.length, continuationTokenIndices, tokens };
 }

@@ -14,6 +14,10 @@ export const KoreanTextTest =
 // Chinese characters (CJK Unified Ideographs)
 export const ChineseTextTest = /([\u4E00-\u9FFF])/;
 
+// Authored Mandarin Bopomofo (Zhuyin), including the extended block so unsupported runs are still
+// classified as Chinese and can stay literal. Standard versus extended is the resolver's call.
+export const ZhuyinTextTest = /[\u3100-\u312f\u31a0-\u31bf]/;
+
 // Japanese kana (hiragana and katakana)
 export const JapaneseTextTest = /([ぁ-んァ-ン])/;
 
@@ -176,9 +180,9 @@ export function resolveCjkDocumentBranch(
 
   for (const line of lines) {
     const hasKana = JapaneseTextTest.test(line);
-    const hasHan = ChineseTextTest.test(line);
+    const hasChinese = ChineseTextTest.test(line) || ZhuyinTextTest.test(line);
     if (hasKana) kanaLines += 1;
-    else if (hasHan) hanOnlyLines += 1;
+    else if (hasChinese) hanOnlyLines += 1;
   }
 
   if (kanaLines === 0 && hanOnlyLines === 0) return undefined;
@@ -217,7 +221,7 @@ export function resolveCjkLineRoute(
 ): CjkLineRoute | undefined {
   const text = cleanInvisibles(lineText.normalize("NFKC"));
   const hasKana = JapaneseTextTest.test(text);
-  const hasHan = ChineseTextTest.test(text);
+  const hasHan = ChineseTextTest.test(text) || ZhuyinTextTest.test(text);
   if (!hasKana) return hasHan ? hanBranchForLine(docContext) as CjkReadingBranch : undefined;
   if (!hasHan || docContext.cjkDominantBranch !== "Chinese") return "Japanese";
 
@@ -235,7 +239,7 @@ export function resolveCjkLineRoute(
       inKanaRun = true;
       firstCjk ||= "Japanese";
       lastCjk = "Japanese";
-    } else if (ChineseTextTest.test(char)) {
+    } else if (ChineseTextTest.test(char) || ZhuyinTextTest.test(char)) {
       hanCount += 1;
       inKanaRun = false;
       firstCjk ||= "Chinese";

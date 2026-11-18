@@ -13,6 +13,7 @@ import {
 } from "./MandarinEzaSandhi.ts";
 import { realizeSurfaceTones } from "./MandarinEzaTones.ts";
 import { ensureMandarinReader, lookupMandarinPhrases, readMandarinLine, segmentMandarinLine } from "./MandarinReader.ts";
+import { scanZhuyinRuns } from "./MandarinZhuyin.ts";
 
 /** Load the shared model and portable jieba DAG+HMM segmenter before the eza式 display path. */
 export async function ensureMandarinSegmenter(): Promise<boolean> {
@@ -33,17 +34,23 @@ const toneOf = (syllable: string) => Number(syllable.at(-1));
  * 一 is always `yi1` and 不 is always `bu4`; a neutral reading keeps its real tone when the data has one.
  * `alwaysNeutral` marks a word position whose whole-token phrase readings are all neutral (姐姐, 椅子, 耳朵).
  */
-export function mandarinLayer1Line(source: string): MandarinEzaReadingLine {
-  const evidence = readMandarinLine(source);
+function hanLayer1Tokens(text: string, cpOffset: number): MandarinEzaToken[] {
+  const length = Array.from(text).length;
+  // A gap without Han needs no reader: one literal token is enough for the reading walk, and a
+  // Zhuyin-only line must not require the Mandarin model pack.
+  if (!/\p{Script=Han}/u.test(text)) {
+    return [{ text, range: { start: cpOffset, end: cpOffset + length }, kind: "other", tag: "x", subwords: [], syllables: [] }];
+  }
+  const evidence = readMandarinLine(text);
   const wordReadings = new Map<string, readonly (readonly string[])[]>();
-  for (const match of lookupMandarinPhrases(source)) {
+  for (const match of lookupMandarinPhrases(text)) {
     if (match.range[1] - match.range[0] < 2) continue;
     const key = `${match.range[0]}:${match.range[1]}`;
     const rows = wordReadings.get(key) ?? [];
     wordReadings.set(key, [...rows, ...match.readings.map((reading) => reading.split(" "))]);
   }
-  const tokens: MandarinEzaToken[] = segmentMandarinLine(source).map((token) => {
-    if (token.kind !== "han") return { ...token, syllables: [] };
+  const tokens: MandarinEzaToken[] = segmentMandarinLine(text).map((token) => {
+    if (token.kind !== "han") return { ...token, range: { start: token.range.start + cpOffset, end: token.range.end + cpOffset }, syllables: [] };
     const syllables = evidence.syllables.slice(token.range.start, token.range.end).map((item, at): MandarinEzaSyllable => {
       if (item.status !== "reading") return { status: "unavailable", reason: item.status === "unavailable" ? item.reason : "No Han reading." };
       const unsupported = [item.raw, ...item.candidates].filter((reading) => !SYLLABLE.test(reading));
@@ -63,8 +70,37 @@ export function mandarinLayer1Line(source: string): MandarinEzaReadingLine {
         ...(alwaysNeutral ? { alwaysNeutral: true as const } : {}),
       };
     });
-    return { ...token, syllables };
+    return { ...token, range: { start: token.range.start + cpOffset, end: token.range.end + cpOffset }, syllables };
   });
+  return tokens;
+}
+
+/** One line with authored Bopomofo runs kept out of the Han reader and out of every sandhi run. */
+export function mandarinLayer1Line(source: string): MandarinEzaReadingLine {
+  const runs = scanZhuyinRuns(source);
+  if (!runs.length) return { text: source, tokens: hanLayer1Tokens(source, 0) };
+  const tokens: MandarinEzaToken[] = [];
+  let utf16Cursor = 0;
+  let cpCursor = 0;
+  for (const run of runs) {
+    if (run.start > utf16Cursor) {
+      const gap = source.slice(utf16Cursor, run.start);
+      tokens.push(...hanLayer1Tokens(gap, cpCursor));
+      cpCursor += Array.from(gap).length;
+    }
+    const runLength = Array.from(run.source).length;
+    const syllables: MandarinEzaSyllable[] = run.valid
+      ? run.syllables.map((syllable) => {
+        const tone = Number(syllable.pinyin.at(-1)) as 1 | 2 | 3 | 4 | 5;
+        return { status: "available" as const, letters: syllable.pinyin.slice(0, -1), tone, neutral: tone === 5,
+          source: syllable.source, authored: true as const };
+      })
+      : [];
+    tokens.push({ text: run.source, range: { start: cpCursor, end: cpCursor + runLength }, kind: "zhuyin", tag: "x", subwords: [], syllables });
+    cpCursor += runLength;
+    utf16Cursor = run.end;
+  }
+  if (utf16Cursor < source.length) tokens.push(...hanLayer1Tokens(source.slice(utf16Cursor), cpCursor));
   return { text: source, tokens };
 }
 
@@ -76,6 +112,8 @@ export type MandarinEzaReading = {
   readonly citation: string;
   /** Surface reading after sandhi and the tone-4 transformation. */
   readonly surface: string;
+  /** True only for an authored Bopomofo syllable; its citation and surface are the authored tone. */
+  readonly zhuyin?: boolean;
 };
 
 let previousSource: string | undefined;
@@ -92,6 +130,23 @@ export function mandarinEzaReadings(source: string): MandarinEzaReading[] {
   line.tokens.forEach((token, index) => {
     if (token.range.start !== cursor) throw new Error("Mandarin segmenter violated its code-point contract");
     cursor = token.range.end;
+    if (token.kind === "zhuyin") {
+      if (!token.syllables.length) {
+        const last = items.at(-1);
+        if (last && !last.isZh && !/\p{Script=Han}/u.test(last.origin)) items[items.length - 1] = { ...last, origin: last.origin + token.text };
+        else items.push({ origin: token.text, isZh: false, startCp: token.range.start, citation: "", surface: "" });
+        return;
+      }
+      let localCp = 0;
+      for (const syllable of token.syllables) {
+        if (syllable.status !== "available") continue;
+        const origin = syllable.source ?? token.text.slice(localCp);
+        const numbered = `${syllable.letters}${syllable.neutral ? 5 : syllable.tone}`;
+        items.push({ origin, isZh: true, startCp: token.range.start + localCp, citation: numbered, surface: numbered, zhuyin: true });
+        localCp += Array.from(origin).length;
+      }
+      return;
+    }
     const chars = Array.from(token.text);
     const own = realized[index];
     chars.forEach((char, at) => {

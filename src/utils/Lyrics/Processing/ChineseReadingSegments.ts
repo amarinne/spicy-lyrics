@@ -21,6 +21,7 @@ import {
 } from "../Fork/Romanization.ts";
 import { convertMandarinSyllableToVnAid } from "../Fork/MandarinVnAid.ts";
 import { mandarinEzaReadings } from "../Fork/MandarinEzaLine.ts";
+import { scanZhuyinRuns } from "../Fork/MandarinZhuyin.ts";
 import { convertJyutpingSyllableToVnAid } from "../Fork/CantoneseVnAid.ts";
 import type { AttachedReadingSegment, CanonicalSpanMapping, TextRange } from "./Model.ts";
 
@@ -29,12 +30,9 @@ type RangedReading = {
   readonly reading: string;
 };
 
-function rangedMandarinReadings(
-  text: string,
-  tones: boolean,
-  vnAid: boolean
-): RangedReading[] {
-  if (!vnAid) {
+function rangedPlainMandarinReadings(text: string, tones: boolean): RangedReading[] {
+  const runs = scanZhuyinRuns(text);
+  if (!runs.length) {
     let startCp = 0;
     return pinyin(text, { type: "all", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" }).flatMap((item) => {
       const range = { startCp, endCp: startCp + Array.from(item.origin).length };
@@ -42,6 +40,44 @@ function rangedMandarinReadings(
       return item.isZh ? [{ canonicalRange: range, reading: item.result }] : [];
     });
   }
+  const out: RangedReading[] = [];
+  let cursor = 0;
+  let cpCursor = 0;
+  const addSegment = (segment: string) => {
+    if (!segment) return;
+    let startCp = cpCursor;
+    for (const item of pinyin(segment, { type: "all", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" })) {
+      const endCp = startCp + Array.from(item.origin).length;
+      if (item.isZh) out.push({ canonicalRange: { startCp, endCp }, reading: item.result });
+      startCp = endCp;
+    }
+    cpCursor = startCp;
+  };
+  for (const run of runs) {
+    if (run.start > cursor) addSegment(text.slice(cursor, run.start));
+    if (run.valid) {
+      let startCp = cpCursor;
+      for (const syllable of run.syllables) {
+        const endCp = startCp + Array.from(syllable.source).length;
+        out.push({ canonicalRange: { startCp, endCp }, reading: formatPinyin(syllable.pinyin, tones ? "diacritics" : "unmarked") });
+        startCp = endCp;
+      }
+      cpCursor = startCp;
+    } else {
+      cpCursor += Array.from(run.source).length;
+    }
+    cursor = run.end;
+  }
+  if (cursor < text.length) addSegment(text.slice(cursor));
+  return out;
+}
+
+function rangedMandarinReadings(
+  text: string,
+  tones: boolean,
+  vnAid: boolean
+): RangedReading[] {
+  if (!vnAid) return rangedPlainMandarinReadings(text, tones);
   const layout = buildMandarinWordLayout(text, true);
   if (!layout.tokens.length) return [];
 
@@ -61,7 +97,7 @@ function rangedMandarinReadings(
   return layout.tokens.flatMap((token, index) => {
     const raw = (readings[index] ?? "").trim();
     const reading = vnAid ? convertMandarinSyllableToVnAid(surface?.get(token.startCp) ?? raw, tones) : raw;
-    if (!token.isHan || !reading || reading === token.text) return [];
+    if (!(token.isHan || token.isAuthored) || !reading || reading === token.text) return [];
     return [{ canonicalRange: { startCp: token.startCp, endCp: token.endCp }, reading }];
   });
 }

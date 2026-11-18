@@ -16,7 +16,7 @@ import { isAudioChineseMode, isRhymeChineseMode, resolveChineseTranslitMode, typ
 import { guessChineseFromRhymes } from "../src/utils/Lyrics/ChineseRhymeGuess.ts";
 import { convertChineseLyricsText } from "../src/utils/Lyrics/ChineseCharacterConversion.ts";
 import { ensureMandarinSegmenter } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
-import { mandarinTimedChunks } from "../src/utils/Lyrics/Processing/ChineseTimedChunks.ts";
+import { mandarinTimedChunkPlan } from "../src/utils/Lyrics/Processing/ChineseTimedChunks.ts";
 
 // Exercise the real processor and reading plans. Replace its Spotify/UI imports and unused services.
 const source = readFileSync(new URL("../src/utils/Lyrics/ProcessLyrics.ts", import.meta.url), "utf8").replace(/^import[\s\S]*?;\n/gm, "");
@@ -28,7 +28,7 @@ function processor() {
     resolveSyllableGroupBoundaries,
     romanizeChineseDominantCjkText,
     convertChineseLyricsText,
-    ensureMandarinSegmenter, mandarinTimedChunks,
+    ensureMandarinSegmenter, mandarinTimedChunkPlan,
     Logger: class { warn() {} },
     RetrievePackage: async () => ({}),
     $chineseCharacterForm: { get: () => "original" },
@@ -153,3 +153,48 @@ for (const type of ["Static", "Syllable"] as const) {
     );
   });
 }
+
+test("authored Bopomofo syllable lyrics resolve through the real processor", async () => {
+  const { context, process } = processor();
+  context.chineseTranslitMode = "auto-vn";
+  context.audioDecided = true;
+  context.audioLanguage = "cmn";
+  context.chineseReadingPlacement = "lineBelow";
+  const lead = {
+    Text: "ㄖㄨㄟ ㄙㄡ ㄙㄡ ㄒ一 ㄉㄡ ㄒ一 ㄌㄚ",
+    StartTime: 42.762, EndTime: 45.702,
+    Syllables: [
+      { Text: "ㄖㄨㄟ", StartTime: 42.762, EndTime: 43.081, IsPartOfWord: false },
+      { Text: "ㄙㄡ ㄙㄡ ㄒ一 ㄉㄡ ㄒ一", StartTime: 43.081, EndTime: 45.365, IsPartOfWord: false },
+      { Text: "ㄌㄚ", StartTime: 45.365, EndTime: 45.702, IsPartOfWord: false },
+    ],
+  };
+  const lyrics: any = { uri: "spotify:track:test", Type: "Syllable", Content: [{ Type: "Vocal", Lead: lead }] };
+  await process(lyrics, { updatePageClasses: false });
+  assert.equal(lead.Text, "ㄖㄨㄟ ㄙㄡ ㄙㄡ ㄒ一 ㄉㄡ ㄒ一 ㄌㄚ");
+  assert.equal(lead.ReadingRenderPlan.joinedDisplayText, "ruêi sou sou shi tou shi la");
+  assert.deepEqual(lead.ReadingRenderPlan.readingUnits.map((unit: any) => unit.text), ["ruêi", " sou sou shi tou shi", " la"]);
+  assert.equal(lead.ReadingRenderPlan.timedReadingUnits.some((unit: any) => /(^|\s)yi(\s|$)/u.test(unit.text || "")), false);
+});
+
+test("a provider split inside an authored syllable keeps one display owner", async () => {
+  const { context, process } = processor();
+  context.chineseTranslitMode = "auto-vn";
+  context.audioDecided = true;
+  context.audioLanguage = "cmn";
+  context.chineseReadingPlacement = "lineBelow";
+  const lead = {
+    Text: "ㄒ一ㄉㄡ",
+    StartTime: 0, EndTime: 3,
+    Syllables: [
+      { Text: "ㄒ", StartTime: 0, EndTime: 1, IsPartOfWord: false },
+      { Text: "一", StartTime: 1, EndTime: 2, IsPartOfWord: false },
+      { Text: "ㄉㄡ", StartTime: 2, EndTime: 3, IsPartOfWord: false },
+    ],
+  };
+  const lyrics: any = { uri: "spotify:track:test", Type: "Syllable", Content: [{ Type: "Vocal", Lead: lead }] };
+  await process(lyrics, { updatePageClasses: false });
+  assert.equal(lead.Text, "ㄒ一ㄉㄡ");
+  assert.equal(lead.ReadingRenderPlan.joinedDisplayText, "shi tou");
+  assert.deepEqual(lead.ReadingRenderPlan.timedReadingUnits.map((unit: any) => unit.text), ["shi", "", " tou"]);
+});

@@ -22,6 +22,9 @@ export type MandarinEzaSyllable = Readonly<{
   neutral: boolean;
   alwaysNeutral?: true;
   alternatives?: readonly string[];
+  /** Authored Bopomofo: the source slice for this syllable, including its tone mark. */
+  source?: string;
+  authored?: true;
 }> | Readonly<{ status: "unavailable"; reason: string }>;
 
 /** One segmenter token with its layer-1 syllables; only Han tokens take part in sandhi. */

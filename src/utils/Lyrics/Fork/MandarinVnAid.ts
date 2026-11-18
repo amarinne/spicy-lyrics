@@ -71,7 +71,7 @@ const TONE_MARKS: Record<number, string> = {
   7: "\u0309",
 };
 
-const NUM_SYLLABLE_TEST = /^([a-zü]+)([0-7])$/u;
+const NUM_SYLLABLE_TEST = /^([a-züê]+)([0-7])$/u;
 const VELAR_INITIALS = new Set(["g", "k", "h"]);
 
 function markVowel(vowel: string, tone: number): string {

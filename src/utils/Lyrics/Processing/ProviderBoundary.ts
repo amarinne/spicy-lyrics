@@ -48,6 +48,7 @@ const isClosingPunctuation = (char: string): boolean =>
 const isOpeningPunctuation = (char: string): boolean =>
   /[\p{Ps}\p{Pi}〈《「『【〔〖〘〚]/u.test(char);
 const isJoinPunctuation = (char: string): boolean => /['’\-‐‑]/u.test(char);
+const isBopomofoChar = (char: string): boolean => /[\u3100-\u312f\u31a0-\u31bf]/u.test(char);
 // Scripts whose orthography separates words with spaces. CJK pairs never need
 // this — they attach via the script fallback — but Latin/Cyrillic/Greek/Hangul
 // pairs with no provider evidence at all would otherwise glue whole lines.
@@ -88,6 +89,12 @@ function scriptRelation(previous: string, next: string): JoinRelation {
   if ((previous === "1" || previous === "2") && nextChar === "人") return "attached";
   if (isClosingPunctuation(nextChar) || isJoinPunctuation(nextChar)
       || isOpeningPunctuation(previousChar) || isJoinPunctuation(previousChar)) return "attached";
+  // Authored Bopomofo syllables attach to each other and to a Han 一 typed as their medial; a
+  // provider split between ㄒ and 一 must not insert whitespace into the authored syllable.
+  if (isBopomofoChar(previousChar) || isBopomofoChar(nextChar)) {
+    const other = isBopomofoChar(previousChar) ? nextChar : previousChar;
+    return isBopomofoChar(other) || /\p{Script=Han}/u.test(other) ? "attached" : "boundary";
+  }
   const previousJapanese = isJapanese(previousChar);
   const nextJapanese = isJapanese(nextChar);
   if (previousJapanese && nextJapanese) return "attached";

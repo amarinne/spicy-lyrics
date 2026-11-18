@@ -7,6 +7,7 @@ import { CHINESE_AUDIO_REVISION } from "./ChineseAudioDetection.ts";
 import { CHINESE_RHYME_REVISION } from "./ChineseRhymeGuess.ts";
 import { MANDARIN_READER_REVISION } from "./Fork/MandarinReaderIdentity.ts";
 import { MANDARIN_EZA_REVISION } from "./Fork/MandarinEzaSandhi.ts";
+import { MANDARIN_ZHUYIN_REVISION } from "./Fork/MandarinZhuyin.ts";
 
 export type ProcessingContext = {
   translationEnabled: boolean;
@@ -33,6 +34,7 @@ export function buildProcessingContextKey(context: ProcessingContext): string {
     chineseRhymeRevision: isRhymeChineseMode(context.chineseTranslitMode) ? CHINESE_RHYME_REVISION : undefined,
     mandarinReaderRevision: ["pinyin-vn", "auto-vn", "rhyme-vn"].includes(context.chineseTranslitMode) ? MANDARIN_READER_REVISION : undefined,
     mandarinEzaRevision: ["pinyin-vn", "auto-vn", "rhyme-vn"].includes(context.chineseTranslitMode) ? MANDARIN_EZA_REVISION : undefined,
+    mandarinZhuyinRevision: MANDARIN_ZHUYIN_REVISION,
     chineseTones: context.chineseTones,
     joinMandarinWords: context.joinMandarinWords,
     chineseReadingPlacement: context.chineseReadingPlacement,
