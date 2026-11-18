@@ -23,7 +23,7 @@ import {
   SCRIPT_PRIORITY,
   type CjkReadingBranch,
   type RomanizationBranch,
-  type ScriptBranchDocContext,
+  type ScriptBranchDocContext as BaseScriptBranchDocContext,
 } from "./Fork/TextDetection.ts";
 import {
   buildMandarinWordLayout,
@@ -48,10 +48,17 @@ import { romanizeChineseDominantCjkText } from "./Processing/CjkLanguageRouting.
 import type { ParsedLine } from "./Processing/Model.ts";
 import { resolveSyllableGroupBoundaries } from "./Processing/ProviderBoundary.ts";
 import { StripEmptyLyricsLines } from "./EmptyLines.ts";
+import type { ChineseReadingMode } from "./ChineseTranslitMode.ts";
+import { resolvedChineseMode } from "./ChineseAudioState.ts";
+import { isAudioChineseMode, isRhymeChineseMode } from "./ChineseTranslitMode.ts";
+import { guessChineseFromRhymes } from "./ChineseRhymeGuess.ts";
+import { recordChineseDetection } from "./ChineseDetectionLog.ts";
+
+type ScriptBranchDocContext = BaseScriptBranchDocContext & { chineseMode: ChineseReadingMode };
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 38;
+export const LYRICS_PROCESSING_VERSION = 39;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -99,7 +106,8 @@ const loadPackagesForScripts = async (
 
 const romanizeChineseText = async (
   text: string,
-  primaryLanguage: string
+  primaryLanguage: string,
+  chineseTranslitMode: ChineseReadingMode
 ): Promise<string> => {
   if (isJyutpingTranslitMode(chineseTranslitMode)) {
     if (chineseTranslitMode === "jyutping-vn") {
@@ -365,7 +373,7 @@ const postProcessSyllableRomanization = async (
           }
         }
         const mandarinWordLayout =
-          cjkLineRoute === "Chinese" && !isJyutpingTranslitMode(chineseTranslitMode) && joinMandarinWords
+          cjkLineRoute === "Chinese" && !isJyutpingTranslitMode(docContext.chineseMode) && joinMandarinWords
             ? buildMandarinWordLayout(effectiveLineText)
             : undefined;
         const plan = buildTimedGenericPlan(
@@ -375,7 +383,7 @@ const postProcessSyllableRomanization = async (
           {
             mandarinWordLayout,
             ...(isChineseLine && chineseReadingPlacement !== "lineBelow"
-              ? { attachedReadings: { translitMode: chineseTranslitMode, tones: chineseTones } }
+              ? { attachedReadings: { translitMode: docContext.chineseMode, tones: chineseTones } }
               : {}),
           },
         );
@@ -421,7 +429,8 @@ const romanizeEntry = async (
   const lineScripts = scriptBranchForLine(target.Text || "", targetDocContext);
   const replaceKoreanTransliteration = shouldReplaceKoreanTransliteration(entry, docContext);
 
-  if (hasTransliteration(target) && !replaceKoreanTransliteration) {
+  const replaceChineseTransliteration = lineScripts.includes("Chinese") && ItemChineseTest.test(target.Text || "");
+  if (hasTransliteration(target) && !replaceKoreanTransliteration && !replaceChineseTransliteration) {
     if (annotateJapanese && cjkLineRoute === "Japanese" && lineScripts.includes("Japanese") && ItemJapaneseTest.test(target.Text || "")) {
       const previousPlan = target.ReadingRenderPlan?.joinedDisplayText;
       const packageRomaji = await processJapanesePackageTextTarget(target);
@@ -447,7 +456,7 @@ const romanizeEntry = async (
     (ItemChineseTest.test(text) || JapaneseTextTest.test(text));
   if (chineseDominantCjk) {
     text = await romanizeChineseDominantCjkText(text, {
-      romanizeHan: (run) => romanizeChineseText(run, primaryLanguage),
+      romanizeHan: (run) => romanizeChineseText(run, primaryLanguage, docContext.chineseMode),
       romanizeKana: async (run) => {
         const target = { Text: run };
         return processJapanesePackageTextTarget(target);
@@ -463,7 +472,7 @@ const romanizeEntry = async (
       continue;
     } else if (script === "Chinese") {
       if (ItemChineseTest.test(text)) {
-        text = await romanizeChineseText(text, primaryLanguage);
+        text = await romanizeChineseText(text, primaryLanguage, docContext.chineseMode);
         changed = true;
       }
     } else if (script === "Korean") {
@@ -524,10 +533,28 @@ export const ProcessLyrics = async (
     detectedLanguage,
     detectedLanguageISO2,
   );
+  if ((isRhymeChineseMode(chineseTranslitMode) || isAudioChineseMode(chineseTranslitMode)) && cjkDominantBranch === "Chinese") {
+    const rhymeGuess = guessChineseFromRhymes(gathered.francText.split("\n"));
+    lyrics.ChineseRhymeGuess = rhymeGuess;
+    recordChineseDetection({
+      uri: lyrics.uri ?? lyrics.id ?? "",
+      mode: chineseTranslitMode,
+      lines: rhymeGuess.lineCount,
+      z: (rhymeGuess.jyutpingZ ?? 0) - (rhymeGuess.mandarinZ ?? 0),
+      toneExcess: rhymeGuess.toneExcess ?? 0,
+      markers: rhymeGuess.cantoneseMarkers,
+      p: rhymeGuess.probability ?? 0.5,
+      textLanguage: rhymeGuess.language,
+    });
+  } else {
+    delete lyrics.ChineseRhymeGuess;
+  }
+  const chineseMode = resolvedChineseMode(chineseTranslitMode, lyrics.uri ?? "", lyrics);
+  lyrics.ResolvedChineseTranslitMode = chineseMode;
   const language = cjkDominantBranch === "Japanese"
     ? "jpn"
     : cjkDominantBranch === "Chinese"
-      ? detectedLanguage === "yue" ? "yue" : "cmn"
+      ? isJyutpingTranslitMode(chineseMode) ? "yue" : "cmn"
       : detectedLanguage;
   const languageISO2 = langs.where("3", language)?.["1"];
   lyrics.Language = language;
@@ -540,6 +567,7 @@ export const ProcessLyrics = async (
     cjkDominantBranch,
   );
   const docContext: ScriptBranchDocContext = {
+    chineseMode,
     presentScripts,
     primaryLanguage: language,
     iso2Language: languageISO2,
@@ -556,11 +584,18 @@ export const ProcessLyrics = async (
     gathered = gatherText(lyrics);
   }
   const entries = gathered.entries;
+  // A cached document may carry a plan from the previous Chinese reading mode.
+  for (const entry of entries) {
+    if (scriptBranchForLine(entry.lineText, docContext).includes("Chinese")) {
+      delete entry.target.ReadingRenderPlan;
+    }
+  }
 
   let appliedRomanization = false;
   let packages: RomanizationPackages = {};
   const needsRomanizationOrJapaneseReading = entries.some((entry) =>
     !hasTransliteration(entry.target) ||
+    (scriptBranchForLine(entry.lineText, docContext).includes("Chinese") && ItemChineseTest.test(entry.target.Text || "")) ||
     shouldReplaceKoreanTransliteration(entry, docContext) ||
     (
       scriptBranchForLine(entry.lineText, docContext).includes("Japanese") &&
@@ -598,11 +633,11 @@ export const ProcessLyrics = async (
         let display = entry.target.RomanizedText || entry.target.TransliteratedText;
         if (!display) return;
         const cjkLineRoute = resolveCjkLineRoute(entry.lineText || entry.target.Text || "", docContext);
-        if (joinMandarinWords && !isJyutpingTranslitMode(chineseTranslitMode) && cjkLineRoute === "Chinese") {
+        if (joinMandarinWords && !isJyutpingTranslitMode(chineseMode) && cjkLineRoute === "Chinese") {
           display = joinMandarinReadingWords(entry.target.Text || "", display);
         }
         const attachedPlan = chineseReadingPlacement !== "lineBelow" && cjkLineRoute === "Chinese"
-          ? buildLineAttachedPlan(entry.target.Text || "", display, `line-${index}`, chineseTranslitMode, chineseTones)
+          ? buildLineAttachedPlan(entry.target.Text || "", display, `line-${index}`, chineseMode, chineseTones)
           : undefined;
         entry.target.ReadingRenderPlan = attachedPlan
           ?? buildLineFallbackPlan(entry.target.Text || "", display, `line-${index}`);

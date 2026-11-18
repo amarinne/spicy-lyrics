@@ -459,6 +459,14 @@ test("raw-source Sound cache separates Pinyin and Jyutping pronunciation systems
   await waitFor(() => pinyinRevisit.getState("spotify:track:test").status === "refined");
   assert.equal(pinyinProvider.calls.length, 0);
 
+  const autoPinyin = { ...pinyin, ResolvedChineseTranslitMode: "pinyin", ProcessingContextKey: JSON.stringify({ chineseTranslitMode: "auto", resolvedChineseTranslitMode: "pinyin" }) };
+  const autoProvider = new FakeRefinementProvider();
+  const autoRevisit = new AIRefinementCoordinator({ layer: "sound", cache, provider: autoProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  autoRevisit.setEnabled(true); autoRevisit.onTrackChanged("spotify:track:test");
+  autoRevisit.acceptBaseline("spotify:track:test", autoPinyin, "final", snapshot);
+  await waitFor(() => autoRevisit.getState("spotify:track:test").status === "refined");
+  assert.equal(autoProvider.calls.length, 0);
+
   const jyutping = { ...pinyin, ProcessingContextKey: JSON.stringify({ chineseTranslitMode: "jyutping" }) };
   const jyutpingProvider = new FakeRefinementProvider();
   const jyutpingRevisit = new AIRefinementCoordinator({ layer: "sound", cache, provider: jyutpingProvider, getConfig: async () => soundConfig, publish: () => undefined });
@@ -467,6 +475,17 @@ test("raw-source Sound cache separates Pinyin and Jyutping pronunciation systems
   await new Promise((resolve) => setTimeout(resolve, 10));
   assert.equal(jyutpingRevisit.getState("spotify:track:test").status, "idle");
   assert.equal(jyutpingProvider.calls.length, 0);
+
+  const autoJyutping = { ...pinyin, ResolvedChineseTranslitMode: "jyutping-vn", ProcessingContextKey: JSON.stringify({ chineseTranslitMode: "auto-vn", resolvedChineseTranslitMode: "jyutping-vn" }) };
+  const detectedProvider = new FakeRefinementProvider([(request) => ({ ok: true, items: request.items.map((item) => ({ id: item.id, t: "haang" })), usage: { input: 4, output: 2 }, finish: "stop", raw: { bytes: 24 } })]);
+  const detected = new AIRefinementCoordinator({ layer: "sound", cache, provider: detectedProvider, getConfig: async () => soundConfig, publish: () => undefined });
+  detected.setEnabled(true); detected.onTrackChanged("spotify:track:test");
+  detected.acceptBaseline("spotify:track:test", autoJyutping, "final", snapshot);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(detected.getState("spotify:track:test").status, "idle");
+  detected.refine("spotify:track:test");
+  await waitFor(() => detected.getState("spotify:track:test").status === "refined");
+  assert.equal(cache.snapshot().find((r) => r.pronunciationSystem === "cantonese-jyutping-vn")?.status, "complete");
 });
 
 test("local tracks, missing credential and unsettled baselines fail closed", async () => {

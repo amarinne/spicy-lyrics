@@ -438,7 +438,10 @@ export class AIRefinementCoordinator {
   private pronunciationSystem(session: BaselineSession): string {
     const language = this.sourceLanguage(session);
     let chineseMode: string | undefined;
-    try { chineseMode = JSON.parse(session.document?.ProcessingContextKey ?? "null")?.chineseTranslitMode; } catch {}
+    try {
+      const context = JSON.parse(session.document?.ProcessingContextKey ?? "null");
+      chineseMode = session.document?.ResolvedChineseTranslitMode ?? context?.resolvedChineseTranslitMode ?? context?.chineseTranslitMode;
+    } catch {}
     if (session.document?.DetectedChinese === true || /^(?:zh|zho|cmn|yue)(?:-|$)/.test(language)) {
       return pronunciationSystemForChineseMode(chineseMode);
     }

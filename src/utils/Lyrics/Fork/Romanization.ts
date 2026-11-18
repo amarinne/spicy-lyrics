@@ -78,14 +78,15 @@ const LatinTextTest = /[A-Za-z]/;
 // "pinyin" / "jyutping" are the standard readings; "pinyin-vn" / "jyutping-vn"
 // render the same readings through the locked VN-aid pronunciation spellings.
 
-export type ChineseTranslitMode = "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
+export type { ChineseTranslitMode } from "../ChineseTranslitMode.ts";
+import type { ChineseTranslitMode } from "../ChineseTranslitMode.ts";
 
 export function isJyutpingTranslitMode(mode: string): boolean {
   return mode === "jyutping" || mode === "jyutping-vn";
 }
 
 export function isVnAidTranslitMode(mode: string): boolean {
-  return mode === "pinyin-vn" || mode === "jyutping-vn";
+  return mode === "pinyin-vn" || mode === "jyutping-vn" || mode === "auto-vn" || mode === "rhyme-vn";
 }
 
 /** Quick-toggle between Mandarin and Cantonese, preserving the VN-aid flag. */

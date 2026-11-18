@@ -91,3 +91,23 @@ test("Korean display mode is part of processing context key", () => {
     buildProcessingContextKey({ ...baseContext, koreanDisplayMode: "vnPronunciation" })
   );
 });
+
+test("auto language results and output styles invalidate the processing cache", () => {
+  const key = (chineseTranslitMode: ProcessingContext["chineseTranslitMode"], resolvedChineseTranslitMode: ProcessingContext["resolvedChineseTranslitMode"]) =>
+    buildProcessingContextKey({ ...baseContext, chineseTranslitMode, resolvedChineseTranslitMode });
+  assert.notEqual(key("auto", "pinyin"), key("auto", "jyutping"));
+  assert.notEqual(key("auto", "jyutping"), key("auto-vn", "jyutping-vn"));
+  assert.notEqual(key("auto", "pinyin"), key("pinyin", "pinyin"));
+  assert.match(key("auto-vn", "jyutping-vn"), /mandarinEzaRevision/);
+  assert.match(key("auto", "pinyin"), /chineseAudioRevision/);
+});
+
+test("rhyme processing has its own revision and ignores unrelated audio decisions", () => {
+  const key = (mode: "rhyme" | "rhyme-vn", resolved: "pinyin" | "jyutping") =>
+    buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode, resolvedChineseTranslitMode: resolved });
+  assert.equal(key("rhyme", "pinyin"), key("rhyme", "jyutping"));
+  assert.notEqual(key("rhyme", "pinyin"), key("rhyme-vn", "pinyin"));
+  assert.match(key("rhyme", "pinyin"), /chineseRhymeRevision/);
+  assert.doesNotMatch(key("rhyme", "pinyin"), /chineseAudioRevision/);
+  assert.match(key("rhyme-vn", "pinyin"), /mandarinEzaRevision/);
+});

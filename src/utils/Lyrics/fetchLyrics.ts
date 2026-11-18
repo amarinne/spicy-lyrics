@@ -24,6 +24,8 @@ import { GetExpireStore } from "../../modules/Store.ts";
 import { translateLyrics } from "./Fork/Translation.ts";
 import { $chineseCharacterForm, $japaneseReadingMode } from "../uiState.ts";
 import { buildProcessingContextKey } from "./ProcessingContext.ts";
+import { resolvedChineseMode } from "./ChineseAudioState.ts";
+import type { ChineseReadingMode } from "./ChineseTranslitMode.ts";
 import { captureOriginalSnapshot, type CanonicalOriginalSnapshot } from "./AIRefinement/index.ts";
 import { acceptAIRefinementBaseline, getAIRefinementBaseline } from "./AIRefinement/singleton.ts";
 import { fetchLyricsFromSpicy, fetchSpicyLyrics, type TrackLyricsInfo } from "./LyricsSources.ts";
@@ -81,12 +83,13 @@ function finishFetching(session: LyricsRequestSession): void {
   if (session.isCurrent()) $currentlyFetching.set(false);
 }
 
-function currentProcessingContextKey(): string {
+function currentProcessingContextKey(uri: string, processedChineseMode?: ChineseReadingMode): string {
   return buildProcessingContextKey({
     translationEnabled,
     translationTargetLang,
     meaningBackend: $meaningBackend.get(),
     chineseTranslitMode,
+    resolvedChineseTranslitMode: processedChineseMode ?? resolvedChineseMode(chineseTranslitMode, uri),
     chineseTones,
     joinMandarinWords,
     chineseReadingPlacement,
@@ -100,7 +103,7 @@ function currentProcessingContextKey(): string {
 
 async function setProcessedLyricsStoreItem(trackId: string, lyrics: any, session?: LyricsRequestSession): Promise<void> {
   if (session && !session.isCurrent()) return;
-  lyrics.ProcessingContextKey = currentProcessingContextKey();
+  lyrics.ProcessingContextKey = currentProcessingContextKey(lyrics.uri ?? "", lyrics.ResolvedChineseTranslitMode);
   lyrics.ReadingPlanSchemaVersion = READING_PLAN_SCHEMA_VERSION;
   await LyricsStore.SetItem(trackId, lyrics);
 }
@@ -249,7 +252,7 @@ async function ensureProcessingVersion(trackId: string, uri: string, lyrics: any
     lyrics.id = lyrics.id || trackId;
   }
 
-  const processingContextKey = currentProcessingContextKey();
+  const processingContextKey = currentProcessingContextKey(uri, resolvedChineseMode(chineseTranslitMode, uri, lyrics));
 
   if (!lyrics) return lyrics;
   // A previous session may have cached raw lyrics and exited before background processing finished.

@@ -1,5 +1,6 @@
 import { atom } from "nanostores";
 import type { ChineseCharacterForm } from "./Lyrics/ChineseCharacterConversion.ts";
+import type { ChineseTranslitMode } from "./Lyrics/ChineseTranslitMode.ts";
 
 export const UI_STATE_KEY = "SL:uiState";
 
@@ -79,7 +80,7 @@ export const $isNowBarOpen = persistAtom<boolean>("isNowBarOpen", false);
 export const $nowBarSide = persistAtom<"left" | "right">("nowBarSide", "left");
 export const $forceCompactMode = persistAtom<boolean>("forceCompactMode", false);
 export const $romanization = persistAtom<boolean>("romanization", false);
-export const $chineseTranslitMode = persistAtom<"pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn">("chineseTranslitMode", "pinyin");
+export const $chineseTranslitMode = persistAtom<ChineseTranslitMode>("chineseTranslitMode", "pinyin");
 export const $chineseTones = persistAtom<boolean>("chineseTones", true);
 export const $joinMandarinWords = persistAtom<boolean>("joinMandarinWords", false);
 /**

@@ -29,6 +29,8 @@ import { $adaptiveSectioning, $fixHanGlyphVariants, $systemFontStack } from "../
 import { RemoveAIRefinementCache } from "../../../utils/LyricsCacheTools.ts";
 import { SPICY_LYRICS_BUILD_MARKER } from "../../../utils/buildMarker.ts";
 import { isJyutpingTranslitMode } from "../../../utils/Lyrics/Fork/Romanization.ts";
+import { isAudioChineseMode, isRhymeChineseMode, type ChineseTranslitMode } from "../../../utils/Lyrics/ChineseTranslitMode.ts";
+import { $chineseAudioStatus } from "../../../utils/Lyrics/ChineseAudioState.ts";
 import AIRefinementSettings from "./AIRefinementSettings.tsx";
 import { Select, Toggle } from "./components.tsx";
 import type { GroupDef, SectionDef, SettingDef } from "./model.ts";
@@ -41,6 +43,10 @@ import type { GroupDef, SectionDef, SettingDef } from "./model.ts";
  */
 
 const CHINESE_TRANSLIT_OPTIONS = [
+  { value: "auto", label: "Audio detection (Pinyin / Jyutping)" },
+  { value: "auto-vn", label: "Audio detection (eza式)" },
+  { value: "rhyme", label: "Rhyme guess only (Pinyin / Jyutping)" },
+  { value: "rhyme-vn", label: "Rhyme guess only (eza式)" },
   { value: "pinyin", label: "Mandarin Pinyin" },
   { value: "pinyin-vn", label: "Mandarin eza式" },
   { value: "jyutping", label: "Cantonese Jyutping" },
@@ -107,14 +113,24 @@ export const forkLyricsGroups: GroupDef[] = [
       {
         id: "chineseTranslitMode",
         label: "Chinese Transliteration",
-        description: "Choose Mandarin pinyin, Cantonese jyutping, or their eza式 spellings.",
+        description: "Audio detection or lyric rhyme guesses.",
+        useNote: () => {
+          const mode = useStore($chineseTranslitMode);
+          const status = useStore($chineseAudioStatus);
+          if (isRhymeChineseMode(mode)) return "Rhyme guess only. Weak evidence uses Mandarin.";
+          if (!isAudioChineseMode(mode)) return false;
+          if (status === "unavailable") return "Audio detector unavailable. Mandarin is active.";
+          if (status === "detected") return false;
+          if (status === "listening") return "Listening: three 30-second samples.";
+          return "Waiting for Spotify. Mandarin is active.";
+        },
         Control: ({ label }) => (
           <Select
             label={label}
             value={useStore($chineseTranslitMode)}
             options={values(CHINESE_TRANSLIT_OPTIONS)}
             labels={labels(CHINESE_TRANSLIT_OPTIONS)}
-            onChange={(v) => $chineseTranslitMode.set(v as "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn")}
+            onChange={(v) => $chineseTranslitMode.set(v as ChineseTranslitMode)}
           />
         ),
       },

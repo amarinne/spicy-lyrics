@@ -74,6 +74,7 @@ import App from "./utils/app.ts";
 import { jitter } from "./utils/jitter.ts";
 import { StartExperimentOverridesSync } from "./utils/experiments.ts";
 import { getRemoteConfig, StartRemoteConfigSync } from "./utils/remoteConfig.ts";
+import { startChineseAudioDetection } from "./utils/Lyrics/ChineseAudioRuntime.ts";
 
 async function main() {
   const appLogger = new Logger("App");
@@ -91,6 +92,7 @@ async function main() {
   }
 
   await Platform.OnSpotifyReady;
+  startChineseAudioDetection();
 
   guardSpicetifyScrollingFix();
 

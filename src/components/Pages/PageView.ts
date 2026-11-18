@@ -112,6 +112,8 @@ import {
 } from "../../utils/experiments.ts";
 import { triggerRemeasureLV } from "../../utils/Lyrics/LyricsVirtualizer.ts";
 import { copyCurrentLyricsToClipboard } from "../../utils/Lyrics/CopyLyrics.ts";
+import { $chineseAudioRevision, resolvedChineseMode } from "../../utils/Lyrics/ChineseAudioState.ts";
+import { isAutoChineseMode } from "../../utils/Lyrics/ChineseTranslitMode.ts";
 import { getDefaultAIRefinementRequest, openAIRefinementComposer, type AIRefinementComposerRequest } from "../../utils/openAISteeringEditor.tsx";
 import { loadLayerComparisonRows, type LayerComparisonOptions } from "../../utils/Lyrics/AIRefinement/DebugCapture.ts";
 import { openAIOutputReviewPanel } from "../../utils/openAIOutputReviewPanel.tsx";
@@ -601,6 +603,15 @@ Global.Event.listen("lyrics:apply", ({ Type }: { Type: string }) => {
   setTimeout(() => triggerRemeasureLV(), 1500);
 });
 
+function currentChineseReadingMode() {
+  const uri = SpotifyPlayer.GetUri() ?? "";
+  let lyrics: any;
+  if (isAutoChineseMode(chineseTranslitMode)) {
+    try { lyrics = JSON.parse($currentLyricsData.get() || "null"); } catch {}
+  }
+  return resolvedChineseMode(chineseTranslitMode, uri, lyrics);
+}
+
 function AppendViewControls(ReAppend: boolean = false) {
   if (IsCardMode) return;
   if (!PageContainer) return;
@@ -652,7 +663,7 @@ function AppendViewControls(ReAppend: boolean = false) {
         ${
           $showChineseTranslitButton.get() && PageContainer.classList.contains("Lyrics_ChineseDetected")
             ? `<button id="ChineseTranslitToggle" class="ViewControl" style="font-size: 14px; font-weight: 600; line-height: 1;">${
-                isJyutpingTranslitMode(chineseTranslitMode) ? "粵" : "拼"
+                isJyutpingTranslitMode(currentChineseReadingMode()) ? "粵" : "拼"
               }</button>`
             : ""
         }
@@ -810,11 +821,11 @@ function AppendViewControls(ReAppend: boolean = false) {
         if (!isPip) {
           Tooltips.Close = Spicetify.Tippy(chineseTranslitToggle, {
             ...Spicetify.TippyProps,
-            content: isJyutpingTranslitMode(chineseTranslitMode) ? "Switch to Mandarin (Pinyin)" : "Switch to Cantonese (Jyutping)",
+            content: isJyutpingTranslitMode(currentChineseReadingMode()) ? "Switch to Mandarin (Pinyin)" : "Switch to Cantonese (Jyutping)",
           });
         }
         chineseTranslitToggle.addEventListener("click", () => {
-          setChineseTranslitMode(toggleChineseTranslitLanguage(chineseTranslitMode));
+          setChineseTranslitMode(toggleChineseTranslitLanguage(currentChineseReadingMode()));
         });
       } catch (err) {
         controlsLogger.warn("Failed to setup Chinese transliteration tooltip", err);
@@ -877,7 +888,7 @@ function AppendViewControls(ReAppend: boolean = false) {
             currentRows: enumerateSoundLines(baselineDocument).map((row) => ({ id: row.id, original: row.sourceText, baseline: row.baselineTranslatedText ?? "" })),
             requireBaselineMatch: baselineDocument.DetectedChinese === true,
             pronunciationSystem: baselineDocument.DetectedChinese === true
-              ? pronunciationSystemForChineseMode($chineseTranslitMode.get())
+              ? pronunciationSystemForChineseMode(baselineDocument.ResolvedChineseTranslitMode ?? resolvedChineseMode($chineseTranslitMode.get(), trackUri, baselineDocument))
               : undefined,
           };
         } catch {}
@@ -1277,6 +1288,7 @@ $showChineseTranslitButton.listen(() => {
 
 $chineseCharacterForm.listen(queueProcessingSettingsRefresh);
 $chineseTranslitMode.listen(queueProcessingSettingsRefresh);
+$chineseAudioRevision.listen(queueProcessingSettingsRefresh);
 $chineseTones.listen(queueProcessingSettingsRefresh);
 $joinMandarinWords.listen(queueProcessingSettingsRefresh);
 $chineseReadingPlacement.listen(queueProcessingSettingsRefresh);
