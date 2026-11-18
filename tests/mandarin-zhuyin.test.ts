@@ -14,6 +14,7 @@ import {
 import { mandarinTimedChunkPlan } from "../src/utils/Lyrics/Processing/ChineseTimedChunks.ts";
 import { buildTimedGenericPlan } from "../src/utils/Lyrics/Processing/GenericReadingProcessor.ts";
 import { partitionCjkReadingRuns, romanizeChineseDominantCjkText } from "../src/utils/Lyrics/Processing/CjkLanguageRouting.ts";
+import { resolveSyllableGroupBoundaries } from "../src/utils/Lyrics/Processing/ProviderBoundary.ts";
 import { buildProcessingContextKey, type ProcessingContext } from "../src/utils/Lyrics/ProcessingContext.ts";
 
 const fixture = JSON.parse(readFileSync(new URL("./fixtures/mandarin-zhuyin-parity.json", import.meta.url), "utf8")) as {
@@ -204,6 +205,32 @@ test("authored canonical ê keeps its tone mark without changing Han output", ()
   assert.equal(convertMandarinSyllableToVnAid("ê2"), "ế");
   assert.equal(romanizeMandarin("ㄝˊ"), "ế");
   assert.equal(romanizeMandarin("你好"), "nǐ hǎo");
+});
+
+test("provider span joins preserve the authored hook spacing", () => {
+  const group = (texts: string[]) => texts.map((Text) => ({ Text, IsPartOfWord: false }));
+  // The provider packs each span's own spaces inside its text and leaves span joins to us.
+  assert.equal(
+    resolveSyllableGroupBoundaries(group(["ㄖㄨㄟ", "ㄙㄡ ㄙㄡ ㄒ一 ㄉㄡ ㄒ一", "ㄌㄚ"]), "", "qingtian-4"),
+    "ㄖㄨㄟ ㄙㄡ ㄙㄡ ㄒ一 ㄉㄡ ㄒ一 ㄌㄚ",
+  );
+  assert.equal(
+    resolveSyllableGroupBoundaries(group(["ㄙㄡ ㄌㄚ", "ㄒ一 ㄒ一 ㄒ一 ㄒ一", "ㄌㄚ ㄒ一", "ㄌㄚ", "ㄙㄡ"]), "", "qingtian-5"),
+    "ㄙㄡ ㄌㄚ ㄒ一 ㄒ一 ㄒ一 ㄒ一 ㄌㄚ ㄒ一 ㄌㄚ ㄙㄡ",
+  );
+  // A cut syllable still joins, and an authored complete line stays authoritative.
+  assert.equal(
+    resolveSyllableGroupBoundaries(group(["ㄒ", "一", "ㄉㄡ"]), "", "split"),
+    "ㄒ一 ㄉㄡ",
+  );
+  assert.equal(
+    resolveSyllableGroupBoundaries(group(["ㄒ", "一", "ㄉㄡ"]), "ㄒ一ㄉㄡ", "split-line"),
+    "ㄒ一ㄉㄡ",
+  );
+  assert.equal(
+    resolveSyllableGroupBoundaries(group(["ㄙㄡ", "ㄌㄚ"]), "ㄙㄡㄌㄚ", "packed-line"),
+    "ㄙㄡㄌㄚ",
+  );
 });
 
 test("the processing revision and cache identity move with the resolver", () => {

@@ -1,4 +1,5 @@
 import { cleanInvisiblesPreserveEdges } from "../Fork/TextDetection.ts";
+import { isHanYiAliasAfter, resolveZhuyinSpans } from "../Fork/MandarinZhuyin.ts";
 import { codePointLength } from "./CodePoint.ts";
 import type {
   Boundary,
@@ -49,6 +50,61 @@ const isOpeningPunctuation = (char: string): boolean =>
   /[\p{Ps}\p{Pi}〈《「『【〔〖〘〚]/u.test(char);
 const isJoinPunctuation = (char: string): boolean => /['’\-‐‑]/u.test(char);
 const isBopomofoChar = (char: string): boolean => /[\u3100-\u312f\u31a0-\u31bf]/u.test(char);
+const isToneMarkChar = (char: string): boolean => /[\u02c7\u02c9\u02ca\u02cb\u02d9]/u.test(char);
+const isBopomofoRunChar = (char: string): boolean => isBopomofoChar(char) || isToneMarkChar(char);
+
+/** The authored Bopomofo run a span ends with, keeping a Han 一 typed as the ㄧ medial. */
+function trailingBopomofo(text: string): string {
+  const chars = Array.from(text);
+  let start = chars.length;
+  while (start > 0) {
+    const char = chars[start - 1]!;
+    if (isBopomofoRunChar(char)) { start -= 1; continue; }
+    if (char === "一" && start > 1 && isHanYiAliasAfter(chars[start - 2]!)) { start -= 1; continue; }
+    break;
+  }
+  return chars.slice(start).join("");
+}
+
+/** The authored Bopomofo run a span starts with, keeping a leading Han 一 as a possible medial. */
+function leadingBopomofo(text: string): string {
+  const chars = Array.from(text);
+  let end = chars[0] === "一" ? 1 : 0;
+  while (end < chars.length) {
+    const char = chars[end]!;
+    if (isBopomofoRunChar(char)) { end += 1; continue; }
+    if (char === "一" && end > 0 && isHanYiAliasAfter(chars[end - 1]!)) { end += 1; continue; }
+    break;
+  }
+  return chars.slice(0, end).join("");
+}
+
+const startsWithSyllable = (run: string): boolean =>
+  resolveZhuyinSpans(run).some((span) => span.start === 0 && span.syllables.length > 0);
+
+const endsWithSyllable = (run: string): boolean =>
+  resolveZhuyinSpans(run).some((span) => span.end === run.length);
+
+/**
+ * Authored Bopomofo spans belong to one display word only when the provider cut a syllable:
+ * a reading crosses the cut, or one side is not a complete syllable on its own (ㄒ | 一 | ㄉㄡ).
+ * Separate complete syllables keep their separation, because the provider packs each span's own
+ * spaces inside its text and leaves the joins to the consumer (晴天: ㄙㄡ ㄌㄚ | ㄒ一 ...).
+ */
+function bopomofoJoinRelation(previous: string, next: string): JoinRelation | undefined {
+  const left = trailingBopomofo(previous);
+  const right = leadingBopomofo(next);
+  if (!left && !right) return undefined;
+  if (!left || !right) return "boundary";
+  const boundary = Array.from(left).length;
+  const crossing = resolveZhuyinSpans(left + right).some((span) =>
+    span.syllables.some((syllable) => syllable.start < boundary && syllable.end > boundary));
+  if (crossing) return "attached";
+  // ㄒ | 一: the numeral is the ㄧ medial only when the left run ends in a licensed initial.
+  if (right.startsWith("一")) return isHanYiAliasAfter(left.slice(-1)) ? "attached" : "boundary";
+  if (!endsWithSyllable(left) || !startsWithSyllable(right)) return "attached";
+  return "boundary";
+}
 // Scripts whose orthography separates words with spaces. CJK pairs never need
 // this — they attach via the script fallback — but Latin/Cyrillic/Greek/Hangul
 // pairs with no provider evidence at all would otherwise glue whole lines.
@@ -89,12 +145,6 @@ function scriptRelation(previous: string, next: string): JoinRelation {
   if ((previous === "1" || previous === "2") && nextChar === "人") return "attached";
   if (isClosingPunctuation(nextChar) || isJoinPunctuation(nextChar)
       || isOpeningPunctuation(previousChar) || isJoinPunctuation(previousChar)) return "attached";
-  // Authored Bopomofo syllables attach to each other and to a Han 一 typed as their medial; a
-  // provider split between ㄒ and 一 must not insert whitespace into the authored syllable.
-  if (isBopomofoChar(previousChar) || isBopomofoChar(nextChar)) {
-    const other = isBopomofoChar(previousChar) ? nextChar : previousChar;
-    return isBopomofoChar(other) || /\p{Script=Han}/u.test(other) ? "attached" : "boundary";
-  }
   const previousJapanese = isJapanese(previousChar);
   const nextJapanese = isJapanese(nextChar);
   if (previousJapanese && nextJapanese) return "attached";
@@ -142,6 +192,15 @@ function resolveJoin(current: SpanState, next: SpanState, providerSeparator: str
   if (hasWordContinuation && current.source.providerPartOfWord === false
       && isJapanese(lastChar(current.core)) && isJapanese(firstChar(next.core))) {
     return boundary("inferred", 1, "providerWordBoundary");
+  }
+  // Authored Bopomofo: a complete provider line is authoritative, otherwise the resolver decides
+  // whether the span boundary cut a syllable or separates two complete ones.
+  const bopomofo = bopomofoJoinRelation(current.core, next.core);
+  if (bopomofo) {
+    if (providerSeparator === "") return attached(0.9, "completeProviderLineCompact");
+    return bopomofo === "attached"
+      ? attached(0.9, "zhuyinSyllableContinuation")
+      : boundary("script", 0.9, "zhuyinSyllableBoundary");
   }
   const script = scriptRelation(current.core, next.core);
   if (script === "attached") return attached(0.9, "scriptFallback");
