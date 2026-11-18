@@ -2,7 +2,7 @@ import { pinyin } from "pinyin-pro";
 import { getJyutpingList } from "to-jyutping";
 import type { ChineseLanguage } from "./ChineseTranslitMode.ts";
 
-export const CHINESE_RHYME_REVISION = "tone-rhyme-v3";
+export const CHINESE_RHYME_REVISION = "tone-rhyme-v4";
 /**
  * Cantonese-only function characters. Each is close to absent from written Mandarin, so a song
  * that uses two different ones is Cantonese however its line endings rhyme. Counting distinct
@@ -15,18 +15,19 @@ const CANTONESE_MARKER_THRESHOLD = 2;
  * Chance that two unrelated line endings share a rhyme key, per reading. Mandarin collapses the
  * Middle Chinese finals into 13 buckets while Jyutping keeps 49, so counting raw "exclusive" pairs
  * compares inventories of very different size and inflates the Mandarin side roughly 2x: a pair of
- * lines collides by accident 10.4% of the time under Mandarin and 5.0% under Jyutping. Measured
- * over 2,439 line endings from 103 Chinese documents. Re-measure if the finals tables change.
+ * lines collides by accident 10.5% of the time under Mandarin and 5.08% under Jyutping. Re-measured
+ * over the 177-document Cantonese/Mandarin corpus. Re-measure if the finals tables change.
  */
-const MANDARIN_CHANCE_COLLISION = 0.104;
-const JYUTPING_CHANCE_COLLISION = 0.0504;
+const MANDARIN_CHANCE_COLLISION = 0.105;
+const JYUTPING_CHANCE_COLLISION = 0.0508;
 /**
- * Fitted on the 177-song corpus in docs/private/rhyme-limits. Tone parallelism and rhyme z are
- * independent signals: the rhyme wins songs that end lines alike, the tone contour wins songs whose
- * lines follow the melody regardless of their endings. Confidence comes from the logistic distance,
- * not from either signal alone, so a single weak clue cannot decide a track.
+ * Fitted on the 177-song corpus in docs/private/rhyme-limits (v4 refit, standardized logistic,
+ * C=10). Tone parallelism and rhyme z are independent signals: the rhyme wins songs that end lines
+ * alike, the tone contour wins songs whose lines follow the melody regardless of their endings.
+ * Confidence comes from the logistic distance, not from either signal alone, so a single weak clue
+ * cannot decide a track.
  */
-const DECISION_WEIGHTS = { rhymeZ: 0.29, toneExcess: 17.3, markers: 1.7, bias: -2.83 };
+const DECISION_WEIGHTS = { rhymeZ: 0.613, toneExcess: 29.35, markers: 3.03, bias: -5.87 };
 const DECISION_HIGH = 0.9;
 const DECISION_LOW = 0.1;
 /** Below this many usable lines the corpus accuracy falls off a cliff (80% at 6 lines, 89% at 12). */
@@ -156,7 +157,11 @@ export function guessChineseFromRhymes(lines: readonly string[]): ChineseRhymeGu
       ?.replace(/v/gu, "ü").replace(/^[iuü](?=[aeoê])/u, "");
     const jyutping = getJyutpingList(char)[0]?.[1]?.split(" ")[0]?.replace(/\d$/u, "");
     const jyutFinal = jyutping?.replace(/^(gw|kw|ng|[bpmfdtnlgkhzcsjw])/u, "") || jyutping;
-    return { pinyin: final ? MANDARIN_RHYMES[final] ?? final : undefined, jyutping: jyutFinal };
+    // Cantopop rhymes by group, not by exact final: -aan/-aam and -am/-an rhyme, and yu before a
+    // coda reads as i (yun = in, yut = it). Keep -ng and -k apart; merging them made
+    // 反方向的鐘 a false Cantonese result.
+    const jyutGroup = jyutFinal?.replace(/[mn]$/u, "N").replace(/[pt]$/u, "T").replace(/^yu(?=[NT])/u, "i");
+    return { pinyin: final ? MANDARIN_RHYMES[final] ?? final : undefined, jyutping: jyutGroup };
   });
   let cantoneseOnlyPairs = 0;
   let mandarinOnlyPairs = 0;

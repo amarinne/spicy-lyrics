@@ -7,9 +7,9 @@ import { guessChineseFromRhymes } from "../src/utils/Lyrics/ChineseRhymeGuess.ts
 import { isAudioChineseMode, resolveChineseTranslitMode } from "../src/utils/Lyrics/ChineseTranslitMode.ts";
 import { CHINESE_AUDIO_REVISION, ChineseAudioDetector } from "../src/utils/Lyrics/ChineseAudioDetection.ts";
 
-// "容易受傷的女人" (Faye Wong): twelve usable lines whose endings rhyme *better* under Mandarin
-// (eleven Mandarin-only pairs, no Cantonese-only pair), so the rhyme signal points the wrong way.
-// Only tone-melody parallelism identifies it as Cantonese.
+// "容易受傷的女人" (Faye Wong): twelve usable lines. Under the old exact-final key the endings
+// rhymed better under Mandarin (eleven Mandarin-only pairs, no Cantonese-only pair). Revision 4
+// groups -m/-n and -p/-t, so the Cantonese reading now rhymes at least as well.
 const canto = [
   "人漸醉了夜更深 在這一刻多麼接近", "思想彷似在搖撼 矛盾也更深", "曾被破碎過的心 讓你今天輕輕貼近",
   "多少安慰及疑問 偷偷的再生", "情難自禁 我卻其實屬於 極度容易受傷的女人", "不要 不要 不要驟來驟去 請珍惜我的心",
@@ -33,9 +33,13 @@ test("tone parallelism and rhyme together guess each language in both output sty
   assert.equal(resolveChineseTranslitMode("rhyme-vn", guessChineseFromRhymes(mando).language), "pinyin-vn");
 });
 
-test("rhyme alone points the wrong way on Cantonese lyrics that tone parallelism rescues", () => {
+test("grouped Cantonese rhyme keys keep the Cantonese reading ahead", () => {
   const result = guessChineseFromRhymes(canto);
-  assert.equal(result.mandarinOnlyPairs > result.cantoneseOnlyPairs, true);
+  // 深/近/撼/再生/人/心/吻/任/信/人/近: -m and -n share a group, so neither reading owns an
+  // exclusive pair, and the Jyutping z still clears the Mandarin z.
+  assert.equal(result.cantoneseOnlyPairs, 0);
+  assert.equal(result.mandarinOnlyPairs, 0);
+  assert.equal(result.jyutpingZ! > result.mandarinZ!, true);
   assert.equal(result.cantoneseMarkers, 0);
   assert.equal(result.language, "yue");
   assert.equal(result.probability! > 0.9, true);
@@ -103,7 +107,7 @@ test("Mandarin lyrics whose rhymes also fit Jyutping stay Mandarin", () => {
 });
 
 test("a single Cantonese character cannot decide a track on its own", () => {
-  // One 嘅 is worth 1.7 of logit: enough to move a Mandarin song off a confident call, never
+  // One 嘅 is worth 3.03 of logit: enough to move a Mandarin song off a confident call, never
   // enough to call it Cantonese. Two distinct markers are the threshold.
   const mandarin = [...mando, "我嘅心中一點"];
   assert.equal(guessChineseFromRhymes(mandarin).cantoneseMarkers, 1);
