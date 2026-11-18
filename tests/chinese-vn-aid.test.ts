@@ -294,11 +294,15 @@ test("Cantonese VN-aid other finals unchanged", () => {
   assert.equal(convertJyutpingSyllableToVnAid("deu1"), "tẽu");
   assert.equal(convertJyutpingSyllableToVnAid("lem2"), "lém");
   assert.equal(convertJyutpingSyllableToVnAid("gep1"), "kẽp");
-  // Syllabic nasals carry the mark themselves.
-  assert.equal(convertJyutpingSyllableToVnAid("m4"), "m̀");
-  assert.equal(convertJyutpingSyllableToVnAid("m6"), "ṃ");
-  assert.equal(convertJyutpingSyllableToVnAid("ng5"), "n̉g");
-  assert.equal(convertJyutpingSyllableToVnAid("hm4"), "hm̀");
+  // Revision 2: syllabic nasals spell ưm/ưng (and hm/hng → hưm/hưng), so the mark sits on ư.
+  assert.equal(convertJyutpingSyllableToVnAid("m4"), "ừm");
+  assert.equal(convertJyutpingSyllableToVnAid("m6"), "ựm");
+  assert.equal(convertJyutpingSyllableToVnAid("m2"), "ứm");
+  assert.equal(convertJyutpingSyllableToVnAid("ng5"), "ửng");
+  assert.equal(convertJyutpingSyllableToVnAid("ng4"), "ừng");
+  assert.equal(convertJyutpingSyllableToVnAid("hm4"), "hừm");
+  assert.equal(convertJyutpingSyllableToVnAid("hng6"), "hựng");
+  assert.equal(convertJyutpingSyllableToVnAid("hm4", false), "hưm");
   // Toneless input and garbage pass through without marks.
   assert.equal(convertJyutpingSyllableToVnAid("nei"), "nei");
   assert.equal(convertJyutpingSyllableToVnAid("xyz"), "xyz");

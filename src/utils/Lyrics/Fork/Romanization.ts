@@ -17,6 +17,7 @@ import { G2p } from "korean-pronunciation";
 import { OutputFormat, pinyin, segment } from "pinyin-pro";
 import { convertMandarinSyllableToVnAid } from "./MandarinVnAid.ts";
 import { convertJyutpingSyllableToVnAid } from "./CantoneseVnAid.ts";
+import { cantoneseLookupForm } from "../ChineseCharacterConversion.ts";
 import { hasUnromanizedKanji, ChineseTextTest, cleanInvisiblesPreserveEdges } from "./TextDetection.ts";
 import { analyzeJapaneseLine, JapaneseSourceTextTest } from "../Reading/JapaneseReading.ts";
 import { canonicalTextFromSyllables } from "../Processing/ProviderBoundary.ts";
@@ -111,6 +112,53 @@ function isChineseHanChar(char: string): boolean {
 }
 
 /**
+ * Cantonese revision 2, rule R2a. These are interjections and sentence-final particles whose
+ * audible onset comes from linking to the previous syllable, so they keep the bare vowel even
+ * though their lexical reading is null-initial. R2 still applies to every other null-initial
+ * syllable that begins with a/o/u.
+ */
+const CANTONESE_BARE_VOWEL_PARTICLES = new Set("啊呀吖哦喔噢哎唉欸誒噯嗄");
+
+function applyCantoneseNgInitial(reading: string, characters?: readonly string[]): string {
+  const syllables = reading.split(/\s+/u).filter(Boolean);
+  if (syllables.length === 0) return reading;
+  const perCharacter = characters && characters.length === syllables.length ? characters : undefined;
+  return syllables
+    .map((syllable, index) => {
+      if (!/^[aou]/u.test(syllable)) return syllable;
+      const character = perCharacter?.[index];
+      if (character !== undefined && CANTONESE_BARE_VOWEL_PARTICLES.has(character)) return syllable;
+      return `ng${syllable}`;
+    })
+    .join(" ");
+}
+
+type CantonesePassageReadings = {
+  /** Character-preserving lookup form for to-jyutping, or the source when no conversion applies. */
+  readonly lookup: string;
+  /** One selected reading per lookup code point; empty when the package did not align exactly. */
+  readonly byCodePoint: readonly (string | undefined)[];
+};
+
+/**
+ * Selects readings for the whole passage at once. to-jyutping resolves context phrases
+ * (誤會 wui6, 吳先生 saang1, 寧願 jyun2) that per-character lookups cannot see.
+ */
+function cantonesePassageReadings(sourceText: string, displayText: string): CantonesePassageReadings {
+  const sourcePoints = Array.from(sourceText);
+  const displayPoints = Array.from(displayText);
+  const aligned = sourcePoints.length === displayPoints.length;
+  const lookup = cantoneseLookupForm(aligned ? sourceText : displayText);
+  if (Array.from(lookup).length !== (aligned ? sourcePoints.length : displayPoints.length)) {
+    return { lookup, byCodePoint: [] };
+  }
+  const list = getJyutpingList(lookup);
+  const characters = list.map(([character]) => character).join("");
+  if (characters !== lookup) return { lookup, byCodePoint: [] };
+  return { lookup, byCodePoint: list.map(([, reading]) => reading || undefined) };
+}
+
+/**
  * Romanize Chinese text using Cantonese Jyutping.
  * Uses phrase overrides before falling back to to-jyutping for Han characters.
  */
@@ -118,14 +166,15 @@ export async function romanizeCantonese(
   text: string,
   primaryLanguage: string,
   skipTextTests: boolean,
-  tones = true
+  tones = true,
+  sourceText = text
 ): Promise<string | undefined> {
   if (primaryLanguage !== "cmn" && primaryLanguage !== "yue" && !skipTextTests && !ChineseTextTest.test(text)) {
     return undefined;
   }
 
   const parts: string[] = [];
-  for (const piece of walkCantoneseReadings(text, tones)) {
+  for (const piece of walkCantoneseReadings(text, tones, sourceText)) {
     if (piece.reading) parts.push(piece.reading);
   }
 
@@ -153,65 +202,85 @@ export type CantoneseReadingPiece = {
   readonly isPhrase: boolean;
 };
 
-export function* walkCantoneseReadings(text: string, tones = true): Generator<CantoneseReadingPiece> {
-  let index = 0;
-  let startCp = 0;
-  const advance = (nextIndex: number): number => {
-    const consumed = Array.from(text.slice(index, nextIndex)).length;
-    index = nextIndex;
-    startCp += consumed;
-    return consumed;
+export function* walkCantoneseReadings(
+  text: string,
+  tones = true,
+  sourceText = text
+): Generator<CantoneseReadingPiece> {
+  const displayPoints = Array.from(text);
+  const sourcePoints = Array.from(sourceText);
+  const { lookup, byCodePoint } = cantonesePassageReadings(sourceText, text);
+  const lookupPoints = Array.from(lookup);
+  // Readings are positional: the walk may only use them when both strings have the same shape as
+  // the text it reports ranges for.
+  const readingsAligned = byCodePoint.length === displayPoints.length
+    && lookupPoints.length === displayPoints.length;
+  const phraseAt = (startCp: number): string | undefined => {
+    if (!readingsAligned) return undefined;
+    return JYUTPING_PHRASE_KEYS.find((key) => {
+      const keyPoints = Array.from(key);
+      return keyPoints.length > 0 && keyPoints.every((point, offset) => lookupPoints[startCp + offset] === point);
+    });
   };
 
-  while (index < text.length) {
-    const from = index;
+  let startCp = 0;
+
+  while (startCp < displayPoints.length) {
     const fromCp = startCp;
 
-    const phrase = JYUTPING_PHRASE_KEYS.find((key) => text.startsWith(key, index));
+    const phrase = phraseAt(startCp);
     if (phrase) {
-      const reading = JYUTPING_PHRASES[phrase];
-      advance(index + phrase.length);
+      const length = Array.from(phrase).length;
+      const reading = applyCantoneseNgInitial(
+        JYUTPING_PHRASES[phrase],
+        sourcePoints.slice(startCp, startCp + length),
+      );
+      startCp += length;
       yield {
         startCp: fromCp,
         endCp: startCp,
-        text: phrase,
+        text: displayPoints.slice(fromCp, startCp).join(""),
         reading: tones ? reading : stripJyutpingTones(reading),
         isHan: true,
-        isPhrase: Array.from(phrase).length > 1,
+        isPhrase: length > 1,
       };
       continue;
     }
 
-    const char = Array.from(text.slice(index))[0];
+    const char = displayPoints[startCp];
     if (!isChineseHanChar(char)) {
-      let end = index + char.length;
-      while (end < text.length) {
-        const nextPhrase = JYUTPING_PHRASE_KEYS.some((key) => text.startsWith(key, end));
-        const nextChar = Array.from(text.slice(end))[0];
-        if (nextPhrase || isChineseHanChar(nextChar)) break;
-        end += nextChar.length;
+      let end = startCp + 1;
+      while (end < displayPoints.length) {
+        const nextChar = displayPoints[end];
+        if (phraseAt(end) || isChineseHanChar(nextChar)) break;
+        end += 1;
       }
 
-      advance(end);
+      const run = displayPoints.slice(fromCp, end).join("");
+      startCp = end;
       yield {
         startCp: fromCp,
         endCp: startCp,
-        text: text.slice(from, end),
-        reading: text.slice(from, end).trim(),
+        text: run,
+        reading: run.trim(),
         isHan: false,
         isPhrase: false,
       };
       continue;
     }
 
-    const list = getJyutpingList(char);
-    const charReading = list?.[0]?.[1] || char;
-    advance(index + char.length);
+    // R1: the selected reading comes from the passage-level lookup of the source text, with R2
+    // applied before any tone stripping so standard Jyutping and eza式 agree on the reading.
+    const selected = readingsAligned ? byCodePoint[startCp] : undefined;
+    const charReading = selected ?? getJyutpingList(char)?.[0]?.[1] ?? char;
+    const sourceChar = sourcePoints[startCp] ?? char;
+    const reading = applyCantoneseNgInitial(String(charReading).trim(), [sourceChar]);
+    startCp += 1;
     yield {
       startCp: fromCp,
       endCp: startCp,
       text: char,
-      reading: charReading.trim() ? (tones ? charReading : stripJyutpingTones(charReading)) : "",
+      reading: reading ? (tones ? reading : stripJyutpingTones(reading)) : "",
       isHan: true,
       isPhrase: false,
     };
@@ -274,14 +343,15 @@ export async function romanizeCantoneseVn(
   text: string,
   primaryLanguage: string,
   skipTextTests: boolean,
-  tones = true
+  tones = true,
+  sourceText = text
 ): Promise<string | undefined> {
   if (primaryLanguage !== "cmn" && primaryLanguage !== "yue" && !skipTextTests && !ChineseTextTest.test(text)) {
     return undefined;
   }
 
   const parts: string[] = [];
-  for (const piece of walkCantoneseReadings(text, tones)) {
+  for (const piece of walkCantoneseReadings(text, tones, sourceText)) {
     if (!piece.reading) continue;
     if (!piece.isHan) {
       parts.push(piece.reading);

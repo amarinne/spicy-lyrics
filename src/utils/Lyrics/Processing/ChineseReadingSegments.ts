@@ -60,10 +60,11 @@ function rangedMandarinReadings(
 function rangedCantoneseReadings(
   text: string,
   tones: boolean,
-  vnAid: boolean
+  vnAid: boolean,
+  sourceText: string
 ): RangedReading[] {
   const readings: RangedReading[] = [];
-  for (const piece of walkCantoneseReadings(text, tones)) {
+  for (const piece of walkCantoneseReadings(text, tones, sourceText)) {
     const raw = piece.reading.trim();
     if (!piece.isHan || !raw || raw === piece.text) continue;
     const reading = vnAid
@@ -103,6 +104,7 @@ export function buildChineseAttachedReadings(
   translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn",
   tones: boolean,
   spanMappings: readonly CanonicalSpanMapping[],
+  sourceText = text,
 ): AttachedReadingSegment[] {
   if (!text.trim() || !spanMappings.length) return [];
 
@@ -112,7 +114,7 @@ export function buildChineseAttachedReadings(
   if (jyutping) kind = vnAid ? "cantoneseVnAid" : "cantoneseJyutping";
   else kind = vnAid ? "mandarinVnAid" : "mandarinPinyin";
   const ranged = jyutping
-    ? rangedCantoneseReadings(text, tones, vnAid)
+    ? rangedCantoneseReadings(text, tones, vnAid, sourceText)
     : rangedMandarinReadings(text, tones, vnAid);
 
   return ranged.flatMap((entry) => {

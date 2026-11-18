@@ -72,6 +72,8 @@ type TimedGenericPlanOptions = {
     translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn";
     tones: boolean;
   };
+  /** Source text before a display character-form conversion; Cantonese reads Jyutping from it (R1). */
+  sourceText?: string;
 };
 
 function withTimedBoundaries(
@@ -186,6 +188,7 @@ export function buildTimedGenericPlan(
       options.attachedReadings.translitMode,
       options.attachedReadings.tones,
       canonical.spanMappings,
+      options.sourceText ?? canonical.text,
     )
     : [];
   const annotation: ReadingAnnotation = { processor, mode: "local", provenance: "local",
@@ -211,6 +214,7 @@ export function buildLineAttachedPlan(
   id: string,
   translitMode: "pinyin" | "jyutping" | "pinyin-vn" | "jyutping-vn",
   tones: boolean,
+  sourceText = source,
 ): RenderPlan | undefined {
   const characters = Array.from(source);
   if (!characters.length) return undefined;
@@ -218,7 +222,7 @@ export function buildLineAttachedPlan(
     spans: characters.map((character, index) => ({ id: String(index), rawText: character,
       cleanText: character, startMs: 0, endMs: 0, providerPartOfWord: false })) };
   const canonical = new DefaultCanonicalLineBuilder().build(parsed);
-  const attached = buildChineseAttachedReadings(canonical.text, translitMode, tones, canonical.spanMappings);
+  const attached = buildChineseAttachedReadings(canonical.text, translitMode, tones, canonical.spanMappings, sourceText);
   if (!attached.length) return undefined;
   const annotation: ReadingAnnotation = { processor: "Fallback", mode: "line", provenance: "local",
     units: [{ canonicalRange: { startCp: 0, endCp: Array.from(canonical.text).length }, text: display,

@@ -6,7 +6,7 @@ export type CjkReadingRun = {
 };
 
 type ChineseDominantProcessors = {
-  romanizeHan: (text: string) => string | undefined | Promise<string | undefined>;
+  romanizeHan: (text: string, sourceText: string) => string | undefined | Promise<string | undefined>;
   romanizeKana: (text: string) => string | undefined | Promise<string | undefined>;
 };
 
@@ -33,16 +33,26 @@ export function partitionCjkReadingRuns(text: string): CjkReadingRun[] {
 
 export async function romanizeChineseDominantCjkText(
   text: string,
-  processors: ChineseDominantProcessors
+  processors: ChineseDominantProcessors,
+  sourceText = text
 ): Promise<string> {
   const runs = partitionCjkReadingRuns(text);
+  // A display character-form conversion is character-preserving, so the source partitions the same
+  // way. When it does not, the source argument cannot be trusted positionally and each Han run is
+  // its own lookup text.
+  const sourceRuns = partitionCjkReadingRuns(sourceText);
+  const sourceAligned = sourceRuns.length === runs.length
+    && sourceRuns.every((run, index) => run.kind === runs[index].kind);
   let output = "";
   let previousKind: CjkReadingRunKind | undefined;
 
-  for (const run of runs) {
+  for (const [index, run] of runs.entries()) {
     let transformed = run.text;
-    if (run.kind === "Han") transformed = (await processors.romanizeHan(run.text)) || run.text;
-    else if (run.kind === "Kana") transformed = (await processors.romanizeKana(run.text)) || run.text;
+    if (run.kind === "Han") {
+      transformed = (await processors.romanizeHan(run.text, sourceAligned ? sourceRuns[index].text : run.text)) || run.text;
+    } else if (run.kind === "Kana") {
+      transformed = (await processors.romanizeKana(run.text)) || run.text;
+    }
 
     const crossesReadableScriptBoundary =
       (previousKind === "Han" || previousKind === "Kana") &&

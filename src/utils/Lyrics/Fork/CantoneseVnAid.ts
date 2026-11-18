@@ -15,7 +15,8 @@
  *   traditional entering labels 7/8/9 fold to 1/3/6
  * - tone mark goes on the mapped nucleus (qu-/kho- glides never bear tone;
  *   the echo o in ơo stays plain); yu-family nucleus u does bear tone;
- *   syllabic m/ng carry the mark themselves
+ *   syllabic m/ng spell ưm/ưng and hm/hng spell hưm/hưng, so the mark sits
+ *   on the ư (revision 2)
  */
 
 export const CANTONESE_ONSET_MAP: Record<string, string> = {
@@ -153,6 +154,14 @@ export function convertJyutpingSyllableToVnAid(syllable: string, tonesEnabled = 
     tone = last === "7" ? 1 : last === "8" ? 3 : last === "9" ? 6 : Number(last);
     body = input.slice(0, -1);
   }
+
+  // Cantonese revision 2, rules R3 and R4: syllabic nasals spell with ư so the tone mark sits on a
+  // vowel. `h` is an onset on these two syllables, not part of the nucleus.
+  if (body === "m") return applyToneToFinal("ưm", 0, tone, tonesEnabled);
+  if (body === "ng") return applyToneToFinal("ưng", 0, tone, tonesEnabled);
+  if (body === "hm") return applyToneToFinal("hưm", 1, tone, tonesEnabled);
+  if (body === "hng") return applyToneToFinal("hưng", 1, tone, tonesEnabled);
+
   const parsed = splitJyutpingBody(body);
   if (!parsed) return syllable;
   const entry = FINAL_TABLE[parsed.final];

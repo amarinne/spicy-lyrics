@@ -107,13 +107,14 @@ const loadPackagesForScripts = async (
 const romanizeChineseText = async (
   text: string,
   primaryLanguage: string,
-  chineseTranslitMode: ChineseReadingMode
+  chineseTranslitMode: ChineseReadingMode,
+  sourceText = text
 ): Promise<string> => {
   if (isJyutpingTranslitMode(chineseTranslitMode)) {
     if (chineseTranslitMode === "jyutping-vn") {
-      return (await romanizeCantoneseVn(text, primaryLanguage, true, chineseTones)) ?? text;
+      return (await romanizeCantoneseVn(text, primaryLanguage, true, chineseTones, sourceText)) ?? text;
     }
-    return (await romanizeCantonese(text, primaryLanguage, true, chineseTones)) ?? text;
+    return (await romanizeCantonese(text, primaryLanguage, true, chineseTones, sourceText)) ?? text;
   }
   if (chineseTranslitMode === "pinyin-vn") {
     return romanizeMandarinVn(text, chineseTones);
@@ -132,7 +133,13 @@ const romanizeGreekText = (text: string, greekRomanization: any): string => {
   return result != null ? result : text;
 };
 
-type RomanizeEntry = { target: any; line: any; lineText: string };
+type RomanizeEntry = {
+  target: any;
+  line: any;
+  lineText: string;
+  /** Text before the display character-form conversion; Cantonese Jyutping is read from it (R1). */
+  sourceText: string;
+};
 
 const normalizeLyricsText = (target: any): string => {
   if (typeof target?.Text !== "string") return "";
@@ -164,14 +171,14 @@ const gatherText = (
   if (lyrics.Type === "Static") {
     for (const line of lyrics.Lines) {
       const lineText = normalizeLyricsText(line);
-      entries.push({ target: line, line, lineText });
+      entries.push({ target: line, line, lineText, sourceText: lineText });
       textLines.push(lineText);
     }
   } else if (lyrics.Type === "Line") {
     for (const vocalGroup of lyrics.Content) {
       if (vocalGroup.Type === "Vocal" || vocalGroup.Text) {
         const lineText = normalizeLyricsText(vocalGroup);
-        entries.push({ target: vocalGroup, line: vocalGroup, lineText });
+        entries.push({ target: vocalGroup, line: vocalGroup, lineText, sourceText: lineText });
         textLines.push(lineText);
       }
     }
@@ -186,6 +193,7 @@ const gatherText = (
           vocalGroup.Text || "");
         const lineEntries: RomanizeEntry[] = syllables.map((syllable: any) => ({
           target: syllable, line: vocalGroup, lineText: text,
+          sourceText: typeof syllable.Text === "string" ? syllable.Text : "",
         }));
         entries.push(...lineEntries);
         textLines.push(text);
@@ -196,7 +204,10 @@ const gatherText = (
           const bgEntries: RomanizeEntry[] = [];
           for (const syllable of bg.Syllables) {
             normalizeSyllableText(syllable);
-            bgEntries.push({ target: syllable, line: vocalGroup, lineText: "" });
+            bgEntries.push({
+              target: syllable, line: vocalGroup, lineText: "",
+              sourceText: typeof syllable.Text === "string" ? syllable.Text : "",
+            });
           }
           const lineText = resolveSyllableGroupText(bg,
             `background-${bg.StartTime ?? 0}-${bg.EndTime ?? 0}`);
@@ -211,6 +222,39 @@ const gatherText = (
   const francText = textLines.join("\n");
   const scriptText = bgTextLines.length > 0 ? `${francText}\n${bgTextLines.join("\n")}` : francText;
   return { francText, scriptText, entries };
+};
+
+type SourceTextSnapshot = {
+  readonly byTarget: ReadonlyMap<any, string>;
+  readonly byGroup: ReadonlyMap<any, string>;
+};
+
+/**
+ * Records the text as the provider wrote it, before `convertChineseLyricsText` changes the
+ * displayed characters. Cantonese Jyutping must be read from this text (eza revision 2, R1), while
+ * the converted text keeps ownership of display and ranges.
+ */
+const captureSourceTexts = (lyrics: any): SourceTextSnapshot => {
+  const byTarget = new Map<any, string>();
+  const byGroup = new Map<any, string>();
+  const recordGroup = (group: any): void => {
+    if (!group) return;
+    byGroup.set(group, typeof group.Text === "string" ? group.Text : "");
+    for (const syllable of group.Syllables || []) {
+      byTarget.set(syllable, typeof syllable.Text === "string" ? syllable.Text : "");
+    }
+  };
+  if (lyrics?.Type === "Static") {
+    for (const line of lyrics.Lines || []) recordGroup(line);
+  } else if (lyrics?.Type === "Line") {
+    for (const line of lyrics.Content || []) recordGroup(line);
+  } else if (lyrics?.Type === "Syllable") {
+    for (const vocalGroup of lyrics.Content || []) {
+      recordGroup(vocalGroup?.Lead);
+      for (const background of vocalGroup?.Background || []) recordGroup(background);
+    }
+  }
+  return { byTarget, byGroup };
 };
 
 const detectPresentScripts = (
@@ -276,9 +320,10 @@ const romanizeLineText = async (
   text: string,
   docContext: ScriptBranchDocContext,
   packages: RomanizationPackages,
-  language: string
+  language: string,
+  sourceText = text
 ): Promise<string | undefined> => {
-  const entry: RomanizeEntry = { target: { Text: text }, line: {}, lineText: text };
+  const entry: RomanizeEntry = { target: { Text: text }, line: {}, lineText: text, sourceText };
   const changed = await romanizeEntry(entry, docContext, packages, language, false);
   return changed ? entry.target.TransliteratedText : undefined;
 };
@@ -287,7 +332,8 @@ const postProcessSyllableRomanization = async (
   lyrics: any,
   docContext: ScriptBranchDocContext,
   packages: RomanizationPackages,
-  language: string
+  language: string,
+  sourceTexts?: SourceTextSnapshot
 ) => {
   if (lyrics.Type !== "Syllable") return;
 
@@ -356,7 +402,8 @@ const postProcessSyllableRomanization = async (
         delete group.TransliteratedText;
         return;
       }
-      const fullRomaji = await romanizeLineText(effectiveLineText, docContext, packages, language);
+      const sourceLineText = sourceTexts?.byGroup.get(group) ?? lineText;
+      const fullRomaji = await romanizeLineText(effectiveLineText, docContext, packages, language, sourceLineText);
       if (!fullRomaji) return;
 
       group.TransliteratedText = fullRomaji;
@@ -382,6 +429,7 @@ const postProcessSyllableRomanization = async (
           isChineseLine ? "Chinese" : "Generic",
           {
             mandarinWordLayout,
+            sourceText: sourceLineText,
             ...(isChineseLine && chineseReadingPlacement !== "lineBelow"
               ? { attachedReadings: { translitMode: docContext.chineseMode, tones: chineseTones } }
               : {}),
@@ -454,14 +502,15 @@ const romanizeEntry = async (
     docContext.cjkDominantBranch === "Chinese" &&
     cjkLineRoute !== "Japanese" &&
     (ItemChineseTest.test(text) || JapaneseTextTest.test(text));
+  const chineseSourceText = entry.sourceText || text;
   if (chineseDominantCjk) {
     text = await romanizeChineseDominantCjkText(text, {
-      romanizeHan: (run) => romanizeChineseText(run, primaryLanguage, docContext.chineseMode),
+      romanizeHan: (run, runSource) => romanizeChineseText(run, primaryLanguage, docContext.chineseMode, runSource),
       romanizeKana: async (run) => {
         const target = { Text: run };
         return processJapanesePackageTextTarget(target);
       },
-    });
+    }, chineseSourceText);
     changed = text !== target.Text;
   }
 
@@ -472,7 +521,7 @@ const romanizeEntry = async (
       continue;
     } else if (script === "Chinese") {
       if (ItemChineseTest.test(text)) {
-        text = await romanizeChineseText(text, primaryLanguage, docContext.chineseMode);
+        text = await romanizeChineseText(text, primaryLanguage, docContext.chineseMode, chineseSourceText);
         changed = true;
       }
     } else if (script === "Korean") {
@@ -575,6 +624,7 @@ export const ProcessLyrics = async (
   };
   const chineseCharacterForm = $chineseCharacterForm.get();
   lyrics.ChineseCharacterForm = chineseCharacterForm;
+  const sourceTexts = captureSourceTexts(lyrics);
   if (chineseCharacterForm !== "original" && presentScripts.includes("Chinese")) {
     convertChineseLyricsText(
       lyrics,
@@ -584,6 +634,9 @@ export const ProcessLyrics = async (
     gathered = gatherText(lyrics);
   }
   const entries = gathered.entries;
+  for (const entry of entries) {
+    entry.sourceText = sourceTexts.byTarget.get(entry.target) ?? entry.sourceText;
+  }
   // A cached document may carry a plan from the previous Chinese reading mode.
   for (const entry of entries) {
     if (scriptBranchForLine(entry.lineText, docContext).includes("Chinese")) {
@@ -626,7 +679,7 @@ export const ProcessLyrics = async (
 
   if (presentScripts.length > 0) {
     if (Object.keys(packages).length === 0) packages = await loadPackagesForScripts(presentScripts);
-    await postProcessSyllableRomanization(lyrics, docContext, packages, language);
+    await postProcessSyllableRomanization(lyrics, docContext, packages, language, sourceTexts);
     if (lyrics.Type !== "Syllable") {
       entries.forEach((entry, index) => {
         if (entry.target.ReadingRenderPlan) return;
@@ -637,7 +690,7 @@ export const ProcessLyrics = async (
           display = joinMandarinReadingWords(entry.target.Text || "", display);
         }
         const attachedPlan = chineseReadingPlacement !== "lineBelow" && cjkLineRoute === "Chinese"
-          ? buildLineAttachedPlan(entry.target.Text || "", display, `line-${index}`, chineseMode, chineseTones)
+          ? buildLineAttachedPlan(entry.target.Text || "", display, `line-${index}`, chineseMode, chineseTones, entry.sourceText)
           : undefined;
         entry.target.ReadingRenderPlan = attachedPlan
           ?? buildLineFallbackPlan(entry.target.Text || "", display, `line-${index}`);

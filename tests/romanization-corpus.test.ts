@@ -774,5 +774,6 @@ test("Cantonese fullwidth punctuation real-line corpus", async () => {
 });
 
 test("Cantonese polyphone gaps", async () => {
-  assert.equal(await romanizeCantonese("看著電話中短訊", "yue", true, true), "hon3 zyu6 din6 waa6 zung1 dyun2 seon3");
+  // Passage selection resolves 電話 as din6 waa2; the phrase table still owns 看著.
+  assert.equal(await romanizeCantonese("看著電話中短訊", "yue", true, true), "hon3 zyu6 din6 waa2 zung1 dyun2 seon3");
 });

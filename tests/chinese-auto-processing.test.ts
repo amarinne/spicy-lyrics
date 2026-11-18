@@ -14,6 +14,7 @@ import { StripEmptyLyricsLines } from "../src/utils/Lyrics/EmptyLines.ts";
 import { romanizeChineseDominantCjkText } from "../src/utils/Lyrics/Processing/CjkLanguageRouting.ts";
 import { isAudioChineseMode, isRhymeChineseMode, resolveChineseTranslitMode, type ChineseTranslitMode, type ChineseLanguage } from "../src/utils/Lyrics/ChineseTranslitMode.ts";
 import { guessChineseFromRhymes } from "../src/utils/Lyrics/ChineseRhymeGuess.ts";
+import { convertChineseLyricsText } from "../src/utils/Lyrics/ChineseCharacterConversion.ts";
 
 // Exercise the real processor and reading plans. Replace its Spotify/UI imports and unused services.
 const source = readFileSync(new URL("../src/utils/Lyrics/ProcessLyrics.ts", import.meta.url), "utf8").replace(/^import[\s\S]*?;\n/gm, "");
@@ -24,6 +25,7 @@ function processor() {
     ...detection, ...romanization, ...plans, franc, langs, acceptRomanization, StripEmptyLyricsLines,
     resolveSyllableGroupBoundaries,
     romanizeChineseDominantCjkText,
+    convertChineseLyricsText,
     Logger: class { warn() {} },
     RetrievePackage: async () => ({}),
     $chineseCharacterForm: { get: () => "original" },
@@ -119,5 +121,32 @@ for (const type of ["Static", "Line", "Syllable"] as const) {
     context.audioLanguage = "cmn";
     await process(lyrics, { updatePageClasses: false });
     assert.equal(lyrics.ResolvedChineseTranslitMode, "pinyin");
+  });
+}
+
+for (const type of ["Static", "Syllable"] as const) {
+  test(`${type} simplified display reads Jyutping from the provider source (R1)`, async () => {
+    const { context, process } = processor();
+    context.chineseTranslitMode = "auto";
+    context.audioDecided = true;
+    context.audioLanguage = "yue";
+    context.chineseReadingPlacement = "lineBelow";
+    context.$chineseCharacterForm = { get: () => "simplified" };
+    const text = "不願離開 只願留低";
+    const lyrics: any = { uri: "spotify:track:test", Type: type };
+    if (type === "Static") lyrics.Lines = [{ Text: text }];
+    else lyrics.Content = [{ Type: "Vocal", Lead: {
+      StartTime: 0, EndTime: 5, Syllables: Array.from(text, (Text, i) => ({
+        Text, StartTime: i, EndTime: i + 1, IsPartOfWord: false,
+      })),
+    } }];
+    await process(lyrics, { updatePageClasses: false });
+    const target = () => type === "Static" ? lyrics.Lines[0] : lyrics.Content[0].Lead;
+    assert.equal(target().Text.replace(/\s+/gu, ""), "不愿离开只愿留低");
+    // 離 must read lei4 from 不願離開, not ci1 from the simplified display character.
+    assert.equal(
+      target().ReadingRenderPlan.joinedDisplayText,
+      "bat1 jyun6 lei4 hoi1 zi2 jyun6 lau4 dai1",
+    );
   });
 }

@@ -10,6 +10,8 @@ type TimedTextUnit = { Text?: string; IsPartOfWord?: boolean };
 
 const toSimplified = ConverterBuilder(TraditionalToCnPreset)({ from: "t", to: "cn" });
 const toTraditional = ConverterBuilder(CnToTraditionalPreset)({ from: "cn", to: "tw" });
+// Reading lookup uses the plain OpenCC cn→t mapping, matching the Cantonese provider in cjk-labs.
+const toTraditionalForLookup = ConverterBuilder(CnToTraditionalPreset)({ from: "cn", to: "t" });
 
 const codePoints = (value: string): string[] => Array.from(value);
 
@@ -27,6 +29,21 @@ function differenceCount(left: string, right: string): number {
 export function convertChineseText(text: string, form: ChineseCharacterForm): string {
   if (!text || form === "original") return text;
   return form === "simplified" ? toSimplified(text) : toTraditional(text);
+}
+
+/**
+ * Lookup form for Cantonese Jyutping (eza revision 2, rule R1).
+ *
+ * to-jyutping reads simplified characters with the wrong default (离 ci1, 听 ting1). If the
+ * passage has no traditional-only character, look it up through a character-preserving cn→t
+ * conversion; otherwise the source already carries the traditional evidence. A conversion that
+ * changes the code-point count is not character-preserving and is rejected, because callers map
+ * readings back onto the source by position.
+ */
+export function cantoneseLookupForm(text: string): string {
+  if (!text || toSimplified(text) !== text) return text;
+  const converted = toTraditionalForLookup(text);
+  return codePoints(converted).length === codePoints(text).length ? converted : text;
 }
 
 export function detectChineseCharacterForm(text: string): DetectedChineseCharacterForm {
