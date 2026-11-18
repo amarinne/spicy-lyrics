@@ -114,6 +114,14 @@ test("a single Cantonese character cannot decide a track on its own", () => {
   assert.notEqual(guessChineseFromRhymes(mandarin).language, "yue");
 });
 
+test("Hangul lines are not counted as Han evidence", () => {
+  // 红蔷薇白玫瑰 (G.E.M.) contains a Korean hook. The compatibility-ideograph range starts at
+  // U+F900; spelling it from 豈 (U+8C48) would swallow Hangul and add a phantom line.
+  const base = guessChineseFromRhymes(mando);
+  const mixed = guessChineseFromRhymes([...mando, "사랑해 (사랑해) 사랑해 (사랑해)"]);
+  assert.equal(mixed.lineCount, base.lineCount);
+});
+
 test("ambiguous characters shared with Mandarin never count as Cantonese markers", () => {
   // 曬 (shài), 郁, 咩, 畀 and 俾 all occur in Mandarin text; they must not decide a language.
   const ambiguous = ["久未放晴的天空", "依舊留著妳的笑容", "哭過 卻無法掩埋歉疚", "曬過的衣服很香", "鬱悶的心情感覺"];

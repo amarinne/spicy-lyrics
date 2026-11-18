@@ -38,7 +38,9 @@ const MIN_DECISION_LINES = 12;
  */
 const JP_TONE_CLASS: Record<string, number> = { "4": 0, "6": 1, "3": 2, "5": 2, "1": 3, "2": 3 };
 const TONE_MIN_LINE_LENGTH = 5;
-const HAN = /[㐀-鿿豈-﫿]/gu;
+// CJK Unified Ideographs plus the Compatibility Ideographs block, which starts at U+F900.
+// Spelling the lower bound as 豈 would start at U+8C48 and count Hangul as Han.
+const HAN = /[\u3400-\u9fff\uf900-\ufaff]/gu;
 const MANDARIN_RHYMES: Record<string, string> = {
   ie: "e", üe: "e", o: "e", uo: "o", ong: "eng", iong: "eng", ing: "eng",
   in: "en", un: "en", ün: "en", ui: "ei", iu: "ou", ü: "i",
