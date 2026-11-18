@@ -1,3 +1,4 @@
+import { mandarinReaderDebug } from "./Lyrics/Fork/MandarinReader.ts";
 import { toast } from "sonner";
 import { dbPromise } from "./db";
 import { LocalLyricsManager } from "./Lyrics/manager";
@@ -34,6 +35,7 @@ export function exposeToWindow() {
             }
         },
         testing: {
+            mandarin: mandarinReaderDebug,
             autoUpdate: {
                 triggerFakeUpdate: triggerSpicyLyricsFakeUpdate,
             },

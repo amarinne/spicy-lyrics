@@ -29,6 +29,7 @@ test("processing context key is stable for same inputs", () => {
 test("Mandarin eza式 rejects cached output from before the spelling revision", () => {
   const current = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: "pinyin-vn" });
   const legacy = JSON.parse(current);
+  assert.equal(legacy.mandarinEzaRevision, "eza-2026-11-15.3");
   delete legacy.mandarinEzaRevision;
   assert.notEqual(current, JSON.stringify(legacy));
   for (const mode of ["pinyin", "jyutping", "jyutping-vn"] as const) {
@@ -110,4 +111,17 @@ test("rhyme processing has its own revision and ignores unrelated audio decision
   assert.match(key("rhyme", "pinyin"), /chineseRhymeRevision/);
   assert.doesNotMatch(key("rhyme", "pinyin"), /chineseAudioRevision/);
   assert.match(key("rhyme-vn", "pinyin"), /mandarinEzaRevision/);
+});
+
+test("only Mandarin eza invalidates model reader cache identities", () => {
+  for (const mode of ["pinyin-vn"] as const) {
+    const key = buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode });
+    const old = JSON.parse(key);
+    assert.ok(old.mandarinReaderRevision.startsWith("mandarin-g2pm-reader-"), "the reader identity matches cjk-labs");
+    delete old.mandarinReaderRevision;
+    assert.notEqual(JSON.stringify(old), key);
+  }
+  for (const mode of ["pinyin", "jyutping", "jyutping-vn"] as const) {
+    assert.equal(JSON.parse(buildProcessingContextKey({ ...baseContext, chineseTranslitMode: mode })).mandarinReaderRevision, undefined);
+  }
 });

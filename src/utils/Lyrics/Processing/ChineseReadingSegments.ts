@@ -14,11 +14,13 @@
  */
 
 import { pinyin } from "pinyin-pro";
+import { formatPinyin } from "../Fork/MandarinPinyinFormat.ts";
 import {
   buildMandarinWordLayout,
   walkCantoneseReadings,
 } from "../Fork/Romanization.ts";
 import { convertMandarinSyllableToVnAid } from "../Fork/MandarinVnAid.ts";
+import { mandarinEzaReadings } from "../Fork/MandarinEzaLine.ts";
 import { convertJyutpingSyllableToVnAid } from "../Fork/CantoneseVnAid.ts";
 import type { AttachedReadingSegment, CanonicalSpanMapping, TextRange } from "./Model.ts";
 
@@ -32,26 +34,33 @@ function rangedMandarinReadings(
   tones: boolean,
   vnAid: boolean
 ): RangedReading[] {
-  const layout = buildMandarinWordLayout(text);
+  if (!vnAid) {
+    let startCp = 0;
+    return pinyin(text, { type: "all", toneType: tones ? "symbol" : "none", toneSandhi: false, nonZh: "consecutive" }).flatMap((item) => {
+      const range = { startCp, endCp: startCp + Array.from(item.origin).length };
+      startCp = range.endCp;
+      return item.isZh ? [{ canonicalRange: range, reading: item.result }] : [];
+    });
+  }
+  const layout = buildMandarinWordLayout(text, true);
   if (!layout.tokens.length) return [];
 
-  // Deliberately the same call `romanizeMandarin` makes, so the reading a character gets does not
-  // depend on where it is placed. The VN-aid variant uses tone-numbered output from the same
-  // segmentation, keeping a 1:1 token alignment with the plain path.
-  const readings = pinyin(text, {
-    type: "array",
-    toneType: vnAid ? "num" : tones ? "symbol" : "none",
-    toneSandhi: false,
-    nonZh: "consecutive",
-  }) as string[];
+  const lineReadings = mandarinEzaReadings(text);
+  const readings = lineReadings.filter((item) => item.origin.trim()).map((item) =>
+    item.isZh ? formatPinyin(item.citation, tones ? "diacritics" : "unmarked") : item.origin);
 
   // The same alignment `joinMandarinReadingWords` requires. A mismatch means the reading array and
   // the token walk disagree about the text, and a misaligned reading is worse than none.
   if (readings.length !== layout.tokenCount) return [];
 
+  // eza式 spells the surface tone, which depends on the whole line (sandhi and neutral pitch).
+  const surface = vnAid
+    ? new Map(lineReadings.filter((item) => item.isZh).map((item) => [item.startCp, item.surface]))
+    : undefined;
+
   return layout.tokens.flatMap((token, index) => {
     const raw = (readings[index] ?? "").trim();
-    const reading = vnAid ? convertMandarinSyllableToVnAid(raw, tones) : raw;
+    const reading = vnAid ? convertMandarinSyllableToVnAid(surface?.get(token.startCp) ?? raw, tones) : raw;
     if (!token.isHan || !reading || reading === token.text) return [];
     return [{ canonicalRange: { startCp: token.startCp, endCp: token.endCp }, reading }];
   });

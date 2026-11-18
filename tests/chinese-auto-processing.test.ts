@@ -15,6 +15,8 @@ import { romanizeChineseDominantCjkText } from "../src/utils/Lyrics/Processing/C
 import { isAudioChineseMode, isRhymeChineseMode, resolveChineseTranslitMode, type ChineseTranslitMode, type ChineseLanguage } from "../src/utils/Lyrics/ChineseTranslitMode.ts";
 import { guessChineseFromRhymes } from "../src/utils/Lyrics/ChineseRhymeGuess.ts";
 import { convertChineseLyricsText } from "../src/utils/Lyrics/ChineseCharacterConversion.ts";
+import { ensureMandarinSegmenter } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
+import { mandarinTimedChunks } from "../src/utils/Lyrics/Processing/ChineseTimedChunks.ts";
 
 // Exercise the real processor and reading plans. Replace its Spotify/UI imports and unused services.
 const source = readFileSync(new URL("../src/utils/Lyrics/ProcessLyrics.ts", import.meta.url), "utf8").replace(/^import[\s\S]*?;\n/gm, "");
@@ -26,6 +28,7 @@ function processor() {
     resolveSyllableGroupBoundaries,
     romanizeChineseDominantCjkText,
     convertChineseLyricsText,
+    ensureMandarinSegmenter, mandarinTimedChunks,
     Logger: class { warn() {} },
     RetrievePackage: async () => ({}),
     $chineseCharacterForm: { get: () => "original" },
@@ -71,7 +74,7 @@ for (const type of ["Static", "Line", "Syllable"] as const) {
     for (const [mode, language, expected, attachedKind] of [
       ["auto", "yue", "nei5 hou2 hoeng1 gong2", "cantoneseJyutping"],
       ["auto-vn", "yue", "nẻi hóu hỡong kóng", "cantoneseVnAid"],
-      ["auto-vn", "cmn", "nỉ hảo shiang kảng", "mandarinVnAid"],
+      ["auto-vn", "cmn", "ní hảo shiang kảng", "mandarinVnAid"],
       ["auto", "cmn", "nǐ hǎo xiāng gǎng", "mandarinPinyin"],
     ] as const) {
       context.chineseTranslitMode = mode;

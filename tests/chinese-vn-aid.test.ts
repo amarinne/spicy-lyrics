@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { before, test } from "node:test";
 import { convertMandarinSyllableToVnAid } from "../src/utils/Lyrics/Fork/MandarinVnAid.ts";
+import { ensureMandarinSegmenter } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
 import { convertJyutpingSyllableToVnAid } from "../src/utils/Lyrics/Fork/CantoneseVnAid.ts";
 import {
   isJyutpingTranslitMode,
@@ -13,13 +14,22 @@ import {
 } from "../src/utils/Lyrics/Fork/Romanization.ts";
 import { buildChineseAttachedReadings } from "../src/utils/Lyrics/Processing/ChineseReadingSegments.ts";
 
+// Line readings use jieba word tokens for Mandarin eza式 sandhi, as the app does after its async load.
+before(async () => {
+  assert.equal(await ensureMandarinSegmenter(), true);
+});
+
 test("Mandarin VN-aid tone marks on ma", () => {
   assert.equal(convertMandarinSyllableToVnAid("ma1"), "ma");
   assert.equal(convertMandarinSyllableToVnAid("ma2"), "má");
   assert.equal(convertMandarinSyllableToVnAid("ma3"), "mả");
   assert.equal(convertMandarinSyllableToVnAid("ma4"), "mà");
-  assert.equal(convertMandarinSyllableToVnAid("ma0"), "mạ");
+  // Revision 2: no neutral mark. A level neutral (0 or 5) is unmarked; a falling neutral (6) takes the grave.
+  assert.equal(convertMandarinSyllableToVnAid("ma0"), "ma");
+  assert.equal(convertMandarinSyllableToVnAid("ma5"), "ma");
+  assert.equal(convertMandarinSyllableToVnAid("ma6"), "mà");
   assert.equal(convertMandarinSyllableToVnAid("ma3", false), "ma");
+  assert.equal(convertMandarinSyllableToVnAid("ma6", false), "ma");
 });
 
 test("Mandarin eza式 stop series uses p/th/kh without aspiration apostrophes", () => {
@@ -107,7 +117,7 @@ test("Mandarin VN-aid ê marks the closer vowel in ei/uei only", () => {
   assert.equal(convertMandarinSyllableToVnAid("yuan2"), "yuén");
 });
 
-test("Mandarin VN-aid open e row renders ưa with existing onsets and tone anchors", () => {
+test("Mandarin VN-aid open e row renders ưa in a full tone with existing onsets and tone anchors", () => {
   const eRow = [
     ["e", "ưa"], ["me", "mưa"], ["de", "tưa"], ["te", "thưa"],
     ["ne", "nưa"], ["le", "lưa"], ["ge", "kưa"], ["ke", "khưa"],
@@ -120,8 +130,32 @@ test("Mandarin VN-aid open e row renders ưa with existing onsets and tone ancho
   assert.equal(convertMandarinSyllableToVnAid("de2"), "tứa");
   assert.equal(convertMandarinSyllableToVnAid("de3"), "tửa");
   assert.equal(convertMandarinSyllableToVnAid("de4"), "từa");
-  assert.equal(convertMandarinSyllableToVnAid("de0"), "tựa");
   assert.equal(convertMandarinSyllableToVnAid("de3", false), "tưa");
+});
+
+test("Mandarin eza式 neutral open e is ơ, except after g, k or h", () => {
+  // Level and falling neutrals both reduce the vowel; the mark follows the surface pitch.
+  assert.equal(convertMandarinSyllableToVnAid("de0"), "tơ");
+  assert.equal(convertMandarinSyllableToVnAid("de6"), "tờ");
+  assert.equal(convertMandarinSyllableToVnAid("le5", false), "lơ");
+  assert.equal(convertMandarinSyllableToVnAid("me6"), "mờ");
+  assert.equal(convertMandarinSyllableToVnAid("e0"), "ơ", "a zero onset is not velar");
+  for (const [neutral, expected] of [["ge0", "kưa"], ["ge6", "kừa"], ["ke0", "khưa"], ["he6", "hừa"]] as const) {
+    assert.equal(convertMandarinSyllableToVnAid(neutral), expected, neutral);
+  }
+  // Only the open e row changes: en/eng/ei keep their spellings in the neutral tone.
+  assert.equal(convertMandarinSyllableToVnAid("men0"), "mân");
+  assert.equal(convertMandarinSyllableToVnAid("men6"), "mần");
+  assert.equal(convertMandarinSyllableToVnAid("mei6"), "mềi");
+  // In context: the velar rule and the neutral pitch together.
+  assert.equal(romanizeMandarinVn("哥哥"), "kưa kừa");
+  // The g2pM pack reads 吆喝 as yao1 he1 (recorded reader gap), so the velar-neutral case lives above.
+  assert.equal(romanizeMandarinVn("吆喝"), "yao hưa");
+  assert.equal(romanizeMandarinVn("这个"), "zhưa kừa");
+  assert.equal(romanizeMandarinVn("我的"), "wỏ tơ");
+  assert.equal(romanizeMandarinVn("他的"), "tha tờ");
+  assert.equal(romanizeMandarinVn("妹妹"), "mêi mềi");
+  assert.equal(romanizeMandarinVn("饿"), "ừa");
 });
 
 test("Mandarin VN-aid open e row does not rewrite neighboring finals", () => {
@@ -189,7 +223,7 @@ test("Mandarin VN-aid has no collisions across the covered syllable inventory", 
     "jiong", "qiong", "xiong", "er", "yan", "wen", "weng", "yuan", "yun", "yue", "yu", "yi", "yin", "ying", "yong", "you", "wei", "wo",
     "die", "tie", "nie", "lie", "jie", "qie", "xie",
   ];
-  for (const tone of [1, 2, 3, 4, 0]) {
+  for (const tone of [1, 2, 3, 4, 0, 6]) {
     const seen = new Map<string, string>();
     for (const base of bases) {
       const rendered = convertMandarinSyllableToVnAid(`${base}${tone}`);
@@ -201,32 +235,40 @@ test("Mandarin VN-aid has no collisions across the covered syllable inventory", 
 });
 
 test("Mandarin VN-aid lyric acceptance corpus", () => {
-  assert.equal(romanizeMandarinVn("你好", true), "nỉ hảo");
+  // Surface tones (revision 3): 你好 is spoken ní hảo; Latin, digits and punctuation end a sandhi domain.
+  assert.equal(romanizeMandarinVn("你好", true), "ní hảo");
   assert.equal(romanizeMandarinVn("你好", false), "ni hao");
   assert.equal(romanizeMandarinVn("唱 mp3 歌", true), "chàng mp3 kưa");
-  assert.equal(romanizeMandarinVn("BTS4 你好", true), "BTS4 nỉ hảo");
-  assert.equal(romanizeMandarinVn("你好 ma3", true), "nỉ hảo ma3");
-  assert.equal(romanizeMandarinVn("don't 太怕看", true), "don't thài pà khàn");
-  assert.equal(romanizeMandarinVn("你好BTS4你好", true), "nỉ hảo BTS4 nỉ hảo");
-  assert.equal(romanizeMandarinVn("你好！😀ma3你好", true), "nỉ hảo ！😀ma3 nỉ hảo");
+  assert.equal(romanizeMandarinVn("BTS4 你好", true), "BTS4 ní hảo");
+  assert.equal(romanizeMandarinVn("你好 ma3", true), "ní hảo ma3");
+  assert.equal(romanizeMandarinVn("don't 太怕看", true), "don't thai pa khàn", "tone 4 before tone 4 is flat across words too");
+  assert.equal(romanizeMandarinVn("你好BTS4你好", true), "ní hảo BTS4 ní hảo");
+  assert.equal(romanizeMandarinVn("你好！😀ma3你好", true), "ní hảo ！😀ma3 ní hảo");
   assert.equal(romanizeMandarinVn("BTS4你好mp3", false), "BTS4 ni hao mp3");
-  assert.equal(joinMandarinReadingWords("音乐BTS4银行", romanizeMandarinVn("音乐BTS4银行", true)), "yinyuè BTS4 yínháng");
-  assert.equal(romanizeMandarinVn("音乐银行", true), "yin yuè yín háng");
+  // The g2pM pack reads 银行 as yín xíng inside a sentence (recorded reader gap), not háng.
+  assert.equal(joinMandarinReadingWords("音乐BTS4银行", romanizeMandarinVn("音乐BTS4银行", true)), "yinyuè BTS4 yínshíng");
+  assert.equal(romanizeMandarinVn("音乐银行", true), "yin yuè yín shíng");
   assert.equal(
     joinMandarinReadingWords("音乐 银行", romanizeMandarinVn("音乐 银行", true)),
-    "yinyuè yínháng"
+    "yinyuè yínháng",
+    "a space makes 银行 the whole input, so the pinned phrase decides háng"
   );
+  // Tone 4 before tone 4 is flat across words: 太 in 不太確定.
   assert.equal(
     romanizeMandarinVn("算不算愛我不太確定", true),
-    "suàn bù suàn ài wỏ bù thài chyuè tìng"
+    "suan bù suan ài wỏ bú thai chyue tìng"
   );
+  // pinyin-pro reads 著 as zhù4 (the neutral particle zhe is an open particle decision), so the one-token 看著
+  // is 4 4 and its first tone becomes tone 1 by the tone 4 before tone 4 rule.
+  // 星星 is xing1 xing5 in the pack, so the neutral after tone 1 takes the grave.
   assert.equal(
     romanizeMandarinVn("看著窗外的小星星", true),
-    "khàn zhù chuang wài tựa shiảo shing shing"
+    "khan zhù chuang wai tờ shiảo shing shìng"
   );
+  // 要 (tone 4) before 唱 (tone 4) is flat across words.
   assert.equal(
     romanizeMandarinVn("我想要唱給你聽", true),
-    "wỏ shiảng yào chàng kểi nỉ thing"
+    "wó shiảng yao chàng kếi nỉ thing"
   );
 });
 
@@ -366,13 +408,13 @@ test("Chinese VN-aid attached readings carry their own kind", () => {
   ];
   const mandarin = buildChineseAttachedReadings("你好", "pinyin-vn", true, spans);
   assert.deepEqual(mandarin.map((r) => r.kind), ["mandarinVnAid", "mandarinVnAid"]);
-  assert.deepEqual(mandarin.map((r) => r.reading), ["nỉ", "hảo"]);
+  assert.deepEqual(mandarin.map((r) => r.reading), ["ní", "hảo"]);
 
   const aspirationSpans = Array.from({ length: 3 }, (_, i) => ({
     spanId: String(i), canonicalRange: { startCp: i, endCp: i + 1 },
   }));
   const aspirated = buildChineseAttachedReadings("怕太看", "pinyin-vn", true, aspirationSpans);
-  assert.deepEqual(aspirated.map((r) => r.reading), ["pà", "thài", "khàn"]);
+  assert.deepEqual(aspirated.map((r) => r.reading), ["pa", "thai", "khàn"]);
   assert.deepEqual(aspirated.map((r) => r.canonicalRange), aspirationSpans.map((span) => span.canonicalRange));
 
   const cantonese = buildChineseAttachedReadings("你好", "jyutping-vn", true, spans);
@@ -381,4 +423,12 @@ test("Chinese VN-aid attached readings carry their own kind", () => {
 
   const plain = buildChineseAttachedReadings("你好", "pinyin", true, spans);
   assert.deepEqual(plain.map((r) => r.kind), ["mandarinPinyin", "mandarinPinyin"]);
+  assert.deepEqual(plain.map((r) => r.reading), ["nǐ", "hǎo"], "Standard Pinyin keeps citation tones");
+
+  // Attached eza式 readings spell each character with the surface tone of the whole line.
+  const lineSpans = Array.from({ length: 4 }, (_, i) => ({
+    spanId: String(i), canonicalRange: { startCp: i, endCp: i + 1 },
+  }));
+  assert.deepEqual(buildChineseAttachedReadings("妹妹的书", "pinyin-vn", true, lineSpans).map((r) => r.reading), ["mêi", "mềi", "tơ", "shu"]);
+  assert.deepEqual(buildChineseAttachedReadings("妹妹的书", "pinyin", true, lineSpans).map((r) => r.reading), ["mèi", "mei", "de", "shū"]);
 });

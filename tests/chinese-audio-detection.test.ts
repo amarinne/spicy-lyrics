@@ -4,6 +4,7 @@ import { CHINESE_AUDIO_REVISION, ChineseAudioDetector, classifyChineseAudio, val
 import { chineseAudioLyricLines } from "../src/utils/Lyrics/ChineseAudioLyrics.ts";
 import { resolveChineseTranslitMode } from "../src/utils/Lyrics/ChineseTranslitMode.ts";
 import { romanizeMandarin, romanizeMandarinVn, romanizeCantonese, romanizeCantoneseVn, toggleChineseTranslitLanguage } from "../src/utils/Lyrics/Fork/Romanization.ts";
+import { ensureMandarinSegmenter } from "../src/utils/Lyrics/Fork/MandarinEzaLine.ts";
 
 test("phone fit needs two windows and overrides LID; otherwise three LID windows decide", () => {
   const lid = (logOdds: number) => ({ logOdds, phoneFit: null });
@@ -65,6 +66,7 @@ test("auto keeps the output style while manual modes override audio", async () =
     assert.equal(resolveChineseTranslitMode(mode, "cmn"), mode);
   }
   assert.equal(toggleChineseTranslitLanguage(resolveChineseTranslitMode("auto-vn", "yue")), "pinyin-vn");
+  await ensureMandarinSegmenter();
   const readings = {
     pinyin: () => romanizeMandarin("你好", true),
     "pinyin-vn": () => romanizeMandarinVn("你好", true),
@@ -73,7 +75,7 @@ test("auto keeps the output style while manual modes override audio", async () =
   };
   assert.equal(await readings[resolveChineseTranslitMode("auto", "yue")](), "nei5 hou2");
   assert.equal(await readings[resolveChineseTranslitMode("auto-vn", "yue")](), "nẻi hóu");
-  assert.equal(await readings[resolveChineseTranslitMode("auto-vn", "cmn")](), "nỉ hảo");
+  assert.equal(await readings[resolveChineseTranslitMode("auto-vn", "cmn")](), "ní hảo");
 });
 
 function harness() {
