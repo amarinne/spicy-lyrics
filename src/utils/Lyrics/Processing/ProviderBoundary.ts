@@ -94,8 +94,11 @@ const endsWithSyllable = (run: string): boolean =>
 function bopomofoJoinRelation(previous: string, next: string): JoinRelation | undefined {
   const left = trailingBopomofo(previous);
   const right = leadingBopomofo(next);
-  if (!left && !right) return undefined;
-  if (!left || !right) return "boundary";
+  // A Han 一 or a tone mark by itself is not phonetic evidence: ordinary Han joins keep their
+  // script rule (第 | 一 | 次 must stay 第一次 when no provider line says otherwise).
+  if (!Array.from(left + right).some(isBopomofoChar)) return undefined;
+  if (!left) return undefined;
+  if (!right) return "boundary";
   const boundary = Array.from(left).length;
   const crossing = resolveZhuyinSpans(left + right).some((span) =>
     span.syllables.some((syllable) => syllable.start < boundary && syllable.end > boundary));
@@ -195,12 +198,14 @@ function resolveJoin(current: SpanState, next: SpanState, providerSeparator: str
   }
   // Authored Bopomofo: a complete provider line is authoritative, otherwise the resolver decides
   // whether the span boundary cut a syllable or separates two complete ones.
-  const bopomofo = bopomofoJoinRelation(current.core, next.core);
-  if (bopomofo) {
+  if (isBopomofoRunChar(lastChar(current.core)) || isBopomofoRunChar(firstChar(next.core))) {
     if (providerSeparator === "") return attached(0.9, "completeProviderLineCompact");
-    return bopomofo === "attached"
-      ? attached(0.9, "zhuyinSyllableContinuation")
-      : boundary("script", 0.9, "zhuyinSyllableBoundary");
+    const bopomofo = bopomofoJoinRelation(current.core, next.core);
+    if (bopomofo) {
+      return bopomofo === "attached"
+        ? attached(0.9, "zhuyinSyllableContinuation")
+        : boundary("script", 0.9, "zhuyinSyllableBoundary");
+    }
   }
   const script = scriptRelation(current.core, next.core);
   if (script === "attached") return attached(0.9, "scriptFallback");

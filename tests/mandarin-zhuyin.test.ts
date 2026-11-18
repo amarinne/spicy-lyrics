@@ -233,9 +233,19 @@ test("provider span joins preserve the authored hook spacing", () => {
   );
 });
 
+test("ordinary Han joins never take a Bopomofo reading from a bare 一", () => {
+  const group = (texts: string[]) => texts.map((Text) => ({ Text, IsPartOfWord: false }));
+  // No provider line, no Bopomofo symbol: 一 stays an ordinary Han character.
+  assert.equal(resolveSyllableGroupBoundaries(group(["第", "一", "次"]), "", "han-yi"), "第一次");
+  assert.equal(resolveSyllableGroupBoundaries(group(["他", "一天"]), "", "han-day"), "他一天");
+  // With an authored Bopomofo initial on the left, the alias rule still applies.
+  assert.equal(resolveSyllableGroupBoundaries(group(["ㄓ", "一"]), "", "apical-yi"), "ㄓ 一");
+  assert.equal(resolveSyllableGroupBoundaries(group(["ㄒ", "一"]), "", "medial-yi"), "ㄒ一");
+});
+
 test("the processing revision and cache identity move with the resolver", () => {
   const source = readFileSync(new URL("../src/utils/Lyrics/ProcessLyrics.ts", import.meta.url), "utf8");
-  assert.match(source, /export const LYRICS_PROCESSING_VERSION = 44;/u);
+  assert.match(source, /export const LYRICS_PROCESSING_VERSION = 45;/u);
   const context: ProcessingContext = {
     translationEnabled: false,
     translationTargetLang: "en",

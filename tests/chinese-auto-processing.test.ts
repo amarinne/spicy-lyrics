@@ -198,3 +198,31 @@ test("a provider split inside an authored syllable keeps one display owner", asy
   assert.equal(lead.ReadingRenderPlan.joinedDisplayText, "shi tou");
   assert.deepEqual(lead.ReadingRenderPlan.timedReadingUnits.map((unit: any) => unit.text), ["shi", "", " tou"]);
 });
+
+test("a document cached by the previous processing version rebuilds its joins", async () => {
+  const { context, process } = processor();
+  context.chineseTranslitMode = "auto-vn";
+  context.audioDecided = true;
+  context.audioLanguage = "cmn";
+  context.chineseReadingPlacement = "lineBelow";
+  const lead = {
+    // Canonical text written by version 44: joins were glued when the provider gave no line.
+    Text: "ㄙㄡ ㄌㄚㄒ一 ㄒ一 ㄌㄚ",
+    StartTime: 0, EndTime: 5,
+    Syllables: [
+      { Text: "ㄙㄡ ㄌㄚ", StartTime: 0, EndTime: 2, IsPartOfWord: false },
+      { Text: "ㄒ一 ㄒ一", StartTime: 2, EndTime: 4, IsPartOfWord: false },
+      { Text: "ㄌㄚ", StartTime: 4, EndTime: 5, IsPartOfWord: false },
+    ],
+  };
+  const lyrics: any = {
+    uri: "spotify:track:test",
+    Type: "Syllable",
+    Content: [{ Type: "Vocal", Lead: lead }],
+    ProcessingVersion: 44,
+  };
+  await process(lyrics, { updatePageClasses: false });
+  assert.equal(lyrics.ProcessingVersion, 45);
+  assert.equal(lead.Text, "ㄙㄡ ㄌㄚ ㄒ一 ㄒ一 ㄌㄚ");
+  assert.equal(lead.ReadingRenderPlan.joinedDisplayText, "sou la shi shi la");
+});

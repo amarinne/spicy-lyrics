@@ -62,7 +62,7 @@ type ScriptBranchDocContext = BaseScriptBranchDocContext & { chineseMode: Chines
 
 export { clearTranslationCache };
 export { acceptRomanization };
-export const LYRICS_PROCESSING_VERSION = 44;
+export const LYRICS_PROCESSING_VERSION = 45;
 export const READING_PLAN_SCHEMA_VERSION = 2;
 
 // Constants
@@ -167,7 +167,8 @@ const resolveSyllableGroupText = (group: any, lineId: string, fallbackDisplayTex
 };
 
 const gatherText = (
-  lyrics: any
+  lyrics: any,
+  staleCanonicalText = false
 ): { francText: string; scriptText: string; entries: RomanizeEntry[] } => {
   const entries: RomanizeEntry[] = [];
   const textLines: string[] = [];
@@ -193,6 +194,9 @@ const gatherText = (
 
       const syllables = vocalGroup.Lead.Syllables;
       if (syllables.length > 0) {
+        // A group text written by an older processing version is this fork's own canonical output,
+        // not provider text: rebuild it from the syllables under the current join policy.
+        if (staleCanonicalText && typeof vocalGroup.Lead.Text === "string") delete vocalGroup.Lead.Text;
         const text = resolveSyllableGroupText(vocalGroup.Lead,
           `lead-${vocalGroup.Lead.StartTime ?? 0}-${vocalGroup.Lead.EndTime ?? 0}`,
           vocalGroup.Text || "");
@@ -207,6 +211,7 @@ const gatherText = (
       if (vocalGroup.Background !== undefined) {
         for (const bg of vocalGroup.Background) {
           const bgEntries: RomanizeEntry[] = [];
+          if (staleCanonicalText && typeof bg.Text === "string") delete bg.Text;
           for (const syllable of bg.Syllables) {
             normalizeSyllableText(syllable);
             bgEntries.push({
@@ -603,6 +608,9 @@ export const ProcessLyrics = async (
   lyrics: any,
   options: { updatePageClasses?: boolean; awaitTranslation?: boolean } = {}
 ) => {
+  const previousProcessingVersion = lyrics.ProcessingVersion;
+  const staleCanonicalText = typeof previousProcessingVersion === "number"
+    && previousProcessingVersion < LYRICS_PROCESSING_VERSION;
   lyrics.ProcessingVersion = LYRICS_PROCESSING_VERSION;
   lyrics.ReadingPlanSchemaVersion = READING_PLAN_SCHEMA_VERSION;
   const updatePageClasses = options.updatePageClasses !== false;
@@ -613,7 +621,7 @@ export const ProcessLyrics = async (
   // translation, applyers) never see blank rows that would leave gaps.
   StripEmptyLyricsLines(lyrics);
 
-  let gathered = gatherText(lyrics);
+  let gathered = gatherText(lyrics, staleCanonicalText);
   const detectedLanguage = franc(gathered.francText);
   const detectedLanguageISO2 = langs.where("3", detectedLanguage)?.["1"];
   const cjkDominantBranch = resolveCjkDocumentBranch(
@@ -670,7 +678,7 @@ export const ProcessLyrics = async (
       chineseCharacterForm,
       (text) => ItemChineseTest.test(text) && scriptBranchForLine(text, docContext).includes("Chinese"),
     );
-    gathered = gatherText(lyrics);
+    gathered = gatherText(lyrics, staleCanonicalText);
   }
   const entries = gathered.entries;
   for (const entry of entries) {
